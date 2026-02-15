@@ -6,10 +6,22 @@
     <title>MultiPixel</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/simplex-noise@2.4.0/simplex-noise.min.js"></script>
-    <link rel="stylesheet" href="./style.css">
-    <script src="main.js"></script>
-    <script src="ui/hunger.js"></script>
+        <link rel="stylesheet" href="./style.css">
+        <script src="config.js?v=10"></script>
+    <script src="noise/perlin.js?v=10"></script>
+    <script src="terrain/ocean/biome.js?v=10"></script>
+    <script src="terrain/river/biome.js?v=10"></script>
+    <script src="terrain/oak_forest/biome.js?v=10"></script>
+    <script src="terrain/desert/biome.js?v=10"></script>
+    <script src="terrain/plains/biome.js?v=10"></script>
+    <script src="terrain/mountains/biome.js?v=10"></script>
+    <script src="crafting/recipes.js?v=10"></script>
+    <script src="tools/pickaxes.js?v=10"></script>
+    <script src="lighting/spawn_lighting.js?v=10"></script>
+    <script src="ui/hunger.js?v=10"></script>
+    <script src="BlockPhysics/water.js?v=10"></script>
+    <script src="BlockPhysics/sand.js?v=10"></script>
+    <script src="main.js?v=10"></script>
     <!-- Removed external script links to ensure functionality in this single-file preview -->
 </head>
 <body>
@@ -25,7 +37,9 @@
         </a>
     </div>
     <div id="hud" class="absolute inset-0 pointer-events-none z-20 flex flex-col justify-end items-center pb-2">
-        <div id="health-container" class="flex space-x-1 mb-2">
+        <div id="status-bars" class="flex items-center space-x-3 mb-2">
+            <div id="health-container" class="flex space-x-1"></div>
+            <div id="hunger-container" class="flex space-x-1"></div>
         </div>
         <div id="hotbar" class="flex space-x-1 p-1 bg-black/40 rounded-lg pointer-events-auto">
         </div>
@@ -35,8 +49,9 @@
         <p class="text-xl font-bold mb-2 text-yellow-400">Survival Mode</p>
         <p>Movement: <span class="text-neon-green">W A S D</span></p>
         <p>Jump: <span class="text-neon-green">SPACE</span></p>
+        <p>Sprint: <span class="text-neon-green">E + WASD</span></p>
         <p>Break: <span class="text-neon-green">LMB</span> | Place: <span class="text-neon-green">RMB</span></p>
-        <p>Inventory: <span class="text-neon-green">E</span> or <span class="text-neon-green">I</span></p>
+        <p>Inventory: <span class="text-neon-green">Y</span> or <span class="text-neon-green">I</span></p>
         <p>Scroll/1-9: <span class="text-neon-green">Select Item</span></p>
         <p class="mt-4 text-sm text-gray-400">Click to Start</p>
     </div>
@@ -73,6 +88,7 @@
         </div>
     </div>
     <div id="crosshair"></div>
+    <div id="breaking-overlay"></div>
     <div id="held-item-cursor" style="opacity: 0;"></div>
 </body>
 </html>

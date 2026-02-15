@@ -100,11 +100,36 @@
         }
   
         .heart-icon {
-            width: 32px;
-            height: 32px;
+            width: 22px;
+            height: 22px;
             image-rendering: pixelated;
             filter: drop-shadow(2px 2px 0px #000);
         }
 
         .text-neon-green {
           color: #39ff14; }
+
+        .food-icon {
+            width: 22px;
+            height: 22px;
+            image-rendering: pixelated;
+            filter: drop-shadow(1px 1px 0px #000);
+        }
+
+
+        #breaking-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 72px;
+            height: 72px;
+            margin-left: -36px;
+            margin-top: -36px;
+            pointer-events: none;
+            opacity: 0;
+            z-index: 98;
+            image-rendering: pixelated;
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+        }
