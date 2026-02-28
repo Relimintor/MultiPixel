@@ -430,3 +430,93 @@ body {
 #furnace-input-slot { position: absolute; left: 160px; top: 40px; }
 #furnace-fuel-slot { position: absolute; left: 160px; top: 127px; }
 #furnace-output-slot { position: absolute; left: 310px; top: 87px; }
+
+#mobile-chat-btn {
+    position: fixed;
+    width: 56px;
+    height: 56px;
+    left: calc(50vw + 36px);
+    top: 16px;
+}
+
+#chat-panel {
+    position: fixed;
+    left: 14px;
+    top: 14px;
+    width: min(520px, calc(100vw - 28px));
+    max-height: 50vh;
+    z-index: 260;
+    pointer-events: none;
+}
+
+#chat-feed {
+    max-height: calc(50vh - 16px);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 2px 0;
+}
+
+#chat-compose-wrap {
+    margin-top: 4px;
+    display: none;
+    background: rgba(0, 0, 0, 0.65);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 2px;
+    padding: 4px;
+    pointer-events: auto;
+}
+
+#chat-panel.open #chat-compose-wrap {
+    display: block;
+}
+
+#chat-close-btn {
+    width: 22px;
+    height: 22px;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    float: right;
+    margin-bottom: 2px;
+}
+
+#chat-close-icon {
+    width: 22px;
+    height: 22px;
+    image-rendering: pixelated;
+}
+
+#chat-log {
+    clear: both;
+    max-height: 24vh;
+    overflow-y: auto;
+    color: #fff;
+    padding: 4px;
+    font-size: 13px;
+    font-family: monospace;
+    background: rgba(0, 0, 0, 0.25);
+}
+
+#chat-input {
+    width: calc(100% - 8px);
+    margin: 6px 4px 2px;
+    border: 1px solid rgba(255, 255, 255, 0.26);
+    border-radius: 0;
+    padding: 6px;
+    background: rgba(0, 0, 0, 0.75);
+    color: #fff;
+    outline: none;
+    pointer-events: auto;
+    font-family: monospace;
+}
+
+.chat-row { margin-bottom: 2px; text-shadow: 1px 1px 0 #000; font-family: monospace; }
+.chat-system-ok { color: #7dff7d; }
+.chat-system-error { color: #ff7676; }
+.chat-player { color: #f1f1f1; }
+.chat-info { color: #9cc3ff; }

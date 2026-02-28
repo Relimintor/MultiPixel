@@ -1,0 +1,10 @@
+{
+  "radius": 4,
+  "wallBlockId": 15,
+  "floorBlockId": 59,
+  "windowBlockId": 80,
+  "doorHeight": 2,
+  "interiorHeadroom": 3,
+  "maxSurfaceSlope": 2,
+  "gnomeSpawnOffsetY": 1
+}

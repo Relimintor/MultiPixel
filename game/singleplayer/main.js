@@ -27,6 +27,8 @@
 
         const { checkCraftingRecipe, consumeCraftingInputForOne } = window.CraftingSystem;
         const PickaxeSystem = window.PickaxeSystem || {};
+        const BlockHardnessSystem = window.BlockHardnessSystem || {};
+        const BlockBreakableSystem = window.BlockBreakableSystem || {};
         const SpawnLighting = window.SpawnLighting || {};
 
         window.__SINGLEPLAYER_BUILD__ = 'sp-2026-02-21-11';
@@ -131,8 +133,7 @@ window.perlin = perlinInstance;
 
         // Mining / breaking state
         const BREAKING_TEXTURE_BASE = `${window.SingleplayerConfig?.REPO_BASE_PREFIX || '/MultiPixel'}/game/singleplayer/assets/breaking`;
-        const BLOCK_HARDNESS = { 1: 1.2, 2: 1.0, 3: 2.6, 5: 1.8, 6: 0.25, 7: 1.0, 8: 1.2, 9: 2.0, 13: 2.2, 14: Infinity, 15: 0.35, 17: 2.1, 18: 2.2, 20: 3.1 };
-        let miningState = { active: false, key: null, blockPos: null, targetType: 0, elapsedMs: 0, neededMs: 0, missMs: 0 };
+        let miningState = { active: false, key: null, blockPos: null, targetType: 0, elapsedMs: 0, neededMs: 0, missMs: 0, dropOnBreak: true };
         let isLeftMouseDown = false;
         const breakingStageTextures = new Array(10).fill(null);
         let breakingCrackMesh = null;
@@ -177,6 +178,8 @@ window.perlin = perlinInstance;
         let isThirdPersonView = false;
         let playerAvatar = null;
         let skinSystem = null;
+        let iglooStructureDef = null;
+        const gnomeEntities = [];
         
         // Calculate the world boundary coordinates
         const WORLD_MAX_COORD = (WORLD_RADIUS + 0.5) * CHUNK_SIZE;
@@ -275,6 +278,7 @@ window.perlin = perlinInstance;
         async function init() {
             
             await loadAssets(); // Load all textures and materials first!
+            await loadIglooStructure();
             preloadBreakingTextures();
 
             scene = new THREE.Scene();
@@ -321,6 +325,7 @@ window.perlin = perlinInstance;
             setupKeyboardControls();
             setupBlockInteraction();
             setupInputModeChooser();
+            initChatSystem();
             setInitialPlayerPosition();
             
           
@@ -506,6 +511,112 @@ window.perlin = perlinInstance;
             el.textContent = msg;
             el.style.opacity = 1;
             setTimeout(() => { el.style.opacity = 0; }, 2000);
+        }
+
+        async function loadIglooStructure() {
+            const path = './terrain/snowy_plains/structures/igloo.json';
+            try {
+                const res = await fetch(path, { cache: 'no-store' });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                iglooStructureDef = await res.json();
+            } catch (err) {
+                console.warn('[Igloo] Failed to load structure json, using fallback.', err);
+                iglooStructureDef = {
+                    radius: 4,
+                    wallBlockId: 15,
+                    floorBlockId: 59,
+                    windowBlockId: 80,
+                    doorHeight: 2,
+                    interiorHeadroom: 3,
+                    maxSurfaceSlope: 2,
+                    gnomeSpawnOffsetY: 1
+                };
+            }
+        }
+
+        function createNameTagSprite(label) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = 'rgba(0,0,0,0.55)';
+            ctx.fillRect(0, 8, 256, 48);
+            ctx.font = 'bold 30px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#8ad8ff';
+            ctx.fillText(label, 128, 34);
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.minFilter = THREE.LinearFilter;
+            const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+            const sprite = new THREE.Sprite(mat);
+            sprite.scale.set(1.35, 0.34, 1);
+            return sprite;
+        }
+
+        function spawnGnomeAt(wx, wy, wz) {
+            const gnome = new THREE.Group();
+            gnome.position.set(wx + 0.5, wy, wz + 0.5);
+
+            const body = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), new THREE.MeshStandardMaterial({ color: 0x3d70ff, roughness: 0.7 }));
+            body.position.y = 0.95;
+            gnome.add(body);
+
+            const head = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.52, 0.52), new THREE.MeshStandardMaterial({ color: 0x7ea2ff, roughness: 0.65 }));
+            head.position.y = 1.55;
+            gnome.add(head);
+
+            const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.55, 0.2), new THREE.MeshStandardMaterial({ color: 0x2a4bc0, roughness: 0.8 }));
+            leftLeg.position.set(-0.18, 0.28, 0);
+            gnome.add(leftLeg);
+
+            const rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.55, 0.2), new THREE.MeshStandardMaterial({ color: 0x2a4bc0, roughness: 0.8 }));
+            rightLeg.position.set(0.18, 0.28, 0);
+            gnome.add(rightLeg);
+
+            const tag = createNameTagSprite('gnomes');
+            tag.position.y = 2.15;
+            gnome.add(tag);
+
+            gnomeEntities.push({ root: gnome, head, leftLeg, rightLeg, phase: Math.random() * Math.PI * 2 });
+            scene.add(gnome);
+        }
+
+        function updateGnomes(time) {
+            if (!gnomeEntities.length) return;
+            const lookTarget = new THREE.Vector3(yawObject.position.x, 0, yawObject.position.z);
+            for (const g of gnomeEntities) {
+                const swing = Math.sin(time * 0.007 + g.phase) * 0.16;
+                g.leftLeg.position.z = swing;
+                g.rightLeg.position.z = -swing;
+                lookTarget.y = g.root.position.y + 1.55;
+                g.head.lookAt(lookTarget);
+            }
+        }
+
+        function initChatSystem() {
+            if (!window.SingleplayerChat || !window.SingleplayerChat.init) return;
+
+            window.SingleplayerChat.init({
+                showGameMessage,
+                addToInventory,
+                getBlockById: (id) => blockMaterials[id] || null,
+                mobileAssetBase: MOBILE_ASSET_BASE,
+                onOpen: () => {
+                    player.canMove = false;
+                    player.keys = {};
+                    if (document.pointerLockElement) document.exitPointerLock();
+                },
+                onClose: () => {
+                    if (isInventoryOpen) return;
+                    player.canMove = true;
+                    if (!mobileControls.enabled) {
+                        const el = document.body;
+                        if (document.pointerLockElement !== el) el.requestPointerLock();
+                    }
+                }
+            });
         }
 
      
@@ -1065,13 +1176,56 @@ window.perlin = perlinInstance;
         }
 
         function getMiningDurationMs(blockId) {
-            const hardness = BLOCK_HARDNESS[blockId] ?? 1.5;
+            const hardnessGrade = BlockHardnessSystem.getHardness
+                ? BlockHardnessSystem.getHardness(blockId)
+                : 6;
+
+            if (hardnessGrade < 0) {
+                return { durationMs: Infinity, allowed: false, reason: 'unbreakable' };
+            }
+            if (hardnessGrade === 0) {
+                return { durationMs: 0, allowed: true, reason: null };
+            }
+
             const held = inventory[selectedHotbarIndex];
             const equippedPickaxe = PickaxeSystem.getEquippedPickaxe ? PickaxeSystem.getEquippedPickaxe(held) : null;
-            if (PickaxeSystem.getMiningTimeMs) {
-                return PickaxeSystem.getMiningTimeMs(blockId, hardness, equippedPickaxe);
+            const breakable = BlockBreakableSystem.canBreakBlock
+                ? BlockBreakableSystem.canBreakBlock(blockId, equippedPickaxe)
+                : { canBreak: true, dropsItems: true, reason: null };
+
+            if (!breakable.canBreak) {
+                return {
+                    durationMs: Infinity,
+                    allowed: false,
+                    reason: breakable.reason || 'unbreakable',
+                    requiredTier: breakable.requiredTier || null,
+                    dropOnBreak: false,
+                };
             }
-            return isFinite(hardness) ? hardness * 1000 : Infinity;
+
+            const legacyHardness = BlockHardnessSystem.toLegacyHardness
+                ? BlockHardnessSystem.toLegacyHardness(hardnessGrade)
+                : Math.max(0.2, hardnessGrade / 5);
+
+            const effectivePickaxe = breakable.dropsItems ? equippedPickaxe : null;
+
+            if (PickaxeSystem.getMiningTimeMs) {
+                return {
+                    durationMs: PickaxeSystem.getMiningTimeMs(blockId, legacyHardness, effectivePickaxe),
+                    allowed: true,
+                    reason: breakable.reason || null,
+                    requiredTier: breakable.requiredTier || null,
+                    dropOnBreak: breakable.dropsItems !== false,
+                };
+            }
+
+            return {
+                durationMs: hardnessGrade * 150,
+                allowed: true,
+                reason: breakable.reason || null,
+                requiredTier: breakable.requiredTier || null,
+                dropOnBreak: breakable.dropsItems !== false,
+            };
         }
 
         function preloadBreakingTextures() {
@@ -1132,10 +1286,16 @@ window.perlin = perlinInstance;
         }
 
         function beginMiningTarget(target) {
-            const neededMs = getMiningDurationMs(target.blockId);
+            const miningInfo = getMiningDurationMs(target.blockId);
+            const neededMs = miningInfo.durationMs;
             if (!isFinite(neededMs)) {
-                showGameMessage('Bedrock is unbreakable.');
+                showGameMessage('This block is unbreakable.');
                 return false;
+            }
+            if (miningInfo.reason === 'tool_too_weak') {
+                const tier = miningInfo.requiredTier || 0;
+                const tierName = tier <= 1 ? 'wooden pickaxe' : tier === 2 ? 'stone pickaxe' : tier <= 4 ? 'copper pickaxe' : tier === 5 ? 'iron pickaxe' : 'better pickaxe';
+                showGameMessage(`Breaks, but no drops without ${tierName}.`);
             }
             miningState = {
                 active: true,
@@ -1145,6 +1305,7 @@ window.perlin = perlinInstance;
                 elapsedMs: 0,
                 neededMs,
                 missMs: 0,
+                dropOnBreak: miningInfo.dropOnBreak !== false,
             };
             return true;
         }
@@ -1358,7 +1519,7 @@ window.perlin = perlinInstance;
                 dirtyChunkKeys.clear();
             }
 
-        function modifyWorld(posVector, newType) {
+        function modifyWorld(posVector, newType, options = {}) {
             const wx = Math.floor(posVector.x);
             const wy = Math.floor(posVector.y);
             const wz = Math.floor(posVector.z);
@@ -1384,8 +1545,11 @@ window.perlin = perlinInstance;
                 if (oldType === 0 || oldType === 4) return false;
                 if (blockMaterials[oldType]?.unbreakable) return false;
 
-                const drop = PickaxeSystem.getDrop ? PickaxeSystem.getDrop(oldType) : { id: oldType, count: 1 };
-                if (drop && drop.id > 0 && drop.count > 0) addToInventory(drop.id, drop.count);
+                const shouldDrop = options.dropItems !== false;
+                if (shouldDrop) {
+                    const drop = PickaxeSystem.getDrop ? PickaxeSystem.getDrop(oldType) : { id: oldType, count: 1 };
+                    if (drop && drop.id > 0 && drop.count > 0) addToInventory(drop.id, drop.count);
+                }
                 chunkData[index] = 0;
             } else {
                
@@ -1884,6 +2048,7 @@ window.perlin = perlinInstance;
             const invBtn = document.getElementById('mobile-inventory-btn');
             const fastBtn = document.getElementById('mobile-fast-btn');
             const camBtn = document.getElementById('mobile-camera-btn');
+            const chatBtn = document.getElementById('mobile-chat-btn');
 
             if (!controlsEl || !joyWrap || !joyBg || !joyCenter || !jumpBtn || !invBtn || !fastBtn) return;
 
@@ -1894,6 +2059,13 @@ window.perlin = perlinInstance;
             invBtn.src = `${MOBILE_ASSET_BASE}/inventory_btn.png`;
             fastBtn.src = `${MOBILE_ASSET_BASE}/fast_btn.png`;
             if (camBtn) camBtn.src = `${MOBILE_ASSET_BASE}/camera_btn.png`;
+            if (chatBtn) {
+                chatBtn.src = `${MOBILE_ASSET_BASE}/chat_btn.png`;
+                chatBtn.onerror = () => {
+                    chatBtn.onerror = null;
+                    chatBtn.src = `${MOBILE_ASSET_BASE}/inventory_btn.png`;
+                };
+            }
             document.getElementById('instructions').style.opacity = 0;
             player.canMove = true;
 
@@ -1958,8 +2130,12 @@ window.perlin = perlinInstance;
                 e.preventDefault();
                 toggleCameraViewMode();
             });
+            if (chatBtn) chatBtn.addEventListener('pointerdown', (e) => {
+                e.preventDefault();
+                window.SingleplayerChat?.toggle?.();
+            });
 
-            const mobileControlTargets = new Set([joyBg, jumpBtn, invBtn, fastBtn, camBtn]);
+            const mobileControlTargets = new Set([joyBg, jumpBtn, invBtn, fastBtn, camBtn, chatBtn]);
             window.addEventListener('pointerdown', (e) => {
                 if (!mobileControls.enabled || !player.canMove || isInventoryOpen) return;
                 if (mobileControlTargets.has(e.target)) return;
@@ -2126,6 +2302,14 @@ window.perlin = perlinInstance;
                     toggleCameraViewMode();
                     return;
                 }
+                if (k === 't') {
+                    e.preventDefault();
+                    window.SingleplayerChat?.toggle?.();
+                    return;
+                }
+                if (window.SingleplayerChat?.isOpen?.()) {
+                    return;
+                }
                 if (!isInventoryOpen) {
                     player.keys[k] = true;
                     if (k >= '1' && k <= '9') {
@@ -2141,6 +2325,7 @@ window.perlin = perlinInstance;
         
         function generateChunkData(cx, cz) {
              const data = new Array(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
+             const spawnedGnomes = [];
              
              for (let x = 0; x < CHUNK_SIZE; x++) {
                  for (let z = 0; z < CHUNK_SIZE; z++) {
@@ -2456,16 +2641,100 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                      }
                  }
              }
-             return data;
+             placeIglooInChunk(data, cx, cz, spawnedGnomes);
+             return { data, spawnedGnomes };
+        }
+
+        function placeIglooInChunk(data, cx, cz, spawnedGnomes) {
+            const snowyTerrain = window.SnowyPlainsTerrain || {};
+            const iglooRules = snowyTerrain.structures?.igloo;
+            if (!iglooRules || !iglooStructureDef) return;
+            const canSpawn = snowyTerrain.shouldSpawnIgloo
+                ? snowyTerrain.shouldSpawnIgloo({ cx, cz, hashRand2D, spawnChance: iglooRules.spawnChancePerChunk })
+                : false;
+            if (!canSpawn) return;
+
+            const radius = Math.max(2, Math.min(6, Number(iglooStructureDef.radius) || 4));
+            const centerX = Math.floor(CHUNK_SIZE / 2);
+            const centerZ = Math.floor(CHUNK_SIZE / 2);
+            if (centerX - radius < 1 || centerX + radius >= CHUNK_SIZE - 1 || centerZ - radius < 1 || centerZ + radius >= CHUNK_SIZE - 1) return;
+
+            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
+            const getColumnTop = (lx, lz) => {
+                for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
+                    const t = data[idx(lx, y, lz)];
+                    if (t !== 0 && t !== 4) return y;
+                }
+                return -1;
+            };
+
+            const centerTopY = getColumnTop(centerX, centerZ);
+            if (centerTopY < SEA_LEVEL) return;
+            const requiredGround = iglooRules.validSurfaceBlockId ?? 15;
+            if (data[idx(centerX, centerTopY, centerZ)] !== requiredGround) return;
+
+            const maxSlope = Number(iglooStructureDef.maxSurfaceSlope) || 2;
+            for (let dx = -radius; dx <= radius; dx++) {
+                for (let dz = -radius; dz <= radius; dz++) {
+                    const lx = centerX + dx;
+                    const lz = centerZ + dz;
+                    const topY = getColumnTop(lx, lz);
+                    if (topY < 1 || Math.abs(topY - centerTopY) > maxSlope) return;
+                }
+            }
+
+            const floorBlock = Number(iglooStructureDef.floorBlockId) || 59;
+            const wallBlock = Number(iglooStructureDef.wallBlockId) || 15;
+            const windowBlock = Number(iglooStructureDef.windowBlockId) || wallBlock;
+            const domeHeight = Number(iglooStructureDef.interiorHeadroom) || 3;
+            const doorHeight = Math.max(2, Number(iglooStructureDef.doorHeight) || 2);
+
+            const centerY = centerTopY + 1;
+            for (let dx = -radius; dx <= radius; dx++) {
+                for (let dz = -radius; dz <= radius; dz++) {
+                    const dist = Math.sqrt(dx * dx + dz * dz);
+                    const lx = centerX + dx;
+                    const lz = centerZ + dz;
+                    if (dist <= radius - 0.35) data[idx(lx, centerTopY, lz)] = floorBlock;
+
+                    for (let dy = 0; dy <= domeHeight; dy++) {
+                        const ly = centerY + dy;
+                        if (ly < 1 || ly >= CHUNK_HEIGHT - 1) continue;
+                        const shellDist = Math.sqrt(dx * dx + dz * dz + (dy * 1.22) * (dy * 1.22));
+                        if (shellDist <= radius + 0.18 && shellDist >= radius - 1.05) {
+                            data[idx(lx, ly, lz)] = wallBlock;
+                        } else if (shellDist < radius - 1.05) {
+                            data[idx(lx, ly, lz)] = 0;
+                        }
+                    }
+                }
+            }
+
+            for (let dy = 0; dy < doorHeight; dy++) {
+                const ly = centerY + dy;
+                data[idx(centerX, ly, centerZ + radius)] = 0;
+                data[idx(centerX, ly, centerZ + radius - 1)] = 0;
+            }
+            data[idx(centerX - radius + 1, centerY + 1, centerZ)] = windowBlock;
+            data[idx(centerX + radius - 1, centerY + 1, centerZ)] = windowBlock;
+
+            const worldX = cx * CHUNK_SIZE + centerX;
+            const worldZ = cz * CHUNK_SIZE + centerZ;
+            const gnomeY = centerTopY + (Number(iglooStructureDef.gnomeSpawnOffsetY) || 1);
+            spawnedGnomes.push({ wx: worldX, wy: gnomeY, wz: worldZ });
         }
 
         function createChunk(cx, cz) {
-            const data = generateChunkData(cx, cz);
+            const generated = generateChunkData(cx, cz);
+            const data = generated.data;
             const group = new THREE.Group();
             group.userData = { chunkData: data, cx, cz, meshHash: null, frustumRadius: Math.sqrt((CHUNK_SIZE*CHUNK_SIZE)*0.5 + (CHUNK_HEIGHT*CHUNK_HEIGHT)*0.25) };
             updateChunkGeometry(group, data);
             chunks.set(`${cx},${cz}`, group);
             worldGroup.add(group);
+            if (generated.spawnedGnomes && generated.spawnedGnomes.length) {
+                for (const g of generated.spawnedGnomes) spawnGnomeAt(g.wx, g.wy, g.wz);
+            }
             return group;
         }
 
@@ -2771,7 +3040,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 const wy = Math.floor(blockPos.y);
                 const wz = Math.floor(blockPos.z);
                 const current = getBlockType(wx, wy, wz);
-                if (current === targetType) modifyWorld(blockPos, 0);
+                if (current === targetType) modifyWorld(blockPos, 0, { dropItems: miningState.dropOnBreak !== false });
                 miningState.active = false;
             }
         }
@@ -2790,6 +3059,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 updateMining(delta);
                 applyBlockPhysics(time);
                 updateChunkFrustumCulling();
+                updateGnomes(time);
                 const dtSec = delta / 1000;
                 if (window.FurnaceSystem) {
                     for (const state of furnaceStates.values()) window.FurnaceSystem.updateState(state, dtSec);
