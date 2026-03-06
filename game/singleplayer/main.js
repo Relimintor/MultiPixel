@@ -4264,7 +4264,10 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                              }
                          }
 
-                         if (topY >= SEA_LEVEL && topY <= SEA_LEVEL + 20) {
+                         // 1.17-style shaping raises inland plateaus a lot higher than before.
+                         // Keep a low cutoff near beaches, but allow higher inland forest/plains trees.
+                         const maxTreeY = biome === 'Forest' ? (SEA_LEVEL + 42) : (SEA_LEVEL + 32);
+                         if (topY >= SEA_LEVEL && topY <= maxTreeY) {
                              const topIdx = x + topY * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
                              const topType = data[topIdx];
                              const validGround = (topType === 1 || topType === 2);
