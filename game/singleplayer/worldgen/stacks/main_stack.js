@@ -242,9 +242,12 @@
 
         // Legacy-style add-island pass at 32 scale:
         // ocean tiles next to land can flip into neighboring land biomes.
-        const roll = this.ops.random.at2D(x, z, this.ops.seed + 2015);
-        if (roll >= 0.22) return center;
-        return neighbors[Math.floor(roll * neighbors.length) % neighbors.length];
+        const flipChance = this.ops.random.at2D(x, z, this.ops.seed + 2015);
+        if (flipChance >= 0.22) return center;
+
+        // Separate random draw for biome selection to avoid biasing toward the first neighbor.
+        const pickRoll = this.ops.random.at2D(x, z, this.ops.seed + 2016);
+        return neighbors[Math.floor(pickRoll * neighbors.length)];
       });
 
       const biome16Pre = (x, z) => zoomBiome(biomeAddIsland32, x, z, 2004);
