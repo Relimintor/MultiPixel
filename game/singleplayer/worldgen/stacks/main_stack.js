@@ -3,8 +3,9 @@
   const P = () => window.WorldgenLayerPrograms;
 
   class MainBiomeStack {
-    constructor(layerOps) {
+    constructor(layerOps, settings = {}) {
       this.ops = layerOps;
+      this.settings = settings;
     }
 
     sampleLegacyMain(wx, wz) {
@@ -38,12 +39,16 @@
     sampleBiomeStack(wx, wz, baseLand, baseTemp, hillNoise) {
       const p = P();
       let biome = p.biome_temperature_to_biome({ ops: this.ops, wx, wz, value: baseTemp });
-      biome = p.biome_bamboo_jungle({ ops: this.ops, wx, wz, value: biome });
+      if (this.settings.enableBambooJungleVariant) {
+        biome = p.biome_bamboo_jungle({ ops: this.ops, wx, wz, value: biome });
+      }
       biome = p.biome_zoom_256_128({ ops: this.ops, wx, wz, value: biome });
       biome = p.biome_zoom_128_64({ ops: this.ops, wx, wz, value: biome });
       biome = p.biome_biome_edge({ ops: this.ops, wx, wz, value: biome });
       biome = p.biome_region_hills({ ops: this.ops, wx, wz, value: biome, hillNoise });
-      biome = p.biome_sunflower_plains({ ops: this.ops, wx, wz, value: biome });
+      if (this.settings.enableSunflowerPlainsVariant) {
+        biome = p.biome_sunflower_plains({ ops: this.ops, wx, wz, value: biome });
+      }
       biome = p.biome_zoom_64_32({ ops: this.ops, wx, wz, value: biome });
       const land32 = p.biome_add_island_32({ ops: this.ops, wx, wz, land: baseLand });
       biome = land32 === C().LAND ? biome : 'Ocean';

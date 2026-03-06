@@ -10,6 +10,15 @@
   const WORLD_GEN_SETTINGS = {
     version: '1.17-inspired-v1',
     seedStorageKey: 'singleplayer.worldSeed',
+    biomeMap: {
+      // Keep optional micro-variants off by default; code stays in place for later enablement.
+      enableBambooJungleVariant: false,
+      enableSunflowerPlainsVariant: false,
+      // Climate probabilities from the design plan: warm 4/6, cold 1/6, freezing 1/6.
+      temperatureRatios: { warm: 4 / 6, cold: 1 / 6, freezing: 1 / 6 },
+      specialRegionChance: 1 / 13,
+      regionHillChance: 0.08,
+    },
     treeDensityByBiome: {
       Forest: 0.19,
       Plains: 0.035,
