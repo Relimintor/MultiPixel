@@ -30,19 +30,34 @@
     }
 
     zoom(parentValue, wx, wz, fromScale, toScale, salt) {
-      // "Photocopier" zoom: mostly parent, with edge mistakes.
-      const n = this.perlin.noise2D((wx / toScale) * 0.21 + salt, (wz / toScale) * 0.21 - salt);
-      if (n > 0.72) {
-        if (parentValue === C.LAND) return C.OCEAN;
-        if (parentValue === C.OCEAN) return C.LAND;
-      }
+      // "Photocopier" zoom: keep parent value, with occasional edge mistakes.
+      const parent = this.toCell(wx, wz, fromScale);
+      const child = this.toCell(wx, wz, toScale);
+      const edgeX = (child.x % 2) === 1;
+      const edgeZ = (child.z % 2) === 1;
+      if (!edgeX && !edgeZ) return parentValue;
+
+      const n = this.perlin.noise2D(parent.x * 0.27 + salt, parent.z * 0.27 - salt);
+      const jitter = this.random.at2D(child.x, child.z, this.seed + salt + 900);
+      const shouldMistake = (edgeX || edgeZ) && n > 0.92 && jitter < 0.22;
+      if (!shouldMistake) return parentValue;
+
+      if (parentValue === C.LAND) return C.OCEAN;
+      if (parentValue === C.OCEAN) return C.LAND;
       return parentValue;
     }
 
 
     zoomNumeric(value, wx, wz, fromScale, toScale, salt) {
-      const n = this.perlin.noise2D((wx / toScale) * 0.18 + salt * 0.01, (wz / toScale) * 0.18 - salt * 0.01);
-      return value * 0.72 + n * 0.28;
+      const parent = this.toCell(wx, wz, fromScale);
+      const child = this.toCell(wx, wz, toScale);
+      const localX = (child.x % 2) * 2 - 1;
+      const localZ = (child.z % 2) * 2 - 1;
+      const n = this.perlin.noise2D(parent.x * 0.22 + salt * 0.01, parent.z * 0.22 - salt * 0.01);
+      const jitter = this.random.at2D(child.x, child.z, this.seed + salt + 1200) * 2 - 1;
+      const edgeBias = (localX + localZ) * 0.05;
+      const mixedNoise = n * 0.72 + jitter * 0.28 + edgeBias;
+      return value * 0.9 + mixedNoise * 0.1;
     }
 
     zoomClimate(temp, wx, wz, toScale, salt) {

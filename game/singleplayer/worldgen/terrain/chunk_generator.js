@@ -8,48 +8,24 @@
       this.chunkHeight = chunkHeight;
     }
 
-    // Phase-2 terrain pass: gentle large-scale relief driven by biome map.
-    // Keep this intentionally smooth until the dedicated terrain pipeline lands.
+    // Temporary phase: terrain is intentionally driven almost entirely by biome map.
+    // Keep this simple until the dedicated terrain phase is implemented.
     heightFromBiome(wx, wz, biome, riverMask) {
-      const continental = window.WorldgenNoise.fbm2D(this.perlin, wx * 0.0018 + 210, wz * 0.0018 - 210, 4, 0.5, 2.0);
-      const erosion = window.WorldgenNoise.fbm2D(this.perlin, wx * 0.0032 - 145, wz * 0.0032 + 145, 3, 0.5, 2.0);
-      const detail = window.WorldgenNoise.fbm2D(this.perlin, wx * 0.0075 + 33, wz * 0.0075 - 33, 2, 0.5, 2.0);
-
-      const biomeTarget = {
+      const baseByBiome = {
         Ocean: this.seaLevel - 5,
-        'Deep Ocean': this.seaLevel - 9,
-        Plains: this.baseLandY + 5,
-        Forest: this.baseLandY + 7,
-        Desert: this.baseLandY + 6,
-        'Snowy Plains': this.baseLandY + 8,
-        Mountains: this.baseLandY + 16,
+        'Deep Ocean': this.seaLevel - 8,
+        Plains: this.baseLandY + 4,
+        Forest: this.baseLandY + 5,
+        Desert: this.baseLandY + 5,
+        'Snowy Plains': this.baseLandY + 6,
+        Mountains: this.baseLandY + 11,
       };
 
-      const biomeRelief = {
-        Ocean: 2.0,
-        'Deep Ocean': 2.6,
-        Plains: 3.2,
-        Forest: 3.8,
-        Desert: 3.5,
-        'Snowy Plains': 3.8,
-        Mountains: 7.2,
-      };
+      let h = baseByBiome[biome] ?? (this.baseLandY + 5);
 
-      const base = biomeTarget[biome] ?? (this.baseLandY + 6);
-      const relief = biomeRelief[biome] ?? 3.5;
-
-      // Low-frequency continentalness and erosion shape the main slope.
-      let h = base + continental * relief + erosion * (relief * 0.45) + detail * 1.1;
-
-      // Rivers should carve softly during this stage.
-      if (biome !== 'Ocean' && biome !== 'Deep Ocean' && riverMask > 0.12) {
-        h -= (riverMask - 0.12) * 8.5;
-      }
-
-      // Keep mountain regions recognizable but avoid jagged phase-3 style spikes.
-      if (biome === 'Mountains') {
-        const ridge = window.WorldgenNoise.ridge2D(this.perlin, wx * 0.0018, wz * 0.0018, 3);
-        h += ridge * 4.5;
+      // Rivers carve softly only where applicable.
+      if (biome !== 'Ocean' && biome !== 'Deep Ocean' && riverMask > 0.15) {
+        h -= Math.min(4, (riverMask - 0.15) * 7.5);
       }
 
       return Math.max(2, Math.min(this.chunkHeight - 2, Math.floor(h)));
