@@ -15,18 +15,40 @@
         chunkSize,
         chunkHeight,
       });
+      this.sampleCache = new Map();
+      this.heightCache = new Map();
+      this.cacheMaxEntries = 45000;
+    }
+
+    makeCoordKey(wx, wz) {
+      return `${wx | 0},${wz | 0}`;
+    }
+
+    setCache(map, key, value) {
+      map.set(key, value);
+      if (map.size > this.cacheMaxEntries) {
+        const first = map.keys().next();
+        if (!first.done) map.delete(first.value);
+      }
     }
 
     sample(wx, wz) {
-      return this.pipeline.sample(wx, wz);
+      const key = this.makeCoordKey(wx, wz);
+      const cached = this.sampleCache.get(key);
+      if (cached) return cached;
+      const out = this.pipeline.sample(wx, wz);
+      this.setCache(this.sampleCache, key, out);
+      return out;
     }
 
-    sampleBiome(wx, wz) {
-      return this.sample(wx, wz).gameplayBiome;
+    sampleBiome(wx, wz, sampleData = null) {
+      const sample = sampleData || this.sample(wx, wz);
+      return sample.gameplayBiome;
     }
 
-    sampleRiverMask(wx, wz) {
-      return this.sample(wx, wz).riverMask;
+    sampleRiverMask(wx, wz, sampleData = null) {
+      const sample = sampleData || this.sample(wx, wz);
+      return sample.riverMask;
     }
 
     sampleRavineMask(wx, wz) {
@@ -35,9 +57,16 @@
       return 1 - Math.min(1, line / 0.04);
     }
 
-    getHeight(wx, wz, biome) {
-      const riverMask = this.sampleRiverMask(wx, wz);
-      return this.terrain.heightFromBiome(wx, wz, biome, riverMask);
+    getHeight(wx, wz, biome, sampleData = null) {
+      const riverMask = this.sampleRiverMask(wx, wz, sampleData);
+      const biomeKey = String(biome || 'Plains');
+      const riverKey = Math.round(riverMask * 1000);
+      const key = `${wx | 0},${wz | 0},${biomeKey},${riverKey}`;
+      const cached = this.heightCache.get(key);
+      if (cached !== undefined) return cached;
+      const h = this.terrain.heightFromBiome(wx, wz, biome, riverMask);
+      this.setCache(this.heightCache, key, h);
+      return h;
     }
 
     hashRand2D(wx, wz, salt = 0) {

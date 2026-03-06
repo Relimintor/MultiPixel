@@ -32,7 +32,7 @@
         const BlockBreakableSystem = window.BlockBreakableSystem || {};
         const SpawnLighting = window.SpawnLighting || {};
 
-        window.__SINGLEPLAYER_BUILD__ = 'sp-2026-03-01-05';
+        window.__SINGLEPLAYER_BUILD__ = 'sp-2026-03-01-06';
         console.info('[Singleplayer build]', window.__SINGLEPLAYER_BUILD__);
 
         const TerrainModules = {};
@@ -2863,8 +2863,8 @@ window.perlin = perlinInstance;
             return { continentalness, erosion, weirdness, humidity, peaksValleys, ridges };
         }
 
-        function getNoiseGroundHeight(wx, wz, biome) {
-            if (worldGenerator) return worldGenerator.getHeight(wx, wz, biome);
+        function getNoiseGroundHeight(wx, wz, biome, worldSample = null) {
+            if (worldGenerator) return worldGenerator.getHeight(wx, wz, biome, worldSample);
             const tv = sampleTerrainVector(wx, wz);
             const continentalMask = (tv.continentalness + 1) * 0.5;
             const terrainNoise = (perlin.noise2D(wx * 0.02, wz * 0.02) + 1) * 0.5;
@@ -3758,7 +3758,7 @@ function buildPartFaceRects(x, y, w, h, d) {
                      // Phase 1: biome map template + macro height outline
                      const worldSample = worldGenerator ? worldGenerator.sample(wx, wz) : null;
                      const biome = worldSample ? (worldSample.gameplayBiome || worldSample.biome) : getBiome(wx, wz);
-                     const h = getNoiseGroundHeight(wx, wz, biome);
+                     const h = getNoiseGroundHeight(wx, wz, biome, worldSample);
 
                      const riverInfluence = worldSample ? worldSample.riverMask : getRiverMask(wx, wz);
                      const isFrozenRiver = !!worldSample && (worldSample.biome === 'Frozen River' || worldSample.tempBand === (window.WorldgenLayers?.Constants?.FREEZING ?? 13));
