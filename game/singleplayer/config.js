@@ -409,6 +409,7 @@
     89: { name: 'Raw Porkchop', id: 89, textured: true, textureKey: 'PORKCHOP_RAW' },
     90: { name: 'Cooked Porkchop', id: 90, textured: true, textureKey: 'PORKCHOP_COOKED' },
     92: { name: 'Rotten Flesh', id: 92, textured: true, textureKey: 'ROTTEN_FLESH' },
+    95: { name: 'Bone', id: 95, textured: false, color: 0xe7e6dd },
   }; 
 
   window.SingleplayerConfig = {
