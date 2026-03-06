@@ -2,6 +2,7 @@
   const C = () => window.WorldgenLayers.Constants;
 
   const isOceanCell = (v) => v === C().OCEAN || v === C().DEEP_OCEAN;
+  const isOceanBiome = (b) => b === 'Ocean' || b === 'Deep Ocean';
   const isWarmClass = (t) => t === C().WARM || t === C().WARM_SPECIAL;
   const isColdClass = (t) => t === C().COLD || t === C().COLD_SPECIAL;
   const isFreezingClass = (t) => t === C().FREEZING;
@@ -228,7 +229,25 @@
         return b;
       });
       const biome32 = (x, z) => zoomBiome(biome64, x, z, 2003);
-      const biome16Pre = (x, z) => zoomBiome(biome32, x, z, 2004);
+      const biomeAddIsland32 = (x, z) => this.cached('biome_add_island_32', x, z, () => {
+        const center = biome32(x, z);
+        if (!isOceanBiome(center)) return center;
+
+        const north = biome32(x, z - 1);
+        const south = biome32(x, z + 1);
+        const west = biome32(x - 1, z);
+        const east = biome32(x + 1, z);
+        const neighbors = [north, south, west, east].filter((b) => !isOceanBiome(b));
+        if (neighbors.length === 0) return center;
+
+        // Legacy-style add-island pass at 32 scale:
+        // ocean tiles next to land can flip into neighboring land biomes.
+        const roll = this.ops.random.at2D(x, z, this.ops.seed + 2015);
+        if (roll >= 0.22) return center;
+        return neighbors[Math.floor(roll * neighbors.length) % neighbors.length];
+      });
+
+      const biome16Pre = (x, z) => zoomBiome(biomeAddIsland32, x, z, 2004);
       const biome16 = (x, z) => this.cached('biome_16', x, z, () => this.ops.shore(biome16Pre(x, z), x * 16, z * 16, 16));
       const biome8 = (x, z) => zoomBiome(biome16, x, z, 2005);
       const biome4Pre = (x, z) => zoomBiome(biome8, x, z, 2006);
