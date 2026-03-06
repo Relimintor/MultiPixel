@@ -1,21 +1,23 @@
 (function () {
+  const P = () => window.WorldgenLayerPrograms;
+
   class RiverStack {
     constructor(layerOps) {
       this.ops = layerOps;
     }
 
     sampleMask(wx, wz, baseNoise64) {
-      // zoom 64->32, empty, zoom 32->16, empty, zoom 16->8, zoom 8->4, noise->river, smooth
+      const p = P();
       let n = baseNoise64;
-      n = this.ops.zoomNumeric(n, wx, wz, 64, 32, 3001);
-      n = n; // empty layer
-      n = this.ops.zoomNumeric(n, wx, wz, 32, 16, 3002);
-      n = n; // empty layer
-      n = this.ops.zoomNumeric(n, wx, wz, 16, 8, 3003);
-      n = this.ops.zoomNumeric(n, wx, wz, 8, 4, 3004);
-      const river = this.ops.riverFromPatchNoise(Number(n));
-      const smooth = this.ops.smoothValue(river, wx, wz, 4, 3005);
-      return Math.max(0, Math.min(1, smooth));
+      n = p.river_zoom_64_32({ ops: this.ops, wx, wz, value: n });
+      n = p.river_empty_a({ value: n });
+      n = p.river_zoom_32_16({ ops: this.ops, wx, wz, value: n });
+      n = p.river_empty_b({ value: n });
+      n = p.river_zoom_16_8({ ops: this.ops, wx, wz, value: n });
+      n = p.river_zoom_8_4({ ops: this.ops, wx, wz, value: n });
+      n = p.river_noise_to_river({ ops: this.ops, value: n });
+      n = p.river_smooth({ ops: this.ops, wx, wz, value: n });
+      return n;
     }
   }
 

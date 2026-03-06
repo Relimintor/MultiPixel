@@ -1,14 +1,16 @@
 (function () {
+  const P = () => window.WorldgenLayerPrograms;
+
   class HillsStack {
     constructor(layerOps) {
       this.ops = layerOps;
     }
 
     sample(wx, wz) {
-      // White noise -> zoom 256->128 -> zoom 128->64
-      let n = this.ops.whiteNoise(wx, wz, 256, 2001);
-      n = this.ops.zoomNumeric(n, wx, wz, 256, 128, 2002);
-      n = this.ops.zoomNumeric(n, wx, wz, 128, 64, 2003);
+      const p = P();
+      let n = p.noise_white({ ops: this.ops, wx, wz });
+      n = p.noise_zoom_256_128({ ops: this.ops, wx, wz, value: n });
+      n = p.noise_zoom_128_64({ ops: this.ops, wx, wz, value: n });
       return n;
     }
   }
