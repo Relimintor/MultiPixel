@@ -167,6 +167,7 @@ window.perlin = perlinInstance;
         const BREAKING_TEXTURE_BASE = `${window.SingleplayerConfig?.REPO_BASE_PREFIX || '/MultiPixel'}/game/singleplayer/assets/breaking`;
         const BREAKING_PARTICLE_BASE = `${BREAKING_TEXTURE_BASE}/particles`;
         let miningState = { active: false, key: null, blockPos: null, targetType: 0, elapsedMs: 0, neededMs: 0, missMs: 0, dropOnBreak: true, particleMs: 0 };
+        let miningSwingTimerMs = 0;
         let isLeftMouseDown = false;
         const breakingStageTextures = new Array(10).fill(null);
         const airState = {
@@ -2381,6 +2382,7 @@ window.perlin = perlinInstance;
                 const tierName = tier <= 1 ? 'wooden pickaxe' : tier === 2 ? 'stone pickaxe' : tier <= 4 ? 'copper pickaxe' : tier === 5 ? 'iron pickaxe' : 'better pickaxe';
                 showGameMessage(`Breaks, but no drops without ${tierName}.`);
             }
+            miningSwingTimerMs = Math.max(miningSwingTimerMs, 170);
             miningState = {
                 active: true,
                 key: `${target.wx},${target.wy},${target.wz}`,
@@ -3702,8 +3704,8 @@ function buildPartFaceRects(x, y, w, h, d) {
             if (!firstPerson) return;
 
             const moveSwing = player.isMoving ? Math.sin(time * 0.013) * 10 : 0;
-            const mineStroke = miningState.active ? (Math.abs(Math.sin(time * 0.045)) * 18 - 8) : 0;
-            const totalSwing = moveSwing + mineStroke;
+            const minePunch = miningSwingTimerMs > 0 ? (Math.sin((Math.max(0, 180 - miningSwingTimerMs) / 180) * Math.PI) * 20 - 9) : 0;
+            const totalSwing = moveSwing + minePunch;
             firstPersonHandEl.style.transform = `translateY(${Math.max(-10, totalSwing)}px) rotate(${totalSwing * 0.36}deg)`;
             firstPersonHeldItemEl.style.transform = `translateY(${Math.max(-10, totalSwing)}px)`;
 
@@ -3848,7 +3850,7 @@ function buildPartFaceRects(x, y, w, h, d) {
                 playerAvatarParts.rightArmPivot.rotation.x = stroke + Math.PI;
             } else {
                 const swing = player.isMoving ? Math.sin(time * 0.015) * 0.7 : 0;
-                const mineStroke = miningState.active ? (Math.abs(Math.sin(time * 0.045)) * 1.2 - 0.55) : 0;
+                const mineStroke = miningSwingTimerMs > 0 ? (Math.sin((Math.max(0, 180 - miningSwingTimerMs) / 180) * Math.PI) * 1.45 - 0.7) : 0;
                 playerAvatarParts.leftLegPivot.rotation.x = swing;
                 playerAvatarParts.rightLegPivot.rotation.x = -swing;
                 playerAvatarParts.leftArmPivot.rotation.x = -swing * 0.75;
@@ -3857,7 +3859,7 @@ function buildPartFaceRects(x, y, w, h, d) {
 
             if (inventorySkinRigEl) {
                 const swing = player.isMoving ? Math.sin(time * 0.015) * 0.7 : 0;
-                const mineStroke = miningState.active ? (Math.abs(Math.sin(time * 0.045)) * 1.2 - 0.55) : 0;
+                const mineStroke = miningSwingTimerMs > 0 ? (Math.sin((Math.max(0, 180 - miningSwingTimerMs) / 180) * Math.PI) * 1.45 - 0.7) : 0;
                 const sdeg = swing * 40;
                 const mineDeg = mineStroke * 50;
                 const lLeg = document.getElementById('inv-skin-leg-left');
@@ -4886,6 +4888,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
         }
 
         function updateMining(deltaMs) {
+            miningSwingTimerMs = Math.max(0, miningSwingTimerMs - deltaMs);
             if (!isLeftMouseDown) {
                 miningState.active = false;
                 updateBreakingOverlay();
@@ -4921,6 +4924,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 const wy = Math.floor(miningState.blockPos.y);
                 const wz = Math.floor(miningState.blockPos.z);
                 emitBreakParticles(wx, wy, wz, 3, false);
+                miningSwingTimerMs = 180;
                 miningState.particleMs = 0;
             }
             updateBreakingOverlay();
@@ -4932,6 +4936,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 const wz = Math.floor(blockPos.z);
                 const current = getBlockType(wx, wy, wz);
                 if (current === targetType) modifyWorld(blockPos, 0, { dropItems: miningState.dropOnBreak !== false });
+                miningSwingTimerMs = 150;
                 miningState.active = false;
             }
         }
@@ -4970,6 +4975,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                     if (isInventoryOpen && isFurnaceOpen) renderInventoryScreen();
                 }
             } else {
+                updatePlayerAvatarVisuals(time);
                 updateFirstPersonHand(time);
                 updatePigs(time, delta);
                 updateWolves(time, delta);

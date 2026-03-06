@@ -11,6 +11,7 @@
       this.ops = layerOps;
       this.settings = settings;
       this.layerCache = new Map();
+      this.maxCacheEntries = 180000;
     }
 
     cached(layerId, x, z, resolver) {
@@ -18,6 +19,15 @@
       if (this.layerCache.has(key)) return this.layerCache.get(key);
       const value = resolver();
       this.layerCache.set(key, value);
+      if (this.layerCache.size > this.maxCacheEntries) {
+        let trims = Math.floor(this.maxCacheEntries * 0.2);
+        const it = this.layerCache.keys();
+        while (trims-- > 0) {
+          const n = it.next();
+          if (n.done) break;
+          this.layerCache.delete(n.value);
+        }
+      }
       return value;
     }
 
@@ -142,8 +152,6 @@
     }
 
     sampleLegacyMain(wx, wz) {
-      this.layerCache.clear();
-
       const x4096 = Math.floor(wx / 4096);
       const z4096 = Math.floor(wz / 4096);
       const x256 = Math.floor(wx / 256);
@@ -180,7 +188,6 @@
     }
 
     sampleBiomeStack(wx, wz, legacyMain, hillNoise) {
-      this.layerCache.clear();
       const x256 = Math.floor(wx / 256);
       const z256 = Math.floor(wz / 256);
       const x4 = Math.floor(wx / 4);
