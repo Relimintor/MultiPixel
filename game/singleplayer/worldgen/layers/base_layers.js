@@ -39,7 +39,7 @@
 
       const n = this.perlin.noise2D(parent.x * 0.27 + salt, parent.z * 0.27 - salt);
       const jitter = this.random.at2D(child.x, child.z, this.seed + salt + 900);
-      const shouldMistake = (edgeX || edgeZ) && n > 0.92 && jitter < 0.22;
+      const shouldMistake = (edgeX || edgeZ) && n > 0.78 && jitter < 0.46;
       if (!shouldMistake) return parentValue;
 
       if (parentValue === C.LAND) return C.OCEAN;
@@ -56,8 +56,8 @@
       const n = this.perlin.noise2D(parent.x * 0.22 + salt * 0.01, parent.z * 0.22 - salt * 0.01);
       const jitter = this.random.at2D(child.x, child.z, this.seed + salt + 1200) * 2 - 1;
       const edgeBias = (localX + localZ) * 0.05;
-      const mixedNoise = n * 0.72 + jitter * 0.28 + edgeBias;
-      return value * 0.9 + mixedNoise * 0.1;
+      const mixedNoise = n * 0.68 + jitter * 0.32 + edgeBias;
+      return value * 0.74 + mixedNoise * 0.26;
     }
 
     zoomClimate(temp, wx, wz, toScale, salt) {
