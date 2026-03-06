@@ -1,13 +1,18 @@
 (function () {
   class InfiniteWorldGenerator {
-    constructor({ seed, perlin, seaLevel, baseLandY, chunkSize, chunkHeight }) {
+    constructor({ seed, perlin, seaLevel, baseLandY, chunkSize, chunkHeight, worldGenSettings = {} }) {
       const RNG = window.WorldgenRandom.QuadraticCongruential;
       this.seed = seed | 0;
       this.perlin = perlin;
       this.seaLevel = seaLevel;
       this.baseLandY = baseLandY;
       this.random = new RNG(this.seed);
-      this.pipeline = new window.WorldgenPipeline.BiomePipeline({ seed: this.seed, random: this.random, perlin: this.perlin });
+      this.pipeline = new window.WorldgenPipeline.BiomePipeline({
+        seed: this.seed,
+        random: this.random,
+        perlin: this.perlin,
+        settings: worldGenSettings.biomeMap || {},
+      });
       this.terrain = new window.WorldgenTerrain.TerrainChunkGenerator({
         perlin: this.perlin,
         seaLevel: this.seaLevel,
