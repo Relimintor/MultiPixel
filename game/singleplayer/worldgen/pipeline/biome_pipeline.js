@@ -37,7 +37,7 @@
       const p = P();
       const mainLegacy = this.main.sampleLegacyMain(wx, wz);
       const hillNoise = this.hills.sample(wx, wz);
-      let biome = this.main.sampleBiomeStack(wx, wz, mainLegacy.land, mainLegacy.temp, hillNoise);
+      let biome = this.main.sampleBiomeStack(wx, wz, mainLegacy, hillNoise);
 
       const riverMask = this.river.sampleMask(wx, wz, hillNoise);
       const isMushroom = mainLegacy.land === 99;
