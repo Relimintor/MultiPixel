@@ -255,6 +255,7 @@ window.perlin = perlinInstance;
         const gnomeEntities = [];
         const pigEntities = [];
         const zombieEntities = [];
+        const wolfEntities = [];
         let pigTexture = null;
         let zombieTexture = null;
         let zombieSpawnTimerMs = 0;
@@ -421,6 +422,7 @@ window.perlin = perlinInstance;
             await loadZombieTexture();
             generateWorld();
             spawnInitialPigs();
+            spawnInitialWolves();
             setupPointerLockControls();
             setupKeyboardControls();
             setupBlockInteraction();
@@ -835,6 +837,49 @@ window.perlin = perlinInstance;
             return pig;
         }
 
+        function createWolfMesh() {
+            const U = 1 / 16;
+            const wolf = new THREE.Group();
+            const furMat = new THREE.MeshStandardMaterial({ color: 0x9ea4ad, roughness: 0.9 });
+            const darkMat = new THREE.MeshStandardMaterial({ color: 0x676d75, roughness: 0.92 });
+
+            const body = new THREE.Mesh(new THREE.BoxGeometry(10 * U, 6 * U, 16 * U), furMat);
+            body.position.y = 9 * U;
+            wolf.add(body);
+
+            const neck = new THREE.Mesh(new THREE.BoxGeometry(6 * U, 6 * U, 6 * U), darkMat);
+            neck.position.set(0, 10 * U, 7 * U);
+            wolf.add(neck);
+
+            const head = new THREE.Mesh(new THREE.BoxGeometry(6 * U, 6 * U, 6 * U), furMat);
+            head.position.set(0, 11 * U, 11 * U);
+            wolf.add(head);
+
+            const legOffsets = [[-3*U, 3*U, 5*U], [3*U, 3*U, 5*U], [-3*U, 3*U, -5*U], [3*U, 3*U, -5*U]];
+            const legs = [];
+            for (const off of legOffsets) {
+                const leg = new THREE.Mesh(new THREE.BoxGeometry(3 * U, 6 * U, 3 * U), darkMat);
+                leg.position.set(off[0], off[1], off[2]);
+                wolf.add(leg);
+                legs.push(leg);
+            }
+
+            const tailPivot = new THREE.Group();
+            tailPivot.position.set(0, 9 * U, -8 * U);
+            const tail = new THREE.Mesh(new THREE.BoxGeometry(2 * U, 6 * U, 2 * U), darkMat);
+            tail.position.set(0, 2.5 * U, -0.5 * U);
+            tailPivot.add(tail);
+            wolf.add(tailPivot);
+
+            const hitbox = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.95, 1.05), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
+            hitbox.position.set(0, 0.5, 0);
+            hitbox.userData.wolfHitbox = true;
+            wolf.add(hitbox);
+            wolf.userData.wolfHitbox = hitbox;
+            wolf.userData.wolfParts = { head, legs, tailPivot, neck };
+            return wolf;
+        }
+
         function getZombiePartRects(partName) {
             if (partName === 'head') return buildMobPartFaceRects(0, 0, 8, 8, 8);
             if (partName === 'body') return buildMobPartFaceRects(16, 16, 8, 12, 4);
@@ -958,6 +1003,15 @@ window.perlin = perlinInstance;
             }
         }
 
+        function spawnInitialWolves() {
+            let spawned = 0;
+            for (let i = 0; i < 180 && spawned < 8; i++) {
+                const wx = (Math.random() * 2 - 1) * (WORLD_RADIUS * CHUNK_SIZE * 0.68);
+                const wz = (Math.random() * 2 - 1) * (WORLD_RADIUS * CHUNK_SIZE * 0.68);
+                if (spawnWolfAt(wx, wz)) spawned++;
+            }
+        }
+
         function spawnMobById(mobId, amount = 1) {
             const id = Number.parseInt(mobId, 10);
             if (!Number.isFinite(id)) return 0;
@@ -969,7 +1023,7 @@ window.perlin = perlinInstance;
                 const dist = 3 + Math.random() * 6;
                 const wx = yawObject.position.x + Math.cos(angle) * dist;
                 const wz = yawObject.position.z + Math.sin(angle) * dist;
-                const ok = id === 1 ? spawnPigAt(wx, wz) : (id === 2 ? spawnZombieAt(wx, wz) : false);
+                const ok = id === 1 ? spawnPigAt(wx, wz) : (id === 2 ? spawnZombieAt(wx, wz) : (id === 3 ? spawnWolfAt(wx, wz) : false));
                 if (ok) spawned++;
             }
             return spawned;
@@ -1021,13 +1075,13 @@ window.perlin = perlinInstance;
             return pigEntities.find((p) => p.root.userData.pigHitbox === hitObj) || null;
         }
 
-        function hurtPig(pig, amount = 4) {
+        function hurtPig(pig, amount = 4, source = 'player') {
             if (!pig) return;
             pig.hp -= amount;
             if (pig.hp > 0) {
                 pig.changeDirMs = 0;
                 pig.dir.set((Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2).normalize();
-                showGameMessage('Pig: oink!');
+                if (source === 'player') showGameMessage('Pig: oink!');
                 return;
             }
             const idx = pigEntities.indexOf(pig);
@@ -1036,6 +1090,176 @@ window.perlin = perlinInstance;
             const drops = 1 + Math.floor(Math.random() * 3);
             addToInventory(89, drops);
             showGameMessage(`+${drops} Raw Porkchop`);
+            if (Math.random() < 0.22) {
+                addToInventory(95, 1);
+                addToInventory(2, 1);
+                showGameMessage('+1 Bone +1 Dirt');
+            }
+        }
+
+        function spawnWolfAt(wx, wz) {
+            const y = getSurfaceYForEntity(wx, wz);
+            if (y < SEA_LEVEL || y > SEA_LEVEL + 24) return false;
+            const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
+            if (under !== 1 && under !== 2) return false;
+            const biome = getBiome(Math.floor(wx), Math.floor(wz));
+            if (biome !== 'Forest') return false;
+            return spawnWolfAtExact(wx, y, wz);
+        }
+
+        function spawnWolfAtExact(wx, y, wz) {
+            const root = createWolfMesh();
+            root.position.set(Math.floor(wx) + 0.5, y, Math.floor(wz) + 0.5);
+            scene.add(root);
+            wolfEntities.push({
+                root,
+                hp: 16,
+                tamed: false,
+                attackCooldownMs: 0,
+                dir: new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize(),
+                changeDirMs: 800 + Math.random() * 1400,
+                groundProbeMs: 0,
+                targetY: y,
+                bobPhase: Math.random() * Math.PI * 2,
+                retargetMs: 0,
+                combatTarget: null,
+                combatTargetType: null,
+            });
+            return true;
+        }
+
+        function getWolfHitFromCrosshair() {
+            if (!wolfEntities.length) return null;
+            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            const hitboxes = wolfEntities.map(w => w.root.userData.wolfHitbox).filter(Boolean);
+            const hits = raycaster.intersectObjects(hitboxes, false);
+            if (!hits.length) return null;
+            const hitObj = hits[0].object;
+            return wolfEntities.find((w) => w.root.userData.wolfHitbox === hitObj) || null;
+        }
+
+        function hurtWolf(wolf, amount = 4) {
+            if (!wolf) return;
+            wolf.hp -= amount;
+            if (wolf.hp > 0) {
+                wolf.changeDirMs = 0;
+                wolf.dir.set((Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2).normalize();
+                showGameMessage(wolf.tamed ? 'Dog: whine!' : 'Wolf: growl!');
+                return;
+            }
+            const idx = wolfEntities.indexOf(wolf);
+            if (idx >= 0) wolfEntities.splice(idx, 1);
+            scene.remove(wolf.root);
+            showGameMessage(wolf.tamed ? 'Your dog died.' : 'Wolf defeated.');
+        }
+
+        function commandTamedWolvesAttack(target, targetType) {
+            if (!target) return;
+            for (const wolf of wolfEntities) {
+                if (!wolf.tamed) continue;
+                wolf.combatTarget = target;
+                wolf.combatTargetType = targetType;
+                wolf.changeDirMs = 0;
+            }
+        }
+
+        function updateWolves(time, deltaMs) {
+            if (!wolfEntities.length) return;
+            const dt = Math.max(0.001, Math.min(0.05, deltaMs / 1000));
+            const playerPos = yawObject.position;
+
+            for (let i = wolfEntities.length - 1; i >= 0; i--) {
+                const wolf = wolfEntities[i];
+                wolf.attackCooldownMs = Math.max(0, wolf.attackCooldownMs - deltaMs);
+                wolf.changeDirMs -= deltaMs;
+                wolf.retargetMs -= deltaMs;
+
+                let targetPos = null;
+                let targetDist = Infinity;
+
+                if (wolf.combatTargetType === 'pig' && (!wolf.combatTarget || pigEntities.indexOf(wolf.combatTarget) < 0)) {
+                    wolf.combatTarget = null;
+                    wolf.combatTargetType = null;
+                }
+                if (wolf.combatTargetType === 'zombie' && (!wolf.combatTarget || zombieEntities.indexOf(wolf.combatTarget) < 0)) {
+                    wolf.combatTarget = null;
+                    wolf.combatTargetType = null;
+                }
+
+                if (!wolf.combatTarget && !wolf.tamed && wolf.retargetMs <= 0) {
+                    wolf.retargetMs = 500 + Math.random() * 420;
+                    let bestPig = null;
+                    let bestDist = 11;
+                    for (const pig of pigEntities) {
+                        const d = pig.root.position.distanceTo(wolf.root.position);
+                        if (d < bestDist) {
+                            bestDist = d;
+                            bestPig = pig;
+                        }
+                    }
+                    if (bestPig) {
+                        wolf.combatTarget = bestPig;
+                        wolf.combatTargetType = 'pig';
+                    }
+                }
+
+                if (wolf.combatTarget) {
+                    targetPos = wolf.combatTarget.root.position;
+                    targetDist = targetPos.distanceTo(wolf.root.position);
+                    const toTarget = new THREE.Vector3(targetPos.x - wolf.root.position.x, 0, targetPos.z - wolf.root.position.z);
+                    if (toTarget.lengthSq() > 0.00001) {
+                        toTarget.normalize();
+                        wolf.dir.copy(toTarget);
+                    }
+                } else if (wolf.tamed) {
+                    const toPlayer = new THREE.Vector3(playerPos.x - wolf.root.position.x, 0, playerPos.z - wolf.root.position.z);
+                    targetDist = toPlayer.length();
+                    if (targetDist > 3.25) {
+                        toPlayer.normalize();
+                        wolf.dir.copy(toPlayer);
+                    } else if (wolf.changeDirMs <= 0) {
+                        wolf.changeDirMs = 1200 + Math.random() * 800;
+                        wolf.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
+                    }
+                } else if (wolf.changeDirMs <= 0) {
+                    wolf.changeDirMs = 1000 + Math.random() * 1800;
+                    wolf.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
+                }
+
+                const speed = wolf.combatTarget ? 1.15 : (wolf.tamed ? 1.0 : 0.82);
+                const nx = wolf.root.position.x + wolf.dir.x * speed * dt;
+                const nz = wolf.root.position.z + wolf.dir.z * speed * dt;
+
+                wolf.groundProbeMs -= deltaMs;
+                if (wolf.groundProbeMs <= 0) {
+                    wolf.groundProbeMs = 180 + Math.random() * 120;
+                    wolf.targetY = getSurfaceYForEntity(nx, nz, wolf.targetY);
+                }
+                if (wolf.targetY > 0) {
+                    wolf.root.position.x = nx;
+                    wolf.root.position.z = nz;
+                    wolf.root.position.y += (wolf.targetY - wolf.root.position.y) * Math.min(1, dt * 11);
+                }
+                wolf.root.rotation.y = Math.atan2(wolf.dir.x, wolf.dir.z);
+
+                if (wolf.combatTarget && targetDist < 1.35 && wolf.attackCooldownMs <= 0) {
+                    wolf.attackCooldownMs = 650;
+                    if (wolf.combatTargetType === 'pig') hurtPig(wolf.combatTarget, 4, 'wolf');
+                    else if (wolf.combatTargetType === 'zombie') hurtZombie(wolf.combatTarget, 3);
+                }
+
+                const parts = wolf.root.userData.wolfParts || {};
+                const walk = Math.sin(time * 0.011 + wolf.bobPhase) * (wolf.combatTarget ? 0.4 : 0.24);
+                const legs = parts.legs || [];
+                if (legs[0]) legs[0].rotation.x = walk;
+                if (legs[1]) legs[1].rotation.x = -walk;
+                if (legs[2]) legs[2].rotation.x = -walk;
+                if (legs[3]) legs[3].rotation.x = walk;
+                if (parts.tailPivot) {
+                    const wag = wolf.tamed ? Math.sin(time * 0.03 + wolf.bobPhase) * 0.5 : 0.12;
+                    parts.tailPivot.rotation.x = -0.55 + wag;
+                }
+            }
         }
 
         function getZombieHitFromCrosshair() {
@@ -2266,14 +2490,35 @@ window.perlin = perlinInstance;
             if (!intersects.length) return;
 
             if (event.button === 0) {
+                const wolfHit = getWolfHitFromCrosshair();
+                if (wolfHit) {
+                    const held = inventory[selectedHotbarIndex];
+                    if (!wolfHit.tamed && held && held.id === 95) {
+                        consumeSelectedItem();
+                        if (Math.random() < 0.68) {
+                            wolfHit.tamed = true;
+                            const neck = wolfHit.root.userData?.wolfParts?.neck;
+                            if (neck?.material) neck.material.color.setHex(0xc64444);
+                            showGameMessage('Wolf tamed! It is now your dog.');
+                        } else {
+                            showGameMessage('The wolf refused the bone.');
+                        }
+                    } else {
+                        hurtWolf(wolfHit, 4);
+                    }
+                    return;
+                }
+
                 const zombieHit = getZombieHitFromCrosshair();
                 if (zombieHit) {
                     hurtZombie(zombieHit, 4);
+                    commandTamedWolvesAttack(zombieHit, 'zombie');
                     return;
                 }
                 const pigHit = getPigHitFromCrosshair();
                 if (pigHit) {
-                    hurtPig(pigHit, 4);
+                    hurtPig(pigHit, 4, 'player');
+                    commandTamedWolvesAttack(pigHit, 'pig');
                     return;
                 }
                 isLeftMouseDown = true;
@@ -3457,10 +3702,10 @@ function buildPartFaceRects(x, y, w, h, d) {
             if (!firstPerson) return;
 
             const moveSwing = player.isMoving ? Math.sin(time * 0.013) * 10 : 0;
-            const mineSwing = miningState.active ? Math.sin(time * 0.04) * 14 : 0;
-            const totalSwing = moveSwing + mineSwing;
-            firstPersonHandEl.style.transform = `translateY(${Math.max(-6, totalSwing)}px) rotate(${totalSwing * 0.3}deg)`;
-            firstPersonHeldItemEl.style.transform = `translateY(${Math.max(-6, totalSwing)}px)`;
+            const mineStroke = miningState.active ? (Math.abs(Math.sin(time * 0.045)) * 18 - 8) : 0;
+            const totalSwing = moveSwing + mineStroke;
+            firstPersonHandEl.style.transform = `translateY(${Math.max(-10, totalSwing)}px) rotate(${totalSwing * 0.36}deg)`;
+            firstPersonHeldItemEl.style.transform = `translateY(${Math.max(-10, totalSwing)}px)`;
 
             const held = inventory[selectedHotbarIndex];
             if (!held) {
@@ -3603,23 +3848,26 @@ function buildPartFaceRects(x, y, w, h, d) {
                 playerAvatarParts.rightArmPivot.rotation.x = stroke + Math.PI;
             } else {
                 const swing = player.isMoving ? Math.sin(time * 0.015) * 0.7 : 0;
+                const mineStroke = miningState.active ? (Math.abs(Math.sin(time * 0.045)) * 1.2 - 0.55) : 0;
                 playerAvatarParts.leftLegPivot.rotation.x = swing;
                 playerAvatarParts.rightLegPivot.rotation.x = -swing;
-                playerAvatarParts.leftArmPivot.rotation.x = -swing;
-                playerAvatarParts.rightArmPivot.rotation.x = swing;
+                playerAvatarParts.leftArmPivot.rotation.x = -swing * 0.75;
+                playerAvatarParts.rightArmPivot.rotation.x = swing * 0.6 + mineStroke;
             }
 
             if (inventorySkinRigEl) {
                 const swing = player.isMoving ? Math.sin(time * 0.015) * 0.7 : 0;
+                const mineStroke = miningState.active ? (Math.abs(Math.sin(time * 0.045)) * 1.2 - 0.55) : 0;
                 const sdeg = swing * 40;
+                const mineDeg = mineStroke * 50;
                 const lLeg = document.getElementById('inv-skin-leg-left');
                 const rLeg = document.getElementById('inv-skin-leg-right');
                 const lArm = document.getElementById('inv-skin-arm-left');
                 const rArm = document.getElementById('inv-skin-arm-right');
                 if (lLeg) lLeg.style.transform = `rotate(${sdeg}deg)`;
                 if (rLeg) rLeg.style.transform = `rotate(${-sdeg}deg)`;
-                if (lArm) lArm.style.transform = `rotate(${-sdeg}deg)`;
-                if (rArm) rArm.style.transform = `rotate(${sdeg}deg)`;
+                if (lArm) lArm.style.transform = `rotate(${-sdeg * 0.75}deg)`;
+                if (rArm) rArm.style.transform = `rotate(${sdeg * 0.6 + mineDeg}deg)`;
             }
         }
 
@@ -4042,9 +4290,11 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                  }
              }
              const spawnedPigs = [];
+             const spawnedWolves = [];
              placeIglooInChunk(data, cx, cz, spawnedGnomes);
              placeDesertWellInChunk(data, cx, cz, spawnedPigs);
-             return { data, spawnedGnomes, spawnedPigs };
+             placeWolfPackInChunk(data, cx, cz, spawnedWolves);
+             return { data, spawnedGnomes, spawnedPigs, spawnedWolves };
         }
 
         function placeIglooInChunk(data, cx, cz, spawnedGnomes) {
@@ -4203,6 +4453,36 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             spawnedPigs.push({ wx: worldX + 0.5, wy: wellY + 1, wz: worldZ + 0.5 });
         }
 
+        function placeWolfPackInChunk(data, cx, cz, spawnedWolves) {
+            const centerX = Math.floor(CHUNK_SIZE / 2);
+            const centerZ = Math.floor(CHUNK_SIZE / 2);
+            const worldX = cx * CHUNK_SIZE + centerX;
+            const worldZ = cz * CHUNK_SIZE + centerZ;
+            if (getBiome(worldX, worldZ) !== 'Forest') return;
+            if (hashRand2D(cx, cz, 7701) > 0.12) return;
+
+            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
+            const getColumnTop = (lx, lz) => {
+                for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
+                    const t = data[idx(lx, y, lz)];
+                    if (t !== 0 && t !== 4) return y;
+                }
+                return -1;
+            };
+
+            const packSize = 1 + Math.floor(hashRand2D(cx, cz, 7702) * 5);
+            for (let i = 0; i < packSize; i++) {
+                const rx = Math.floor(hashRand2D(cx * 37 + i * 7, cz * 53 + i * 11, 7703) * CHUNK_SIZE);
+                const rz = Math.floor(hashRand2D(cx * 41 + i * 13, cz * 29 + i * 17, 7704) * CHUNK_SIZE);
+                if (rx < 1 || rz < 1 || rx >= CHUNK_SIZE - 1 || rz >= CHUNK_SIZE - 1) continue;
+                const topY = getColumnTop(rx, rz);
+                if (topY < SEA_LEVEL || topY > SEA_LEVEL + 24) continue;
+                const under = data[idx(rx, topY, rz)];
+                if (under !== 1 && under !== 2) continue;
+                spawnedWolves.push({ wx: cx * CHUNK_SIZE + rx + 0.5, wy: topY + 1, wz: cz * CHUNK_SIZE + rz + 0.5 });
+            }
+        }
+
         function createChunk(cx, cz) {
             const generated = generateChunkData(cx, cz);
             const data = generated.data;
@@ -4216,6 +4496,9 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             }
             if (generated.spawnedPigs && generated.spawnedPigs.length) {
                 for (const pig of generated.spawnedPigs) spawnPigAtExact(pig.wx, pig.wy, pig.wz);
+            }
+            if (generated.spawnedWolves && generated.spawnedWolves.length) {
+                for (const wolf of generated.spawnedWolves) spawnWolfAtExact(wolf.wx, wolf.wy, wolf.wz);
             }
             return group;
         }
@@ -4675,6 +4958,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 maybeUpdateChunkFrustumCulling(time);
                 updateGnomes(time);
                 updatePigs(time, delta);
+                updateWolves(time, delta);
                 trySpawnNightZombie(delta);
                 updateZombies(time, delta);
                 updateEatingAnimation(delta, time);
@@ -4688,6 +4972,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             } else {
                 updateFirstPersonHand(time);
                 updatePigs(time, delta);
+                updateWolves(time, delta);
                 updateZombies(time, delta);
                 updateEatingAnimation(delta, time);
                 maybeSpawnLavaParticles(delta);
