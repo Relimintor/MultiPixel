@@ -353,11 +353,12 @@ window.perlin = perlinInstance;
             if (typeof PerlinNoise !== 'undefined') {
                 worldSeed = resolveWorldSeed();
                 perlin = new PerlinNoise(worldSeed);
-                worldGenerator = new window.InfiniteWorldGenerator({
+                worldGenerator = new window.WorldgenCore.InfiniteWorldGenerator({
                     seed: worldSeed,
                     perlin,
                     seaLevel: SEA_LEVEL,
                     baseLandY: BASE_LAND_Y,
+                    chunkSize: CHUNK_SIZE,
                     chunkHeight: CHUNK_HEIGHT,
                 });
                 console.info('[World seed]', worldSeed);
@@ -3754,13 +3755,13 @@ function buildPartFaceRects(x, y, w, h, d) {
                      const wx = cx * CHUNK_SIZE + x;
                      const wz = cz * CHUNK_SIZE + z;
                      
-                     // Biomes > Terrain: Calculate biome once, then use it for all column data
-                     const biome = getBiome(wx, wz); 
-                     
-                     // Height based on biome
+                     // Phase 1: biome map template + macro height outline
+                     const worldSample = worldGenerator ? worldGenerator.sample(wx, wz) : null;
+                     const biome = worldSample ? worldSample.biome : getBiome(wx, wz);
                      const h = getNoiseGroundHeight(wx, wz, biome);
 
-                     const riverInfluence = getRiverMask(wx, wz);
+                     const riverInfluence = worldSample ? worldSample.riverMask : getRiverMask(wx, wz);
+                     const isFrozenRiver = !!worldSample && worldSample.tempBand === (window.WorldgenLayers?.Constants?.FREEZING ?? 13);
                      const RIVER_WIDTH_THRESHOLD = 0.1;
                      const isRiver = riverInfluence > RIVER_WIDTH_THRESHOLD;
                      
@@ -3845,7 +3846,7 @@ function buildPartFaceRects(x, y, w, h, d) {
                              
                              // --- WATER FILLING ---
                              if (isRiver) {
-                                 t = 4; // River water
+                                 t = isFrozenRiver ? 59 : 4; // River water / ice
                              } 
                              // If it's the ocean biome, fill the area above ground and below sea level with water
                              else if (biome === 'Ocean') {
@@ -4541,6 +4542,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                     const id = `${cx},${cz}`;
                     if (!chunks.has(id)) createChunk(cx, cz);
                 }
+                chunks.delete(key);
             }
 
             const removeKeys = [];
@@ -4562,6 +4564,10 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 }
                 chunks.delete(key);
             }
+        }
+
+        function generateWorld() {
+            ensureChunksAroundPlayer();
         }
 
         function generateWorld() {
