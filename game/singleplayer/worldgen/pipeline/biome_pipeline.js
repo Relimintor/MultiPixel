@@ -6,16 +6,27 @@
     if (biome === 'Badlands Plateau') return 'Desert';
     if (biome === 'Jungle' || biome === 'Bamboo Jungle' || biome === 'Giant Taiga') return 'Forest';
     if (biome === 'Sunflower Plains') return 'Plains';
-    if (biome === 'Beach') return 'Plains';
+    if (biome === 'Beach' || biome === 'Frozen Beach') return 'Plains';
+    if (biome === 'Desert Hills') return 'Desert';
+    if (biome === 'Wooded Hills') return 'Forest';
+    if (biome === 'Windswept Hills') return 'Mountains';
     if (biome === 'Mushroom Fields') return 'Forest';
     if (biome === 'Deep Ocean' || biome.includes('Ocean')) return 'Ocean';
     return biome;
   };
 
   class BiomePipeline {
-    constructor({ seed, random, perlin }) {
-      this.ops = new window.WorldgenLayers.LayerOps({ seed, random, perlin });
-      this.main = new window.WorldgenStacks.MainBiomeStack(this.ops);
+    constructor({ seed, random, perlin, settings = {} }) {
+      this.settings = settings;
+      const biomeSettings = {
+        enableBambooJungleVariant: Boolean(settings.enableBambooJungleVariant),
+        enableSunflowerPlainsVariant: Boolean(settings.enableSunflowerPlainsVariant),
+        temperatureRatios: settings.temperatureRatios,
+        specialRegionChance: settings.specialRegionChance,
+        regionHillChance: settings.regionHillChance,
+      };
+      this.ops = new window.WorldgenLayers.LayerOps({ seed, random, perlin, settings: biomeSettings });
+      this.main = new window.WorldgenStacks.MainBiomeStack(this.ops, biomeSettings);
       this.river = new window.WorldgenStacks.RiverStack(this.ops);
       this.oceanTemp = new window.WorldgenStacks.OceanTempStack(this.ops);
       this.hills = new window.WorldgenStacks.HillsStack(this.ops);
