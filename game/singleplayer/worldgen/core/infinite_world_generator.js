@@ -22,7 +22,7 @@
     }
 
     sampleBiome(wx, wz) {
-      return this.sample(wx, wz).biome;
+      return this.sample(wx, wz).gameplayBiome;
     }
 
     sampleRiverMask(wx, wz) {

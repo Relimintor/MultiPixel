@@ -3757,13 +3757,13 @@ function buildPartFaceRects(x, y, w, h, d) {
                      
                      // Phase 1: biome map template + macro height outline
                      const worldSample = worldGenerator ? worldGenerator.sample(wx, wz) : null;
-                     const biome = worldSample ? worldSample.biome : getBiome(wx, wz);
+                     const biome = worldSample ? (worldSample.gameplayBiome || worldSample.biome) : getBiome(wx, wz);
                      const h = getNoiseGroundHeight(wx, wz, biome);
 
                      const riverInfluence = worldSample ? worldSample.riverMask : getRiverMask(wx, wz);
-                     const isFrozenRiver = !!worldSample && worldSample.tempBand === (window.WorldgenLayers?.Constants?.FREEZING ?? 13);
+                     const isFrozenRiver = !!worldSample && (worldSample.biome === 'Frozen River' || worldSample.tempBand === (window.WorldgenLayers?.Constants?.FREEZING ?? 13));
                      const RIVER_WIDTH_THRESHOLD = 0.1;
-                     const isRiver = riverInfluence > RIVER_WIDTH_THRESHOLD;
+                     const isRiver = !worldSample?.noRiver && riverInfluence > RIVER_WIDTH_THRESHOLD;
                      
                      let surfaceBlockType = 0; // Used for tree placement logic
 
@@ -4564,6 +4564,10 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 }
                 chunks.delete(key);
             }
+        }
+
+        function generateWorld() {
+            ensureChunksAroundPlayer();
         }
 
         function generateWorld() {
