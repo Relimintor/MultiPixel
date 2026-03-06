@@ -377,6 +377,7 @@ window.perlin = perlinInstance;
                     baseLandY: BASE_LAND_Y,
                     chunkSize: CHUNK_SIZE,
                     chunkHeight: CHUNK_HEIGHT,
+                    worldGenSettings,
                 });
                 console.info('[World seed]', worldSeed);
                 lightingSystem = SpawnLighting.create ? SpawnLighting.create({ getBlockType, isLiquid, CHUNK_HEIGHT }) : null;
