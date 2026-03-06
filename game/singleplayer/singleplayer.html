@@ -34,7 +34,78 @@
     <script src="chat/commands/help/main.js?v=1"></script>
     <script src="chat/commands/commands.js?v=1"></script>
     <script src="chat/main.js?v=2"></script>
-    <script src="main.js?v=16"></script>
+    <script src="worldgen/random/qcg.js?v=3"></script>
+    <script src="worldgen/noise/fbm.js?v=3"></script>
+    <script src="worldgen/layers/registry/index.js?v=3"></script>
+    <script src="worldgen/layers/base_layers.js?v=3"></script>
+
+    <script src="worldgen/layers/main/island/layer.js?v=3"></script>
+    <script src="worldgen/layers/main/zoom_4096_2048/layer.js?v=3"></script>
+    <script src="worldgen/layers/main/add_island_2048/layer.js?v=3"></script>
+    <script src="worldgen/layers/main/zoom_2048_1024/layer.js?v=3"></script>
+    <script src="worldgen/layers/main/add_island_1024_a/layer.js?v=3"></script>
+    <script src="worldgen/layers/main/add_island_1024_b/layer.js?v=3"></script>
+    <script src="worldgen/layers/main/add_island_1024_c/layer.js?v=3"></script>
+    <script src="worldgen/layers/main/remove_too_much_ocean/layer.js?v=3"></script>
+    <script src="worldgen/layers/main/add_temperatures/layer.js?v=3"></script>
+    <script src="worldgen/layers/main/add_island_post_temperature/layer.js?v=3"></script>
+    <script src="worldgen/layers/main/warm_to_temperate/layer.js?v=3"></script>
+    <script src="worldgen/layers/main/freezing_to_cold/layer.js?v=3"></script>
+    <script src="worldgen/layers/main/add_biome_variants/layer.js?v=3"></script>
+    <script src="worldgen/layers/main/zoom_1024_512/layer.js?v=3"></script>
+    <script src="worldgen/layers/main/zoom_512_256/layer.js?v=3"></script>
+    <script src="worldgen/layers/main/add_island_256/layer.js?v=3"></script>
+    <script src="worldgen/layers/main/add_mushroom_island/layer.js?v=3"></script>
+    <script src="worldgen/layers/main/add_deep_ocean/layer.js?v=3"></script>
+
+    <script src="worldgen/layers/biome/temperature_to_biome/layer.js?v=3"></script>
+    <script src="worldgen/layers/biome/bamboo_jungle/layer.js?v=3"></script>
+    <script src="worldgen/layers/biome/zoom_256_128/layer.js?v=3"></script>
+    <script src="worldgen/layers/biome/zoom_128_64/layer.js?v=3"></script>
+    <script src="worldgen/layers/biome/biome_edge/layer.js?v=3"></script>
+    <script src="worldgen/layers/biome/region_hills/layer.js?v=3"></script>
+    <script src="worldgen/layers/biome/sunflower_plains/layer.js?v=3"></script>
+    <script src="worldgen/layers/biome/zoom_64_32/layer.js?v=3"></script>
+    <script src="worldgen/layers/biome/add_island_32/layer.js?v=3"></script>
+    <script src="worldgen/layers/biome/zoom_32_16/layer.js?v=3"></script>
+    <script src="worldgen/layers/biome/shore/layer.js?v=3"></script>
+    <script src="worldgen/layers/biome/zoom_16_8/layer.js?v=3"></script>
+    <script src="worldgen/layers/biome/zoom_8_4/layer.js?v=3"></script>
+    <script src="worldgen/layers/biome/smooth/layer.js?v=3"></script>
+
+    <script src="worldgen/layers/noise/white_noise/layer.js?v=3"></script>
+    <script src="worldgen/layers/noise/zoom_256_128/layer.js?v=3"></script>
+    <script src="worldgen/layers/noise/zoom_128_64/layer.js?v=3"></script>
+
+    <script src="worldgen/layers/river/zoom_64_32/layer.js?v=3"></script>
+    <script src="worldgen/layers/river/empty_a/layer.js?v=3"></script>
+    <script src="worldgen/layers/river/zoom_32_16/layer.js?v=3"></script>
+    <script src="worldgen/layers/river/empty_b/layer.js?v=3"></script>
+    <script src="worldgen/layers/river/zoom_16_8/layer.js?v=3"></script>
+    <script src="worldgen/layers/river/zoom_8_4/layer.js?v=3"></script>
+    <script src="worldgen/layers/river/noise_to_river/layer.js?v=3"></script>
+    <script src="worldgen/layers/river/smooth/layer.js?v=3"></script>
+
+    <script src="worldgen/layers/ocean/perlin_noise/layer.js?v=3"></script>
+    <script src="worldgen/layers/ocean/zoom_256_128/layer.js?v=3"></script>
+    <script src="worldgen/layers/ocean/zoom_128_64/layer.js?v=3"></script>
+    <script src="worldgen/layers/ocean/zoom_64_32/layer.js?v=3"></script>
+    <script src="worldgen/layers/ocean/zoom_32_16/layer.js?v=3"></script>
+    <script src="worldgen/layers/ocean/zoom_16_8/layer.js?v=3"></script>
+    <script src="worldgen/layers/ocean/zoom_8_4/layer.js?v=3"></script>
+
+    <script src="worldgen/layers/mixers/river_mixer/layer.js?v=3"></script>
+    <script src="worldgen/layers/mixers/ocean_mixer/layer.js?v=3"></script>
+    <script src="worldgen/layers/mixers/voronoi_zoom_4_1/layer.js?v=3"></script>
+
+    <script src="worldgen/stacks/main_stack.js?v=3"></script>
+    <script src="worldgen/stacks/river_stack.js?v=3"></script>
+    <script src="worldgen/stacks/ocean_temp_stack.js?v=3"></script>
+    <script src="worldgen/stacks/hills_stack.js?v=3"></script>
+    <script src="worldgen/pipeline/biome_pipeline.js?v=3"></script>
+    <script src="worldgen/terrain/chunk_generator.js?v=3"></script>
+    <script src="worldgen/core/infinite_world_generator.js?v=3"></script>
+    <script src="main.js?v=19"></script>
     <!-- Removed external script links to ensure functionality in this single-file preview -->
 </head>
 <body>
