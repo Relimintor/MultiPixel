@@ -117,8 +117,8 @@
         let materials = {};
 
 // --- 2. CREATE PERLIN INSTANCE ---
-const seed = Math.random() * 65536; // or pick a fixed seed for consistent worlds
-const perlinInstance = new PerlinNoise(seed);
+let worldSeed = resolveWorldSeed();
+const perlinInstance = new PerlinNoise(worldSeed);
 
 // Make it globally accessible for biomes
 window.perlin = perlinInstance;
@@ -213,7 +213,7 @@ window.perlin = perlinInstance;
 
       
         let scene, camera, renderer, perlin, raycaster;
-        let worldSeed = 0;
+        let worldGenerator = null;
         let lightingSystem = null;
         const torchLightsByChunk = new Map();
         const frustum = new THREE.Frustum();
@@ -246,8 +246,8 @@ window.perlin = perlinInstance;
         let eatingAnimState = { active: false, timeMs: 0, durationMs: 0, itemId: 0, particleMs: 0 };
         
         // Calculate the world boundary coordinates
-        const WORLD_MAX_COORD = (WORLD_RADIUS + 0.5) * CHUNK_SIZE;
-        const WORLD_MIN_COORD = -(WORLD_RADIUS + 0.5) * CHUNK_SIZE;
+        const WORLD_MAX_COORD = Number.POSITIVE_INFINITY;
+        const WORLD_MIN_COORD = Number.NEGATIVE_INFINITY;
         
         // --- 3. CORE UTILITIES ---
 
@@ -353,6 +353,14 @@ window.perlin = perlinInstance;
             if (typeof PerlinNoise !== 'undefined') {
                 worldSeed = resolveWorldSeed();
                 perlin = new PerlinNoise(worldSeed);
+                worldGenerator = new window.WorldgenCore.InfiniteWorldGenerator({
+                    seed: worldSeed,
+                    perlin,
+                    seaLevel: SEA_LEVEL,
+                    baseLandY: BASE_LAND_Y,
+                    chunkSize: CHUNK_SIZE,
+                    chunkHeight: CHUNK_HEIGHT,
+                });
                 console.info('[World seed]', worldSeed);
                 lightingSystem = SpawnLighting.create ? SpawnLighting.create({ getBlockType, isLiquid, CHUNK_HEIGHT }) : null;
             } else {
@@ -2415,6 +2423,7 @@ window.perlin = perlinInstance;
 
     
         function getRiverMask(wx, wz) {
+            if (worldGenerator) return worldGenerator.sampleRiverMask(wx, wz);
             return TerrainModules['river'].getMask({ perlin, wx, wz });
         }
 
@@ -2795,35 +2804,12 @@ window.perlin = perlinInstance;
         }
 
         function getBiome(wx, wz) {
-            const { climate, weights } = biomeWeights(wx, wz);
-            const contenders = ['Mountains', 'Desert', 'Forest', 'Snowy Plains', 'Ocean'];
-
-            let bestSpecial = 'Plains';
-            let bestSpecialW = 0;
-            for (const biomeName of contenders) {
-                const w = weights[biomeName] || 0;
-                if (w > bestSpecialW) {
-                    bestSpecialW = w;
-                    bestSpecial = biomeName;
-                }
-            }
-
-            const plainsW = weights['Plains'] || 0;
-
-            // Prefer special biomes when they are clearly present.
-            if (bestSpecialW > plainsW * 0.80 || bestSpecialW > 0.27) {
-                return bestSpecial;
-            }
-
-            // Climate nudges to avoid a plains-only world.
-            if (climate.temp < -0.38 && climate.humidity > -0.15) return 'Snowy Plains';
-            if (climate.humidity > 0.20 && climate.temp > -0.30 && climate.temp < 0.42) return 'Forest';
-            if (climate.temp > 0.18 && climate.humidity < -0.08) return 'Desert';
-
+            if (worldGenerator) return worldGenerator.sampleBiome(wx, wz);
             return 'Plains';
         }
 
         function getRavineMask(wx, wz) {
+            if (worldGenerator) return worldGenerator.sampleRavineMask(wx, wz);
             const warp = perlin.noise2D(wx * 0.001 + 250, wz * 0.001 + 250) * 30;
             const line = Math.abs(perlin.noise2D(wx * 0.0018 + warp, wz * 0.0018));
             return 1.0 - Math.min(1.0, line / 0.043);
@@ -2858,6 +2844,7 @@ window.perlin = perlinInstance;
         }
 
         function hashRand2D(wx, wz, salt = 0) {
+            if (worldGenerator) return worldGenerator.hashRand2D(wx, wz, salt);
             let h = (Math.imul(wx | 0, 374761393) ^ Math.imul(wz | 0, 668265263) ^ Math.imul((worldSeed + salt) | 0, 2246822519)) >>> 0;
             h = (h ^ (h >>> 13)) >>> 0;
             h = Math.imul(h, 1274126177) >>> 0;
@@ -2877,6 +2864,7 @@ window.perlin = perlinInstance;
         }
 
         function getNoiseGroundHeight(wx, wz, biome) {
+            if (worldGenerator) return worldGenerator.getHeight(wx, wz, biome);
             const tv = sampleTerrainVector(wx, wz);
             const continentalMask = (tv.continentalness + 1) * 0.5;
             const terrainNoise = (perlin.noise2D(wx * 0.02, wz * 0.02) + 1) * 0.5;
@@ -2933,11 +2921,6 @@ window.perlin = perlinInstance;
 
 
         function getBlockType(wx, wy, wz) {
-            // Check world boundary before accessing chunk data
-            if (wx < WORLD_MIN_COORD || wx >= WORLD_MAX_COORD || wz < WORLD_MIN_COORD || wz >= WORLD_MAX_COORD) {
-                return 0; // Void outside the generated area
-            }
-
             if (wy < 0 || wy >= CHUNK_HEIGHT) return 0;
             const cx = Math.floor(wx / CHUNK_SIZE);
             const cz = Math.floor(wz / CHUNK_SIZE);
@@ -3772,19 +3755,15 @@ function buildPartFaceRects(x, y, w, h, d) {
                      const wx = cx * CHUNK_SIZE + x;
                      const wz = cz * CHUNK_SIZE + z;
                      
-                     // Biomes > Terrain: Calculate biome once, then use it for all column data
-                     const biome = getBiome(wx, wz); 
-                     
-                     // Height based on biome
+                     // Phase 1: biome map template + macro height outline
+                     const worldSample = worldGenerator ? worldGenerator.sample(wx, wz) : null;
+                     const biome = worldSample ? (worldSample.gameplayBiome || worldSample.biome) : getBiome(wx, wz);
                      const h = getNoiseGroundHeight(wx, wz, biome);
 
-                     // Check if block is near the world boundary before applying changes
-                     const isNearBoundary = wx < WORLD_MIN_COORD + 4 || wx >= WORLD_MAX_COORD - 4 || 
-                                            wz < WORLD_MIN_COORD + 4 || wz >= WORLD_MAX_COORD - 4;
-                     
-                     const riverInfluence = getRiverMask(wx, wz);
+                     const riverInfluence = worldSample ? worldSample.riverMask : getRiverMask(wx, wz);
+                     const isFrozenRiver = !!worldSample && (worldSample.biome === 'Frozen River' || worldSample.tempBand === (window.WorldgenLayers?.Constants?.FREEZING ?? 13));
                      const RIVER_WIDTH_THRESHOLD = 0.1;
-                     const isRiver = riverInfluence > RIVER_WIDTH_THRESHOLD;
+                     const isRiver = !worldSample?.noRiver && riverInfluence > RIVER_WIDTH_THRESHOLD;
                      
                      let surfaceBlockType = 0; // Used for tree placement logic
 
@@ -3867,7 +3846,7 @@ function buildPartFaceRects(x, y, w, h, d) {
                              
                              // --- WATER FILLING ---
                              if (isRiver) {
-                                 t = 4; // River water
+                                 t = isFrozenRiver ? 59 : 4; // River water / ice
                              } 
                              // If it's the ocean biome, fill the area above ground and below sea level with water
                              else if (biome === 'Ocean') {
@@ -4001,10 +3980,6 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 }
 
 
-
-                         if (isNearBoundary && y < SEA_LEVEL && (t === 4 || t === 0)) {
-                             t = 3; 
-                         } 
 
                          data[x + y*CHUNK_SIZE + z*CHUNK_SIZE*CHUNK_HEIGHT] = t;
                      }
@@ -4551,14 +4526,49 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
         }
 
 
-        function generateWorld() {
-            let count = 0;
-            for(let x=-WORLD_RADIUS; x<=WORLD_RADIUS; x++){
-                for(let z=-WORLD_RADIUS; z<=WORLD_RADIUS; z++){
-                    createChunk(x,z);
-                    count++;
+        function getChunkRetentionRadius() {
+            return WORLD_RADIUS + 2;
+        }
+
+        function ensureChunksAroundPlayer() {
+            if (!yawObject) return;
+            const playerChunkX = Math.floor(yawObject.position.x / CHUNK_SIZE);
+            const playerChunkZ = Math.floor(yawObject.position.z / CHUNK_SIZE);
+            const loadRadius = WORLD_RADIUS;
+            const keepRadius = getChunkRetentionRadius();
+
+            for (let cx = playerChunkX - loadRadius; cx <= playerChunkX + loadRadius; cx++) {
+                for (let cz = playerChunkZ - loadRadius; cz <= playerChunkZ + loadRadius; cz++) {
+                    const chunkKey = `${cx},${cz}`;
+                    if (!chunks.has(chunkKey)) createChunk(cx, cz);
                 }
             }
+
+            const chunkKeysToRemove = [];
+            for (const [chunkKey, chunkGroup] of chunks.entries()) {
+                const dx = chunkGroup.userData.cx - playerChunkX;
+                const dz = chunkGroup.userData.cz - playerChunkZ;
+                if (Math.abs(dx) > keepRadius || Math.abs(dz) > keepRadius) {
+                    chunkKeysToRemove.push(chunkKey);
+                }
+            }
+
+            for (const chunkKey of chunkKeysToRemove) {
+                const chunkGroup = chunks.get(chunkKey);
+                if (!chunkGroup) continue;
+                removeTorchLightsForChunk(chunkKey);
+                worldGroup.remove(chunkGroup);
+                if (chunkGroup.children) {
+                    for (const child of chunkGroup.children) {
+                        if (child.geometry) child.geometry.dispose();
+                    }
+                }
+                chunks.delete(chunkKey);
+            }
+        }
+
+        function generateWorld() {
+            ensureChunksAroundPlayer();
         }
 
         function updateMining(deltaMs) {
@@ -4630,6 +4640,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 maybeSpawnLavaParticles(delta);
                 updateWorldParticles(delta);
                 applyBlockPhysics(time);
+                ensureChunksAroundPlayer();
                 updateChunkFrustumCulling();
                 updateGnomes(time);
                 updatePigs(time, delta);
