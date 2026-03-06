@@ -33,6 +33,14 @@
 
     surfaceBlockForBiome(biome, y, h, seaLevel) {
       const depth = h - 1 - y;
+
+      // Keep submerged floors sandy/gravelly instead of grassy.
+      if (h < seaLevel) {
+        if (depth === 0) return 7;
+        if (depth < 4) return 28;
+        return 3;
+      }
+
       if (biome === 'Desert') return depth < 5 ? 7 : 13;
       if (biome === 'Snowy Plains') return depth === 0 ? 15 : 59;
       if (biome === 'Mountains') return depth === 0 && h > seaLevel + 20 ? 15 : 3;
