@@ -69,7 +69,21 @@
       const key = `${wx | 0},${wz | 0},${biomeKey},${riverKey}`;
       const cached = this.heightCache.get(key);
       if (cached !== undefined) return cached;
-      const h = this.terrain.heightFromBiome(wx, wz, biome, riverMask);
+
+      const center = this.terrain.heightFromBiome(wx, wz, biome, riverMask);
+      const offsets = [[2, 0], [-2, 0], [0, 2], [0, -2]];
+      let sum = center * 0.58;
+      let weight = 0.58;
+      for (const [dx, dz] of offsets) {
+        const nSample = this.sample(wx + dx, wz + dz);
+        const nBiome = this.sampleBiome(wx + dx, wz + dz, nSample);
+        const nRiver = this.sampleRiverMask(wx + dx, wz + dz, nSample);
+        const nh = this.terrain.heightFromBiome(wx + dx, wz + dz, nBiome, nRiver);
+        sum += nh * 0.105;
+        weight += 0.105;
+      }
+
+      const h = Math.floor(sum / weight);
       this.setCache(this.heightCache, key, h);
       return h;
     }
