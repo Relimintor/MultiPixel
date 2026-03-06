@@ -4542,6 +4542,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                     const id = `${cx},${cz}`;
                     if (!chunks.has(id)) createChunk(cx, cz);
                 }
+                chunks.delete(key);
             }
 
             const removeKeys = [];
@@ -4563,6 +4564,14 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 }
                 chunks.delete(key);
             }
+        }
+
+        function generateWorld() {
+            ensureChunksAroundPlayer();
+        }
+
+        function generateWorld() {
+            ensureChunksAroundPlayer();
         }
 
         function generateWorld() {
