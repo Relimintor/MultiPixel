@@ -209,6 +209,23 @@ window.perlin = perlinInstance;
             lastLookX: 0,
             lastLookY: 0,
         };
+
+        const deviceMemoryGb = typeof navigator.deviceMemory === 'number' ? navigator.deviceMemory : null;
+        const cpuThreads = typeof navigator.hardwareConcurrency === 'number' ? navigator.hardwareConcurrency : null;
+        const prefersReducedMotion = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)').matches : false;
+        const isLowEndDevice = Boolean(
+            prefersReducedMotion ||
+            (deviceMemoryGb !== null && deviceMemoryGb <= 4) ||
+            (cpuThreads !== null && cpuThreads <= 4)
+        );
+        const targetRenderPixelRatio = Math.min(window.devicePixelRatio || 1, isLowEndDevice ? 1 : 1.5);
+        const effectiveChunkLoadRadius = Math.max(4, Math.min(WORLD_RADIUS, isLowEndDevice ? Math.floor(WORLD_RADIUS * 0.65) : WORLD_RADIUS));
+        const CHUNK_UPDATE_INTERVAL_MS = isLowEndDevice ? 220 : 90;
+        const FRUSTUM_CULL_INTERVAL_MS = isLowEndDevice ? 120 : 60;
+        let lastChunkUpdateMs = -Infinity;
+        let lastFrustumCullMs = -Infinity;
+        let lastChunkCoordX = Number.NaN;
+        let lastChunkCoordZ = Number.NaN;
      
 
       
@@ -458,9 +475,9 @@ window.perlin = perlinInstance;
             }
             
            // Renderer setup
-            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer = new THREE.WebGLRenderer({ antialias: !isLowEndDevice });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setPixelRatio(targetRenderPixelRatio);
             document.body.appendChild(renderer.domElement);
             setupFirstPersonHandOverlay();
             setupInventorySkinRig();
@@ -4527,14 +4544,21 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
 
         function getChunkRetentionRadius() {
-            return WORLD_RADIUS + 2;
+            return effectiveChunkLoadRadius + 2;
         }
 
-        function ensureChunksAroundPlayer() {
+        function ensureChunksAroundPlayer(forceUpdate = false, nowMs = performance.now()) {
             if (!yawObject) return;
             const playerChunkX = Math.floor(yawObject.position.x / CHUNK_SIZE);
             const playerChunkZ = Math.floor(yawObject.position.z / CHUNK_SIZE);
-            const loadRadius = WORLD_RADIUS;
+            const sameChunk = playerChunkX === lastChunkCoordX && playerChunkZ === lastChunkCoordZ;
+            if (!forceUpdate && sameChunk && (nowMs - lastChunkUpdateMs) < CHUNK_UPDATE_INTERVAL_MS) return;
+
+            lastChunkCoordX = playerChunkX;
+            lastChunkCoordZ = playerChunkZ;
+            lastChunkUpdateMs = nowMs;
+
+            const loadRadius = effectiveChunkLoadRadius;
             const keepRadius = getChunkRetentionRadius();
 
             for (let cx = playerChunkX - loadRadius; cx <= playerChunkX + loadRadius; cx++) {
@@ -4568,7 +4592,13 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
         }
 
         function generateWorld() {
-            ensureChunksAroundPlayer();
+            ensureChunksAroundPlayer(true);
+        }
+
+        function maybeUpdateChunkFrustumCulling(nowMs) {
+            if ((nowMs - lastFrustumCullMs) < FRUSTUM_CULL_INTERVAL_MS) return;
+            lastFrustumCullMs = nowMs;
+            updateChunkFrustumCulling();
         }
 
         function updateMining(deltaMs) {
@@ -4640,8 +4670,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 maybeSpawnLavaParticles(delta);
                 updateWorldParticles(delta);
                 applyBlockPhysics(time);
-                ensureChunksAroundPlayer();
-                updateChunkFrustumCulling();
+                ensureChunksAroundPlayer(false, time);
+                maybeUpdateChunkFrustumCulling(time);
                 updateGnomes(time);
                 updatePigs(time, delta);
                 trySpawnNightZombie(delta);
@@ -4671,6 +4701,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(targetRenderPixelRatio);
         }
 
         window.onload = init;
