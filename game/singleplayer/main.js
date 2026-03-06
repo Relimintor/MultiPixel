@@ -4532,38 +4532,44 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
         function ensureChunksAroundPlayer() {
             if (!yawObject) return;
-            const pcx = Math.floor(yawObject.position.x / CHUNK_SIZE);
-            const pcz = Math.floor(yawObject.position.z / CHUNK_SIZE);
+            const playerChunkX = Math.floor(yawObject.position.x / CHUNK_SIZE);
+            const playerChunkZ = Math.floor(yawObject.position.z / CHUNK_SIZE);
             const loadRadius = WORLD_RADIUS;
             const keepRadius = getChunkRetentionRadius();
 
-            for (let cx = pcx - loadRadius; cx <= pcx + loadRadius; cx++) {
-                for (let cz = pcz - loadRadius; cz <= pcz + loadRadius; cz++) {
-                    const id = `${cx},${cz}`;
-                    if (!chunks.has(id)) createChunk(cx, cz);
+            for (let cx = playerChunkX - loadRadius; cx <= playerChunkX + loadRadius; cx++) {
+                for (let cz = playerChunkZ - loadRadius; cz <= playerChunkZ + loadRadius; cz++) {
+                    const chunkKey = `${cx},${cz}`;
+                    if (!chunks.has(chunkKey)) createChunk(cx, cz);
                 }
                 chunks.delete(key);
             }
 
-            const removeKeys = [];
-            for (const [key, group] of chunks.entries()) {
-                const dx = group.userData.cx - pcx;
-                const dz = group.userData.cz - pcz;
-                if (Math.abs(dx) > keepRadius || Math.abs(dz) > keepRadius) removeKeys.push(key);
+            const chunkKeysToRemove = [];
+            for (const [chunkKey, chunkGroup] of chunks.entries()) {
+                const dx = chunkGroup.userData.cx - playerChunkX;
+                const dz = chunkGroup.userData.cz - playerChunkZ;
+                if (Math.abs(dx) > keepRadius || Math.abs(dz) > keepRadius) {
+                    chunkKeysToRemove.push(chunkKey);
+                }
             }
 
-            for (const key of removeKeys) {
-                const group = chunks.get(key);
-                if (!group) continue;
-                removeTorchLightsForChunk(key);
-                worldGroup.remove(group);
-                if (group.children) {
-                    for (const child of group.children) {
+            for (const chunkKey of chunkKeysToRemove) {
+                const chunkGroup = chunks.get(chunkKey);
+                if (!chunkGroup) continue;
+                removeTorchLightsForChunk(chunkKey);
+                worldGroup.remove(chunkGroup);
+                if (chunkGroup.children) {
+                    for (const child of chunkGroup.children) {
                         if (child.geometry) child.geometry.dispose();
                     }
                 }
-                chunks.delete(key);
+                chunks.delete(chunkKey);
             }
+        }
+
+        function generateWorld() {
+            ensureChunksAroundPlayer();
         }
 
         function generateWorld() {
