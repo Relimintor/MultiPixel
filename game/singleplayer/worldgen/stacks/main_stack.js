@@ -190,8 +190,6 @@
     sampleBiomeStack(wx, wz, legacyMain, hillNoise) {
       const x256 = Math.floor(wx / 256);
       const z256 = Math.floor(wz / 256);
-      const x4 = Math.floor(wx / 4);
-      const z4 = Math.floor(wz / 4);
 
       const biome256 = (x, z) => this.cached('biome_256', x, z, () => {
         const landCell = legacyMain.landFn256(x, z);
@@ -235,8 +233,12 @@
       const biome8 = (x, z) => zoomBiome(biome16, x, z, 2005);
       const biome4Pre = (x, z) => zoomBiome(biome8, x, z, 2006);
       const biome4 = (x, z) => this.cached('biome_4', x, z, () => this.ops.smoothBiome(biome4Pre(x, z), x * 4, z * 4, 4));
+      const biome2Pre = (x, z) => zoomBiome(biome4, x, z, 2007);
+      const biome2 = (x, z) => this.cached('biome_2', x, z, () => this.ops.smoothBiome(biome2Pre(x, z), x * 2, z * 2, 2));
+      const biome1Pre = (x, z) => zoomBiome(biome2, x, z, 2008);
+      const biome1 = (x, z) => this.cached('biome_1', x, z, () => this.ops.smoothBiome(biome1Pre(x, z), x, z, 1));
 
-      return biome4(x4, z4);
+      return biome1(wx, wz);
     }
   }
 
