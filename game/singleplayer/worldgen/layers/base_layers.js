@@ -8,13 +8,17 @@
     COLD: 12,
     FREEZING: 13,
     SPECIAL: 14,
+    WARM_SPECIAL: 15,
+    TEMPERATE_SPECIAL: 16,
+    COLD_SPECIAL: 17,
   };
 
   class LayerOps {
-    constructor({ seed, random, perlin }) {
+    constructor({ seed, random, perlin, settings = {} }) {
       this.seed = seed | 0;
       this.random = random;
       this.perlin = perlin;
+      this.settings = settings;
     }
 
     toCell(wx, wz, scale) {
@@ -74,18 +78,29 @@
       if (landMask !== C.LAND) return C.OCEAN;
       const c = this.toCell(wx, wz, scale);
       const r = this.random.at2D(c.x, c.z, this.seed + 303);
-      const special = this.random.at2D(c.x, c.z, this.seed + 304) < (1 / 13);
-      if (special) return C.SPECIAL;
-      if (r < 4 / 6) return C.WARM;
-      if (r < 5 / 6) return C.COLD;
-      return C.FREEZING;
+      const ratios = this.settings.temperatureRatios || { warm: 4 / 6, cold: 1 / 6, freezing: 1 / 6 };
+      const warmCutoff = Math.max(0, Math.min(1, Number(ratios.warm) || (4 / 6)));
+      const coldCutoff = Math.max(warmCutoff, Math.min(1, warmCutoff + (Number(ratios.cold) || (1 / 6))));
+      const specialChance = Number(this.settings.specialRegionChance) || (1 / 13);
+      const special = this.random.at2D(c.x, c.z, this.seed + 304) < specialChance;
+
+      let baseTemp = C.FREEZING;
+      if (r < warmCutoff) baseTemp = C.WARM;
+      else if (r < coldCutoff) baseTemp = C.COLD;
+
+      if (!special) return baseTemp;
+      if (baseTemp === C.WARM) return C.WARM_SPECIAL;
+      if (baseTemp === C.COLD) return C.COLD_SPECIAL;
+      return C.TEMPERATE_SPECIAL;
     }
 
     warmToTemperate(temp, wx, wz, scale) {
-      if (temp !== C.WARM) return temp;
+      const special = temp === C.WARM_SPECIAL;
+      if (temp !== C.WARM && !special) return temp;
       const c = this.toCell(wx, wz, scale);
       const n = this.perlin.noise2D(c.x * 0.41 + 90, c.z * 0.41 - 90);
-      return n < -0.08 ? C.TEMPERATE : temp;
+      if (n < -0.08) return special ? C.TEMPERATE_SPECIAL : C.TEMPERATE;
+      return temp;
     }
 
     freezingToCold(temp, wx, wz, scale) {
@@ -119,6 +134,13 @@
     temperatureToBiome(temp, wx, wz, scale) {
       const c = this.toCell(wx, wz, scale);
       const r = this.random.at2D(c.x, c.z, this.seed + 1200);
+      const warmSpecial = temp === C.WARM_SPECIAL;
+      const temperateSpecial = temp === C.TEMPERATE_SPECIAL || temp === C.SPECIAL;
+      const coldSpecial = temp === C.COLD_SPECIAL;
+
+      if (warmSpecial) return 'Badlands Plateau';
+      if (temperateSpecial) return 'Jungle';
+      if (coldSpecial) return 'Giant Taiga';
 
       if (temp === C.WARM) {
         if (r < 0.50) return 'Desert';
@@ -126,21 +148,16 @@
         return 'Plains';
       }
       if (temp === C.TEMPERATE) {
-        if (r < 0.58) return 'Forest';
-        if (r < 0.85) return 'Plains';
+        if (r < 0.56) return 'Forest';
+        if (r < 0.78) return 'Plains';
         return 'Mountains';
       }
       if (temp === C.COLD) {
         if (r < 0.52) return 'Forest';
-        if (r < 0.84) return 'Mountains';
+        if (r < 0.82) return 'Mountains';
         return 'Snowy Plains';
       }
       if (temp === C.FREEZING) return 'Snowy Plains';
-      if (temp === C.SPECIAL) {
-        if (r < 1 / 3) return 'Badlands Plateau';
-        if (r < 2 / 3) return 'Jungle';
-        return 'Giant Taiga';
-      }
       return 'Ocean';
     }
 
@@ -167,18 +184,21 @@
     regionHills(biome, hillNoise, wx, wz, scale) {
       const c = this.toCell(wx, wz, scale);
       const roll = this.random.at2D(c.x, c.z, this.seed + 1400);
-      if (roll > 0.08) return biome;
-      if (biome === 'Desert') return 'Mountains';
-      if (biome === 'Forest') return 'Mountains';
-      if (biome === 'Plains') return 'Mountains';
+      const hillChance = Number(this.settings.regionHillChance) || 0.08;
+      if (roll > hillChance) return biome;
+      if (biome === 'Desert') return 'Desert Hills';
+      if (biome === 'Forest') return 'Wooded Hills';
+      if (biome === 'Plains') return 'Windswept Hills';
       if (biome === 'Ocean' && hillNoise > 0.5) return 'Plains';
       if (biome === 'Deep Ocean' && hillNoise > 0.55) return 'Forest';
       return biome;
     }
 
     shore(biome, wx, wz, scale) {
+      if (biome === 'Mushroom Fields') return biome;
       const c = this.toCell(wx, wz, scale);
       const n = this.perlin.noise2D(c.x * 0.62 + 22, c.z * 0.62 - 22);
+      if (biome === 'Snowy Plains' && n > 0.38 && n < 0.48) return 'Frozen Beach';
       if (biome !== 'Ocean' && biome !== 'Deep Ocean' && n > 0.38 && n < 0.5) return 'Beach';
       return biome;
     }
@@ -186,7 +206,8 @@
     smoothBiome(biome, wx, wz, scale) {
       const c = this.toCell(wx, wz, scale);
       const n = this.perlin.noise2D(c.x * 0.67 + 71, c.z * 0.67 - 71);
-      if (n > 0.88) return 'Plains';
+      if (n > 0.93) return 'Plains';
+      if (n < -0.93 && biome === 'Desert Hills') return 'Desert';
       return biome;
     }
 
