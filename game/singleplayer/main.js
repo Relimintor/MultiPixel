@@ -200,63 +200,28 @@ window.perlin = perlinInstance;
         const dirtyChunkRemeshReasons = new Map();
         let blockUpdateBatchDepth = 0;
         const batchedChunkRemeshNeeds = new Map();
-        const meshVertexBucketPool = [];
-        const POSITION_QUANT_SCALE = 256;
-
-        function acquireMeshVertexBucket() {
-            return meshVertexBucketPool.pop() || { pos: [], norm: [], col: [], uv: [] };
-        }
-
-        function releaseMeshVertexBucket(bucket) {
-            if (!bucket) return;
-            bucket.pos.length = 0;
-            bucket.norm.length = 0;
-            bucket.col.length = 0;
-            bucket.uv.length = 0;
-            meshVertexBucketPool.push(bucket);
-        }
 
         function chunkKeyFromCoords(cx, cz) {
             return `${cx},${cz}`;
         }
 
-        function sectionIndexFromY(y) {
-            return Math.max(0, Math.min(CHUNK_SECTION_COUNT - 1, Math.floor(y / CHUNK_SECTION_HEIGHT)));
-        }
-
-        function markChunkBatchDirty() {
-            chunkBatchDirty = true;
-        }
-
         // Mesh caching policy:
         // keep chunk meshes in GPU buffers and only remesh on explicit triggers.
-        function requestChunkRemesh(cx, cz, reason = 'block', sectionIndex = null) {
+        function requestChunkRemesh(cx, cz, reason = 'block') {
             const key = chunkKeyFromCoords(cx, cz);
             const rank = { load: 0, neighbor: 1, block: 2, lighting: 3 };
             const prev = dirtyChunkRemeshReasons.get(key);
-            const sections = sectionIndex === null ? null : new Set([Math.max(0, Math.min(CHUNK_SECTION_COUNT - 1, sectionIndex))]);
-            if (!prev) {
-                dirtyChunkRemeshReasons.set(key, { reason, sections });
-                return;
+            if (!prev || (rank[reason] ?? 0) >= (rank[prev] ?? 0)) {
+                dirtyChunkRemeshReasons.set(key, reason);
             }
-
-            const prevRank = rank[prev.reason] ?? 0;
-            const nextRank = rank[reason] ?? 0;
-            const mergedReason = nextRank >= prevRank ? reason : prev.reason;
-            let mergedSections = null;
-            if (prev.sections && sections) {
-                mergedSections = new Set(prev.sections);
-                for (const sec of sections) mergedSections.add(sec);
-            }
-            dirtyChunkRemeshReasons.set(key, { reason: mergedReason, sections: mergedSections });
         }
 
-        function requestChunkAndNeighborsRemesh(cx, cz, reason = 'neighbor', sectionIndex = null) {
-            requestChunkRemesh(cx, cz, reason, sectionIndex);
-            requestChunkRemesh(cx - 1, cz, reason, sectionIndex);
-            requestChunkRemesh(cx + 1, cz, reason, sectionIndex);
-            requestChunkRemesh(cx, cz - 1, reason, sectionIndex);
-            requestChunkRemesh(cx, cz + 1, reason, sectionIndex);
+        function requestChunkAndNeighborsRemesh(cx, cz, reason = 'neighbor') {
+            requestChunkRemesh(cx, cz, reason);
+            requestChunkRemesh(cx - 1, cz, reason);
+            requestChunkRemesh(cx + 1, cz, reason);
+            requestChunkRemesh(cx, cz - 1, reason);
+            requestChunkRemesh(cx, cz + 1, reason);
         }
 
         function rebuildDirtyChunkMeshes(forceAll = false) {
@@ -265,31 +230,22 @@ window.perlin = perlinInstance;
             let processed = 0;
 
             const pending = Array.from(dirtyChunkRemeshReasons.entries());
-            for (const [key, request] of pending) {
+            for (const [key, reason] of pending) {
                 if (processed >= budget) break;
                 dirtyChunkRemeshReasons.delete(key);
                 const g = chunks.get(key);
                 if (!g) continue;
-                const forceRemesh = request.reason === 'lighting';
-                const sections = request.sections ? Array.from(request.sections).sort((a, b) => a - b) : Array.from({ length: CHUNK_SECTION_COUNT }, (_, i) => i);
-                for (const sectionIndex of sections) {
-                    updateChunkGeometry(g, g.userData.chunkData, forceRemesh, sectionIndex);
-                }
+                const forceRemesh = reason === 'lighting';
+                updateChunkGeometry(g, g.userData.chunkData, forceRemesh);
                 processed++;
             }
             return processed;
         }
 
-        function markBatchedChunkRemeshNeed(cx, cz, includeNeighbors = false, sectionIndex = null) {
+        function markBatchedChunkRemeshNeed(cx, cz, includeNeighbors = false) {
             const key = chunkKeyFromCoords(cx, cz);
-            const prev = batchedChunkRemeshNeeds.get(key) || { includeNeighbors: false, sections: new Set() };
-            prev.includeNeighbors = Boolean(prev.includeNeighbors || includeNeighbors);
-            if (sectionIndex === null) {
-                prev.sections.clear();
-            } else if (prev.sections.size > 0 || !batchedChunkRemeshNeeds.has(key)) {
-                prev.sections.add(Math.max(0, Math.min(CHUNK_SECTION_COUNT - 1, sectionIndex)));
-            }
-            batchedChunkRemeshNeeds.set(key, prev);
+            const prev = batchedChunkRemeshNeeds.get(key);
+            batchedChunkRemeshNeeds.set(key, Boolean(prev || includeNeighbors));
         }
 
         function beginBlockUpdateBatch() {
@@ -301,16 +257,13 @@ window.perlin = perlinInstance;
             blockUpdateBatchDepth--;
             if (blockUpdateBatchDepth > 0) return;
 
-            for (const [key, req] of batchedChunkRemeshNeeds.entries()) {
+            for (const [key, includeNeighbors] of batchedChunkRemeshNeeds.entries()) {
                 const [cxs, czs] = key.split(',');
                 const cx = Number(cxs);
                 const cz = Number(czs);
                 if (!Number.isFinite(cx) || !Number.isFinite(cz)) continue;
-                const sections = req.sections && req.sections.size ? Array.from(req.sections) : [null];
-                for (const sectionIndex of sections) {
-                    requestChunkRemesh(cx, cz, 'block', sectionIndex);
-                    if (req.includeNeighbors) requestChunkAndNeighborsRemesh(cx, cz, 'neighbor', sectionIndex);
-                }
+                requestChunkRemesh(cx, cz, 'block');
+                if (includeNeighbors) requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
             }
             batchedChunkRemeshNeeds.clear();
         }
@@ -358,20 +311,13 @@ window.perlin = perlinInstance;
             (cpuThreads !== null && cpuThreads <= 4)
         );
         const targetRenderPixelRatio = Math.min(window.devicePixelRatio || 1, isLowEndDevice ? 1 : 1.5);
-        const configuredChunkRenderDistance = Math.floor(Number(worldGenSettings.chunkRenderDistance) || 8);
+        const configuredChunkRenderDistance = Math.floor(Number(worldGenSettings.chunkRenderDistance) || 12);
         const baseChunkRenderDistance = Math.max(4, Math.min(WORLD_RADIUS, configuredChunkRenderDistance));
         const effectiveChunkLoadRadius = Math.max(4, Math.min(WORLD_RADIUS, isLowEndDevice ? Math.max(4, baseChunkRenderDistance - 2) : baseChunkRenderDistance));
         const ENTITY_ACTIVATION_RANGE = Math.max(24, Number(worldGenSettings.entityActivationRange) || 72);
         const ENTITY_ACTIVATION_RANGE_SQ = ENTITY_ACTIVATION_RANGE * ENTITY_ACTIVATION_RANGE;
         const CHUNK_UPDATE_INTERVAL_MS = isLowEndDevice ? 220 : 90;
         const FRUSTUM_CULL_INTERVAL_MS = isLowEndDevice ? 120 : 60;
-        const ENABLE_ANGULAR_OCCLUSION_CULLING = false;
-        const CHUNK_SECTION_HEIGHT = 16;
-        const CHUNK_SECTION_COUNT = Math.ceil(CHUNK_HEIGHT / CHUNK_SECTION_HEIGHT);
-        const CHUNK_RENDER_CULL_RADIUS = effectiveChunkLoadRadius;
-        const CHUNK_RENDER_CULL_RADIUS_SQ = CHUNK_RENDER_CULL_RADIUS * CHUNK_RENDER_CULL_RADIUS;
-        const ENABLE_CHUNK_MESH_BATCHING = true;
-        const CHUNK_BATCH_REBUILD_INTERVAL_MS = 220;
         const chunkOffsetsByRadius = new Map();
         let lastChunkUpdateMs = -Infinity;
         let lastFrustumCullMs = -Infinity;
@@ -389,18 +335,12 @@ window.perlin = perlinInstance;
         const cameraViewProj = new THREE.Matrix4();
         const frustumTempCenter = new THREE.Vector3();
         const frustumTempSphere = new THREE.Sphere();
-        const frustumTempCamSpace = new THREE.Vector3();
-        const frustumCameraForward = new THREE.Vector3();
         const lastFrustumCameraPos = new THREE.Vector3();
         const lastFrustumCameraQuat = new THREE.Quaternion();
         let hasFrustumCameraState = false;
         const chunks = new Map();
         const sparseAirChunkKeys = new Set();
         const worldGroup = new THREE.Group();
-        const chunkBatchGroup = new THREE.Group();
-        const chunkBatchMeshes = new Map();
-        let chunkBatchDirty = true;
-        let lastChunkBatchMs = -Infinity;
         let yawObject, pitchObject; 
         let cameraViewMode = 0; // 0=first, 1=second, 2=third
         let playerAvatar = null;
@@ -415,9 +355,6 @@ window.perlin = perlinInstance;
         let skinSystem = null;
         let iglooStructureDef = null;
         const gnomeEntities = [];
-        const GNOME_INSTANCE_CAPACITY = 512;
-        const gnomeInstancedParts = {};
-        const gnomePartDummy = new THREE.Object3D();
         const pigEntities = [];
         const zombieEntities = [];
         const wolfEntities = [];
@@ -604,7 +541,6 @@ window.perlin = perlinInstance;
             dirLight.position.set(50, 100, 50);
             scene.add(dirLight);
             scene.add(worldGroup);
-            worldGroup.add(chunkBatchGroup);
 
     
             await loadPigTexture();
@@ -670,13 +606,6 @@ window.perlin = perlinInstance;
             renderer = new THREE.WebGLRenderer({ antialias: !isLowEndDevice });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(targetRenderPixelRatio);
-            // GPU backface culling: skip rendering triangles facing away from camera.
-            // This cuts fragment/triangle workload for closed meshes while keeping
-            // explicitly double-sided materials (e.g. leaves/water) working as-is.
-            const gl = renderer.getContext();
-            gl.enable(gl.CULL_FACE);
-            gl.cullFace(gl.BACK);
-            gl.frontFace(gl.CCW);
             document.body.appendChild(renderer.domElement);
             setupFirstPersonHandOverlay();
             setupInventorySkinRig();
@@ -896,42 +825,32 @@ window.perlin = perlinInstance;
             return sprite;
         }
 
-        function ensureGnomeInstancing() {
-            if (gnomeInstancedParts.body) return;
-
-            const bodyGeom = new THREE.BoxGeometry(0.7, 0.7, 0.7);
-            const headGeom = new THREE.BoxGeometry(0.52, 0.52, 0.52);
-            const legGeom = new THREE.BoxGeometry(0.2, 0.55, 0.2);
-
-            const bodyMat = new THREE.MeshStandardMaterial({ color: 0x3d70ff, roughness: 0.7 });
-            const headMat = new THREE.MeshStandardMaterial({ color: 0x7ea2ff, roughness: 0.65 });
-            const legMat = new THREE.MeshStandardMaterial({ color: 0x2a4bc0, roughness: 0.8 });
-
-            gnomeInstancedParts.body = new THREE.InstancedMesh(bodyGeom, bodyMat, GNOME_INSTANCE_CAPACITY);
-            gnomeInstancedParts.head = new THREE.InstancedMesh(headGeom, headMat, GNOME_INSTANCE_CAPACITY);
-            gnomeInstancedParts.leftLeg = new THREE.InstancedMesh(legGeom, legMat, GNOME_INSTANCE_CAPACITY);
-            gnomeInstancedParts.rightLeg = new THREE.InstancedMesh(legGeom, legMat, GNOME_INSTANCE_CAPACITY);
-
-            for (const key of ['body', 'head', 'leftLeg', 'rightLeg']) {
-                const mesh = gnomeInstancedParts[key];
-                mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-                mesh.frustumCulled = false;
-                scene.add(mesh);
-            }
-        }
-
         function spawnGnomeAt(wx, wy, wz) {
-            if (gnomeEntities.length >= GNOME_INSTANCE_CAPACITY) return;
-            ensureGnomeInstancing();
-            const anchor = new THREE.Group();
-            anchor.position.set(wx + 0.5, wy, wz + 0.5);
+            const gnome = new THREE.Group();
+            gnome.position.set(wx + 0.5, wy, wz + 0.5);
+
+            const body = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), new THREE.MeshStandardMaterial({ color: 0x3d70ff, roughness: 0.7 }));
+            body.position.y = 0.95;
+            gnome.add(body);
+
+            const head = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.52, 0.52), new THREE.MeshStandardMaterial({ color: 0x7ea2ff, roughness: 0.65 }));
+            head.position.y = 1.55;
+            gnome.add(head);
+
+            const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.55, 0.2), new THREE.MeshStandardMaterial({ color: 0x2a4bc0, roughness: 0.8 }));
+            leftLeg.position.set(-0.18, 0.28, 0);
+            gnome.add(leftLeg);
+
+            const rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.55, 0.2), new THREE.MeshStandardMaterial({ color: 0x2a4bc0, roughness: 0.8 }));
+            rightLeg.position.set(0.18, 0.28, 0);
+            gnome.add(rightLeg);
 
             const tag = createNameTagSprite('gnomes');
             tag.position.y = 2.15;
-            anchor.add(tag);
+            gnome.add(tag);
 
-            gnomeEntities.push({ root: anchor, phase: Math.random() * Math.PI * 2 });
-            scene.add(anchor);
+            gnomeEntities.push({ root: gnome, head, leftLeg, rightLeg, phase: Math.random() * Math.PI * 2 });
+            scene.add(gnome);
         }
 
         function isEntityActiveAt(position, rangeSq = ENTITY_ACTIVATION_RANGE_SQ) {
@@ -944,38 +863,13 @@ window.perlin = perlinInstance;
         function updateGnomes(time) {
             if (!gnomeEntities.length) return;
             const lookTarget = new THREE.Vector3(yawObject.position.x, 0, yawObject.position.z);
-            for (let i = 0; i < gnomeEntities.length; i++) {
-                const g = gnomeEntities[i];
-                const active = isEntityActiveAt(g.root.position);
-                const swing = active ? Math.sin(time * 0.007 + g.phase) * 0.16 : 0;
-
+            for (const g of gnomeEntities) {
+                if (!isEntityActiveAt(g.root.position)) continue;
+                const swing = Math.sin(time * 0.007 + g.phase) * 0.16;
+                g.leftLeg.position.z = swing;
+                g.rightLeg.position.z = -swing;
                 lookTarget.y = g.root.position.y + 1.55;
-                const headYaw = Math.atan2(lookTarget.x - g.root.position.x, lookTarget.z - g.root.position.z);
-
-                gnomePartDummy.position.set(g.root.position.x, g.root.position.y + 0.95, g.root.position.z);
-                gnomePartDummy.rotation.set(0, 0, 0);
-                gnomePartDummy.updateMatrix();
-                gnomeInstancedParts.body.setMatrixAt(i, gnomePartDummy.matrix);
-
-                gnomePartDummy.position.set(g.root.position.x, g.root.position.y + 1.55, g.root.position.z);
-                gnomePartDummy.rotation.set(0, headYaw, 0);
-                gnomePartDummy.updateMatrix();
-                gnomeInstancedParts.head.setMatrixAt(i, gnomePartDummy.matrix);
-
-                gnomePartDummy.position.set(g.root.position.x - 0.18, g.root.position.y + 0.28, g.root.position.z + swing);
-                gnomePartDummy.rotation.set(0, 0, 0);
-                gnomePartDummy.updateMatrix();
-                gnomeInstancedParts.leftLeg.setMatrixAt(i, gnomePartDummy.matrix);
-
-                gnomePartDummy.position.set(g.root.position.x + 0.18, g.root.position.y + 0.28, g.root.position.z - swing);
-                gnomePartDummy.rotation.set(0, 0, 0);
-                gnomePartDummy.updateMatrix();
-                gnomeInstancedParts.rightLeg.setMatrixAt(i, gnomePartDummy.matrix);
-            }
-
-            for (const key of ['body', 'head', 'leftLeg', 'rightLeg']) {
-                gnomeInstancedParts[key].count = gnomeEntities.length;
-                gnomeInstancedParts[key].instanceMatrix.needsUpdate = true;
+                g.head.lookAt(lookTarget);
             }
         }
 
@@ -1385,7 +1279,7 @@ window.perlin = perlinInstance;
             const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
             if (under !== 1 && under !== 2) return false;
             const biome = getBiome(Math.floor(wx), Math.floor(wz));
-            if (biome !== 'Forest' && biome !== 'Snowy Plains') return false;
+            if (biome !== 'Forest') return false;
             return spawnWolfAtExact(wx, y, wz);
         }
 
@@ -2629,31 +2523,22 @@ window.perlin = perlinInstance;
             worldGroup.add(breakingCrackMesh);
         }
 
-        function getRaycastMeshes() {
-            const meshes = [];
-            for (const g of worldGroup.children) {
-                if (!g) continue;
-                if (g === breakingCrackMesh) continue;
-                if (g.isMesh) {
-                    meshes.push(g);
-                    continue;
-                }
-                if (g.visible === false) continue;
-                if (!g.children) continue;
-                for (const m of g.children) {
-                    if (!m || m === breakingCrackMesh) continue;
-                    if (m.visible === false) continue;
-                    meshes.push(m);
-                }
-            }
-            return meshes;
-        }
-
         function getTargetBlockFromCrosshair() {
             if (!raycaster || !camera) return null;
             raycaster.setFromCamera({ x: 0, y: 0 }, camera);
 
-            const intersects = raycaster.intersectObjects(getRaycastMeshes(), true);
+            const meshes = [];
+            worldGroup.children.forEach(g => {
+                if (g === breakingCrackMesh) return;
+                if (g.isMesh) meshes.push(g);
+                else if (g.children) {
+                    g.children.forEach(m => {
+                        if (m !== breakingCrackMesh) meshes.push(m);
+                    });
+                }
+            });
+
+            const intersects = raycaster.intersectObjects(meshes, true);
             if (intersects.length <= 0) return null;
 
             for (const hit of intersects) {
@@ -2743,7 +2628,9 @@ window.perlin = perlinInstance;
         function interactOrPlaceAtCrosshair() {
             if (tryEatSelectedItem()) return;
             raycaster.setFromCamera({ x: 0, y: 0 }, camera);
-            const intersects = raycaster.intersectObjects(getRaycastMeshes(), true);
+            const meshes = [];
+            worldGroup.children.forEach(g => g.children.forEach(m => meshes.push(m)));
+            const intersects = raycaster.intersectObjects(meshes, true);
             if (!intersects.length) return;
 
             const hit = intersects[0];
@@ -2789,7 +2676,9 @@ window.perlin = perlinInstance;
             if (!player.canMove || isInventoryOpen) return;
 
             raycaster.setFromCamera({ x: 0, y: 0 }, camera);
-            const intersects = raycaster.intersectObjects(getRaycastMeshes(), true);
+            const meshes = [];
+            worldGroup.children.forEach(g => g.children.forEach(m => meshes.push(m)));
+            const intersects = raycaster.intersectObjects(meshes, true);
             if (!intersects.length) return;
 
             if (event.button === 0) {
@@ -2853,15 +2742,15 @@ window.perlin = perlinInstance;
             if (oldType === newType) return false;
             chunkData[index] = newType;
 
-            // Chunk meshing rebuild triggers by 16x16x16 section:
-            const section = sectionIndexFromY(wy);
-            requestChunkRemesh(cx, cz, 'block', section);
-            if (wy % CHUNK_SECTION_HEIGHT === 0 && section > 0) requestChunkRemesh(cx, cz, 'block', section - 1);
-            if (wy % CHUNK_SECTION_HEIGHT === CHUNK_SECTION_HEIGHT - 1 && section < CHUNK_SECTION_COUNT - 1) requestChunkRemesh(cx, cz, 'block', section + 1);
-            if (lx <= 0) requestChunkRemesh(cx - 1, cz, 'neighbor', section);
-            if (lx >= CHUNK_SIZE - 1) requestChunkRemesh(cx + 1, cz, 'neighbor', section);
-            if (lz <= 0) requestChunkRemesh(cx, cz - 1, 'neighbor', section);
-            if (lz >= CHUNK_SIZE - 1) requestChunkRemesh(cx, cz + 1, 'neighbor', section);
+            // Chunk meshing rebuild triggers:
+            // - block changes
+            // - neighbor chunk changes (edge edits)
+            // - lighting-affecting changes (deferred through same dirty queue)
+            requestChunkRemesh(cx, cz, 'block');
+            if (lx <= 0) requestChunkRemesh(cx - 1, cz, 'neighbor');
+            if (lx >= CHUNK_SIZE - 1) requestChunkRemesh(cx + 1, cz, 'neighbor');
+            if (lz <= 0) requestChunkRemesh(cx, cz - 1, 'neighbor');
+            if (lz >= CHUNK_SIZE - 1) requestChunkRemesh(cx, cz + 1, 'neighbor');
 
             updateChunkHeightmapColumn(group, lx, lz);
 
@@ -3014,7 +2903,7 @@ window.perlin = perlinInstance;
                 return true;
             }
 
-            updateChunkAndNeighbors(group, lx, wy, lz);
+            updateChunkAndNeighbors(group, lx, lz);
             return true;
         }
 
@@ -4374,7 +4263,7 @@ function buildPartFaceRects(x, y, w, h, d) {
         }
         
         function generateChunkData(cx, cz) {
-             const data = new Array(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE).fill(0);
+             const data = new Array(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
              const spawnedGnomes = [];
              
              for (let x = 0; x < CHUNK_SIZE; x++) {
@@ -4788,8 +4677,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             const centerZ = Math.floor(CHUNK_SIZE / 2);
             const worldX = cx * CHUNK_SIZE + centerX;
             const worldZ = cz * CHUNK_SIZE + centerZ;
-            const packBiome = getBiome(worldX, worldZ);
-            if (packBiome !== 'Forest' && packBiome !== 'Snowy Plains') return;
+            if (getBiome(worldX, worldZ) !== 'Forest') return;
             if (hashRand2D(cx, cz, 7701) > 0.12) return;
 
             const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
@@ -4827,11 +4715,10 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
             sparseAirChunkKeys.delete(chunkKey);
             const group = new THREE.Group();
-            group.userData = { chunkData: data, heightmap, cx, cz, sectionMeshHashes: new Array(CHUNK_SECTION_COUNT).fill(null), frustumRadius: Math.sqrt((CHUNK_SIZE*CHUNK_SIZE)*0.5 + (CHUNK_HEIGHT*CHUNK_HEIGHT)*0.25) };
+            group.userData = { chunkData: data, heightmap, cx, cz, meshHash: null, frustumRadius: Math.sqrt((CHUNK_SIZE*CHUNK_SIZE)*0.5 + (CHUNK_HEIGHT*CHUNK_HEIGHT)*0.25) };
             chunks.set(chunkKey, group);
-            requestChunkAndNeighborsRemesh(cx, cz, 'load');
+            requestChunkRemesh(cx, cz, 'load');
             worldGroup.add(group);
-            markChunkBatchDirty();
             if (generated.spawnedGnomes && generated.spawnedGnomes.length) {
                 for (const g of generated.spawnedGnomes) spawnGnomeAt(g.wx, g.wy, g.wz);
             }
@@ -4845,18 +4732,11 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
         }
 
 
-        function computeChunkSectionHash(data, sectionIndex) {
-            const sectionStartY = sectionIndex * CHUNK_SECTION_HEIGHT;
-            const sectionEndY = Math.min(CHUNK_HEIGHT, sectionStartY + CHUNK_SECTION_HEIGHT);
+        function computeChunkHash(data) {
             let h = 2166136261 >>> 0;
-            for (let z = 0; z < CHUNK_SIZE; z++) {
-                for (let y = sectionStartY; y < sectionEndY; y++) {
-                    for (let x = 0; x < CHUNK_SIZE; x++) {
-                        const idx = x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
-                        h ^= data[idx] & 0xff;
-                        h = Math.imul(h, 16777619) >>> 0;
-                    }
-                }
+            for (let i = 0; i < data.length; i++) {
+                h ^= data[i] & 0xff;
+                h = Math.imul(h, 16777619) >>> 0;
             }
             return h >>> 0;
         }
@@ -4888,29 +4768,16 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             chunks.delete(chunkKey);
             sparseAirChunkKeys.add(chunkKey);
             dirtyChunkRemeshReasons.delete(chunkKey);
-            markChunkBatchDirty();
         }
 
         function updateChunkFrustumCulling() {
             camera.updateMatrixWorld();
             cameraViewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
             frustum.setFromProjectionMatrix(cameraViewProj);
-            const playerChunkX = yawObject ? Math.floor(yawObject.position.x / CHUNK_SIZE) : 0;
-            const playerChunkZ = yawObject ? Math.floor(yawObject.position.z / CHUNK_SIZE) : 0;
 
             // Stage 1: frustum culling candidates.
             const candidates = [];
             for (const group of chunks.values()) {
-                const prevVisible = group.visible;
-                const dxChunks = group.userData.cx - playerChunkX;
-                const dzChunks = group.userData.cz - playerChunkZ;
-                const chunkDistSq = dxChunks * dxChunks + dzChunks * dzChunks;
-                if (chunkDistSq > CHUNK_RENDER_CULL_RADIUS_SQ) {
-                    group.visible = false;
-                    if (prevVisible !== group.visible) markChunkBatchDirty();
-                    continue;
-                }
-
                 frustumTempCenter.set(
                     group.userData.cx * CHUNK_SIZE + CHUNK_SIZE * 0.5,
                     CHUNK_HEIGHT * 0.5,
@@ -4921,34 +4788,20 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 const inView = frustum.intersectsSphere(frustumTempSphere);
                 // Chunk-level frustum culling: skip rendering chunks outside camera view.
                 group.visible = inView;
-                if (prevVisible !== group.visible) markChunkBatchDirty();
                 if (!inView) continue;
 
-                frustumTempCamSpace.copy(frustumTempCenter).applyMatrix4(camera.matrixWorldInverse);
-                const camX = frustumTempCamSpace.x;
-                const camY = frustumTempCamSpace.y;
-                const camZ = frustumTempCamSpace.z;
-                const dist = Math.sqrt(camX * camX + camY * camY + camZ * camZ);
-                candidates.push({ group, camX, camY, camZ, dist });
+                const camSpace = frustumTempCenter.clone().applyMatrix4(camera.matrixWorldInverse);
+                if (camSpace.z >= 0) {
+                    group.visible = false;
+                    continue;
+                }
+
+                const dist = Math.sqrt(camSpace.x * camSpace.x + camSpace.y * camSpace.y + camSpace.z * camSpace.z);
+                candidates.push({ group, camSpace, dist });
             }
 
             // Stage 2: lightweight chunk occlusion culling.
             // Keep nearest chunk depth per angular cell; farther chunks in the same cell are treated as hidden.
-            if (!ENABLE_ANGULAR_OCCLUSION_CULLING) {
-                for (const c of candidates) c.group.visible = true;
-                if (ENABLE_CHUNK_MESH_BATCHING) markChunkBatchDirty();
-                return;
-            }
-
-            // Disable this approximation at steep pitch angles to avoid false positives while looking down/up.
-            frustumCameraForward.set(0, 0, -1).applyQuaternion(camera.quaternion);
-            const useAngularOcclusion = Math.abs(frustumCameraForward.y) < 0.45;
-            if (!useAngularOcclusion) {
-                for (const c of candidates) c.group.visible = true;
-                if (ENABLE_CHUNK_MESH_BATCHING) markChunkBatchDirty();
-                return;
-            }
-
             const AZ_BINS = 24;
             const EL_BINS = 14;
             const nearestDepth = new Float32Array(AZ_BINS * EL_BINS);
@@ -4959,8 +4812,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
             for (const c of candidates) {
                 if (c.dist > MAX_OCCLUSION_DIST) continue;
-                const az = Math.atan2(c.camX, -c.camZ);
-                const el = Math.atan2(c.camY, Math.max(0.0001, Math.hypot(c.camX, c.camZ)));
+                const az = Math.atan2(c.camSpace.x, -c.camSpace.z);
+                const el = Math.atan2(c.camSpace.y, Math.max(0.0001, Math.hypot(c.camSpace.x, c.camSpace.z)));
                 const azN = (az + Math.PI) / (Math.PI * 2);
                 const elN = (el + Math.PI * 0.5) / Math.PI;
                 const ai = Math.max(0, Math.min(AZ_BINS - 1, Math.floor(azN * AZ_BINS)));
@@ -4970,17 +4823,14 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             }
 
             for (const c of candidates) {
-                // Keep local neighborhood around the player always visible to prevent x-ray holes.
-                const dx = c.group.userData.cx - playerChunkX;
-                const dz = c.group.userData.cz - playerChunkZ;
-                const isLocalNeighborhood = Math.max(Math.abs(dx), Math.abs(dz)) <= 1;
-                if (isLocalNeighborhood || c.dist <= CHUNK_SIZE * 2.5) {
+                // Never occlusion-cull near chunks to avoid visible popping around player.
+                if (c.dist <= CHUNK_SIZE * 2.5) {
                     c.group.visible = true;
                     continue;
                 }
 
-                const az = Math.atan2(c.camX, -c.camZ);
-                const el = Math.atan2(c.camY, Math.max(0.0001, Math.hypot(c.camX, c.camZ)));
+                const az = Math.atan2(c.camSpace.x, -c.camSpace.z);
+                const el = Math.atan2(c.camSpace.y, Math.max(0.0001, Math.hypot(c.camSpace.x, c.camSpace.z)));
                 const azN = (az + Math.PI) / (Math.PI * 2);
                 const elN = (el + Math.PI * 0.5) / Math.PI;
                 const ai = Math.max(0, Math.min(AZ_BINS - 1, Math.floor(azN * AZ_BINS)));
@@ -4991,25 +4841,44 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 c.group.visible = !occluded;
             }
 
-            if (ENABLE_CHUNK_MESH_BATCHING) markChunkBatchDirty();
-        }
-
-        function updateChunkAndNeighbors(centerGroup, lx, ly, lz) {
+        function updateChunkAndNeighbors(centerGroup, lx, lz) {
             const cx = centerGroup.userData.cx;
             const cz = centerGroup.userData.cz;
             const needsNeighbors = (lx === 0 || lx === CHUNK_SIZE - 1 || lz === 0 || lz === CHUNK_SIZE - 1);
-            const touchedSections = new Set([sectionIndexFromY(ly)]);
-            if (ly % CHUNK_SECTION_HEIGHT === 0 && ly > 0) touchedSections.add(sectionIndexFromY(ly - 1));
-            if (ly % CHUNK_SECTION_HEIGHT === CHUNK_SECTION_HEIGHT - 1 && ly < CHUNK_HEIGHT - 1) touchedSections.add(sectionIndexFromY(ly + 1));
 
             if (blockUpdateBatchDepth > 0) {
-                for (const sec of touchedSections) markBatchedChunkRemeshNeed(cx, cz, needsNeighbors, sec);
+                markBatchedChunkRemeshNeed(cx, cz, needsNeighbors);
                 return;
             }
 
-            for (const sec of touchedSections) {
-                requestChunkRemesh(cx, cz, 'block', sec);
-                if (needsNeighbors) requestChunkAndNeighborsRemesh(cx, cz, 'neighbor', sec);
+            requestChunkRemesh(cx, cz, 'block');
+            if (needsNeighbors) {
+                requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
+            }
+
+            requestChunkRemesh(cx, cz, 'block');
+            if (needsNeighbors) {
+                requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
+            }
+
+        function updateChunkAndNeighbors(centerGroup, lx, lz) {
+            const cx = centerGroup.userData.cx;
+            const cz = centerGroup.userData.cz;
+            const needsNeighbors = (lx === 0 || lx === CHUNK_SIZE - 1 || lz === 0 || lz === CHUNK_SIZE - 1);
+
+            if (blockUpdateBatchDepth > 0) {
+                markBatchedChunkRemeshNeed(cx, cz, needsNeighbors);
+                return;
+            }
+
+            requestChunkRemesh(cx, cz, 'block');
+            if (needsNeighbors) {
+                requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
+            }
+
+            requestChunkRemesh(cx, cz, 'block');
+            if (needsNeighbors) {
+                requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
             }
             rebuildDirtyChunkMeshes();
         }
@@ -5072,135 +4941,6 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             torchLightsByChunk.delete(chunkKey);
         }
 
-        function collectChunkTorchPositions(data, cx, cz) {
-            const out = [];
-            for (let x = 0; x < CHUNK_SIZE; x++) {
-                for (let z = 0; z < CHUNK_SIZE; z++) {
-                    for (let y = 0; y < CHUNK_HEIGHT; y++) {
-                        const idx = x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
-                        if (data[idx] === 22) out.push({ x: x + cx * CHUNK_SIZE, y, z: z + cz * CHUNK_SIZE });
-                    }
-                }
-            }
-            return out;
-        }
-
-        function decodeNormalizedAttributeValue(attr, value) {
-            if (!attr?.normalized) return value;
-            const array = attr.array;
-            if (array instanceof Int8Array) return Math.max(-1, value / 127);
-            if (array instanceof Uint8Array) return value / 255;
-            if (array instanceof Int16Array) return Math.max(-1, value / 32767);
-            if (array instanceof Uint16Array) return value / 65535;
-            return value;
-        }
-
-        function rebuildChunkMeshBatches() {
-            if (!ENABLE_CHUNK_MESH_BATCHING) return;
-
-            for (const mesh of chunkBatchMeshes.values()) {
-                if (mesh.geometry) mesh.geometry.dispose();
-                chunkBatchGroup.remove(mesh);
-            }
-            chunkBatchMeshes.clear();
-
-            const grouped = new Map();
-            const tmpPos = new THREE.Vector3();
-            const tmpNorm = new THREE.Vector3();
-            const normalMatrix = new THREE.Matrix3();
-
-            worldGroup.updateMatrixWorld(true);
-
-            // Reset source chunk mesh visibility before deciding what gets batched this pass.
-            for (const chunkGroup of chunks.values()) {
-                if (!chunkGroup.children) continue;
-                for (const sourceMesh of chunkGroup.children) {
-                    if (!sourceMesh?.isMesh || sourceMesh.userData?.isChunkBatchMesh !== true) continue;
-                    sourceMesh.visible = true;
-                }
-            }
-
-            for (const chunkGroup of chunks.values()) {
-                if (!chunkGroup.visible || !chunkGroup.children) continue;
-                for (const sourceMesh of chunkGroup.children) {
-                    if (!sourceMesh?.isMesh || sourceMesh.userData?.isChunkBatchMesh !== true) continue;
-                    const geom = sourceMesh.geometry;
-                    const mat = sourceMesh.material;
-                    if (!geom || !mat) continue;
-
-                    // Preserve textured block rendering quality on source meshes.
-                    // The merge path currently focuses on non-textured chunk geometry.
-                    if (mat.map) continue;
-
-                    const posAttr = geom.getAttribute('position');
-                    const normAttr = geom.getAttribute('normal');
-                    if (!posAttr || !normAttr) continue;
-
-                    sourceMesh.visible = false;
-
-                    const key = mat.uuid;
-                    let bucket = grouped.get(key);
-                    if (!bucket) {
-                        bucket = { material: mat, pos: [], norm: [], uv: [], col: [], hasUv: false, hasCol: false };
-                        grouped.set(key, bucket);
-                    }
-
-                    const uvAttr = geom.getAttribute('uv');
-                    const colAttr = geom.getAttribute('color');
-                    bucket.hasUv = bucket.hasUv || Boolean(uvAttr);
-                    bucket.hasCol = bucket.hasCol || Boolean(colAttr);
-
-                    normalMatrix.getNormalMatrix(sourceMesh.matrixWorld);
-                    const count = posAttr.count;
-                    for (let i = 0; i < count; i++) {
-                        tmpPos.set(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i)).applyMatrix4(sourceMesh.matrixWorld);
-                        bucket.pos.push(tmpPos.x, tmpPos.y, tmpPos.z);
-
-                        const nx = decodeNormalizedAttributeValue(normAttr, normAttr.getX(i));
-                        const ny = decodeNormalizedAttributeValue(normAttr, normAttr.getY(i));
-                        const nz = decodeNormalizedAttributeValue(normAttr, normAttr.getZ(i));
-                        tmpNorm.set(nx, ny, nz).applyMatrix3(normalMatrix).normalize();
-                        bucket.norm.push(tmpNorm.x, tmpNorm.y, tmpNorm.z);
-
-                        if (uvAttr) {
-                            const u = decodeNormalizedAttributeValue(uvAttr, uvAttr.getX(i));
-                            const v = decodeNormalizedAttributeValue(uvAttr, uvAttr.getY(i));
-                            bucket.uv.push(u, v);
-                        }
-                        if (colAttr) {
-                            bucket.col.push(colAttr.getX(i), colAttr.getY(i), colAttr.getZ(i));
-                        }
-                    }
-                }
-            }
-
-            for (const [key, bucket] of grouped.entries()) {
-                if (bucket.pos.length === 0) continue;
-                const geom = new THREE.BufferGeometry();
-                geom.setAttribute('position', new THREE.Float32BufferAttribute(bucket.pos, 3));
-                geom.setAttribute('normal', new THREE.Float32BufferAttribute(bucket.norm, 3));
-                if (bucket.hasUv && bucket.uv.length > 0) geom.setAttribute('uv', new THREE.Float32BufferAttribute(bucket.uv, 2));
-                if (bucket.hasCol && bucket.col.length > 0) geom.setAttribute('color', new THREE.Float32BufferAttribute(bucket.col, 3));
-
-                const batched = new THREE.Mesh(geom, bucket.material);
-                batched.frustumCulled = false;
-                batched.userData.isChunkBatchMesh = true;
-                chunkBatchMeshes.set(key, batched);
-                chunkBatchGroup.add(batched);
-            }
-
-            chunkBatchGroup.visible = true;
-            chunkBatchDirty = false;
-        }
-
-        function maybeUpdateChunkMeshBatching(nowMs) {
-            if (!ENABLE_CHUNK_MESH_BATCHING) return;
-            if (!chunkBatchDirty) return;
-            if ((nowMs - lastChunkBatchMs) < CHUNK_BATCH_REBUILD_INTERVAL_MS) return;
-            lastChunkBatchMs = nowMs;
-            rebuildChunkMeshBatches();
-        }
-
         function syncTorchLightsForChunk(group, torchPositions) {
             if (!scene) return;
             const chunkKey = `${group.userData.cx},${group.userData.cz}`;
@@ -5219,23 +4959,22 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             if (created.length) torchLightsByChunk.set(chunkKey, created);
         }
 
-        function updateChunkGeometry(group, data, forceRemesh = false, sectionIndex = 0) {
+        function updateChunkGeometry(group, data, forceRemesh = false) {
 
-            // Chunk meshing pipeline (subchunk mode): blocks -> greedy mesh -> vertex buffer -> GPU.
-            const nextHash = computeChunkSectionHash(data, sectionIndex);
-            const sectionHashes = group.userData.sectionMeshHashes || (group.userData.sectionMeshHashes = new Array(CHUNK_SECTION_COUNT).fill(null));
-            if (!forceRemesh && sectionHashes[sectionIndex] === nextHash && group.children.length > 0) return;
-            sectionHashes[sectionIndex] = nextHash;
+            // Chunk meshing pipeline: blocks -> greedy mesh -> vertex buffer -> GPU.
+            const nextHash = computeChunkHash(data);
+            if (!forceRemesh && group.userData.meshHash === nextHash && group.children.length > 0) return;
+            group.userData.meshHash = nextHash;
 
             const meshesByKey = group.userData.meshesByKey || new Map();
             group.userData.meshesByKey = meshesByKey;
 
             // Map to hold CPU-side staging arrays before single VBO upload per chunk material.
-            const geometryData = {};
-            const usedGeometryBuckets = [];
+            const geometryData = {}; 
             
             const cx = group.userData.cx;
             const cz = group.userData.cz;
+            const torchPositions = [];
 
             const faces = [
                 { name: 'posX', dir: [1,0,0], corners: [[1,1,1],[1,0,1],[1,0,0],[1,1,0]], uv: [0,1, 0,0, 1,0, 1,1] },
@@ -5256,40 +4995,14 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
             const CH = CHUNK_HEIGHT;
             const CS = CHUNK_SIZE;
-            const sectionStartY = sectionIndex * CHUNK_SECTION_HEIGHT;
-            const sectionEndY = Math.min(CH, sectionStartY + CHUNK_SECTION_HEIGHT);
-            const sectionPrefix = `s${sectionIndex}|`;
-
-            const westChunk = chunks.get(`${cx - 1},${cz}`);
-            const eastChunk = chunks.get(`${cx + 1},${cz}`);
-            const northChunk = chunks.get(`${cx},${cz - 1}`);
-            const southChunk = chunks.get(`${cx},${cz + 1}`);
 
             const get = (x,y,z) => {
-                if (y < 0 || y >= CH) return 0;
-                if (x >= 0 && x < CS && z >= 0 && z < CS) {
-                    return data[x + y * CS + z * CS * CH];
+                if (x < 0 || x >= CS || z < 0 || z >= CS || y < 0 || y >= CH) {
+                    const wx = x + cx * CS;
+                    const wz = z + cz * CS;
+                    return getBlockType(wx, y, wz);
                 }
-
-                // Cross-chunk face checking at chunk borders:
-                // sample adjacent loaded chunk data directly; if adjacent chunk is missing,
-                // treat as air so border faces remain visible until that chunk loads.
-                if (x < 0 && z >= 0 && z < CS && westChunk?.userData?.chunkData) {
-                    return westChunk.userData.chunkData[(CS - 1) + y * CS + z * CS * CH];
-                }
-                if (x >= CS && z >= 0 && z < CS && eastChunk?.userData?.chunkData) {
-                    return eastChunk.userData.chunkData[0 + y * CS + z * CS * CH];
-                }
-                if (z < 0 && x >= 0 && x < CS && northChunk?.userData?.chunkData) {
-                    return northChunk.userData.chunkData[x + y * CS + (CS - 1) * CS * CH];
-                }
-                if (z >= CS && x >= 0 && x < CS && southChunk?.userData?.chunkData) {
-                    return southChunk.userData.chunkData[x + y * CS + 0 * CS * CH];
-                }
-
-                // Corners and unloaded neighbors: do not use terrain fallback here,
-                // otherwise chunk-edge faces can be incorrectly culled.
-                return 0;
+                return data[x + y * CS + z * CS * CH];
             };
 
             const isTransparentBlock = (id) => {
@@ -5335,12 +5048,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             };
 
             const ensureGeometryData = (materialKey) => {
-                const sectionKey = `${sectionPrefix}${materialKey}`;
-                if (!geometryData[sectionKey]) {
-                    geometryData[sectionKey] = acquireMeshVertexBucket();
-                    usedGeometryBuckets.push(geometryData[sectionKey]);
-                }
-                return geometryData[sectionKey];
+                if (!geometryData[materialKey]) geometryData[materialKey] = { pos: [], norm: [], col: [], uv: [] };
+                return geometryData[materialKey];
             };
 
             const isAOOccluder = (id) => {
@@ -5429,171 +5138,166 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 { name: 'negZ', dir: [0, 0, -1], axis: 'z', sign: -1 },
             ];
 
-            const ctz32 = (v) => 31 - Math.clz32(v & -v);
-            const rectWidthFromBit = (mask, startBit, maxBits) => {
-                let w = 0;
-                while ((startBit + w) < maxBits && (mask & (1 << (startBit + w)))) w++;
-                return w;
-            };
-
-            const emitBinaryGreedyFaceRect = (face, slice, u, v, uExtent, vExtent, id, materialKey, uvInfo) => {
-                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, uExtent, vExtent) : uvInfo.uv;
-
+            for (const face of greedyFaces) {
                 if (face.axis === 'y') {
-                    const x = u;
-                    const z = v;
-                    const wx = cx * CS + x;
-                    const wz = cz * CS + z;
-                    const py = face.sign > 0 ? slice + 1 : slice;
-                    const corners = face.sign > 0
-                        ? [[wx, py, wz + vExtent], [wx + uExtent, py, wz + vExtent], [wx + uExtent, py, wz], [wx, py, wz]]
-                        : [[wx, py, wz], [wx + uExtent, py, wz], [wx + uExtent, py, wz + vExtent], [wx, py, wz + vExtent]];
-                    emitQuad(id, materialKey, face.dir, corners, uv);
-                    return;
-                }
-
-                if (face.axis === 'x') {
-                    const z = u;
-                    const y = v;
-                    const wx = cx * CS + slice;
-                    const wz = cz * CS + z;
-                    const px = face.sign > 0 ? wx + 1 : wx;
-                    const corners = face.sign > 0
-                        ? [[px, y + vExtent, wz + uExtent], [px, y, wz + uExtent], [px, y, wz], [px, y + vExtent, wz]]
-                        : [[px, y + vExtent, wz], [px, y, wz], [px, y, wz + uExtent], [px, y + vExtent, wz + uExtent]];
-                    emitQuad(id, materialKey, face.dir, corners, uv);
-                    return;
-                }
-
-                const x = u;
-                const y = v;
-                const wx = cx * CS + x;
-                const wz = cz * CS + slice;
-                const pz = face.sign > 0 ? wz + 1 : wz;
-                const corners = face.sign > 0
-                    ? [[wx, y + vExtent, pz], [wx, y, pz], [wx + uExtent, y, pz], [wx + uExtent, y + vExtent, pz]]
-                    : [[wx + uExtent, y + vExtent, pz], [wx + uExtent, y, pz], [wx, y, pz], [wx, y + vExtent, pz]];
-                emitQuad(id, materialKey, face.dir, corners, uv);
-            };
-
-            const buildBinaryGreedyMasksForSlice = (face, slice) => {
-                const U = CS;
-                const V = face.axis === 'y' ? CS : CH;
-                const buckets = new Map();
-
-                for (let v = 0; v < V; v++) {
-                    for (let u = 0; u < U; u++) {
-                        let x = 0;
-                        let y = 0;
-                        let z = 0;
-                        let nid = 0;
-
-                        if (face.axis === 'y') {
-                            x = u;
-                            y = slice;
-                            z = v;
-                            nid = get(x, y + face.sign, z);
-                        } else if (face.axis === 'x') {
-                            x = slice;
-                            y = v;
-                            z = u;
-                            nid = get(x + face.sign, y, z);
-                        } else {
-                            x = u;
-                            y = v;
-                            z = slice;
-                            nid = get(x, y, z + face.sign);
+                    for (let y = 0; y < CH; y++) {
+                        const visited = Array(CS * CS).fill(false);
+                        for (let z = 0; z < CS; z++) {
+                            for (let x = 0; x < CS; x++) {
+                                const mi = x + z * CS;
+                                if (visited[mi]) continue;
+                                const id = get(x, y, z);
+                                if (id === 0 || id === 22) continue;
+                                const mat = blockMaterials[id];
+                                if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES')) continue;
+                                const nid = get(x, y + face.sign, z);
+                                if (!shouldDrawFace(id, nid)) continue;
+                                const materialKey = getMaterialKey(id, face.dir);
+                                const uvInfo = getFaceUvInfo(id, face.name, [0,1, 0,0, 1,0, 1,1]);
+                                let w = 1;
+                                while (x + w < CS) {
+                                    const ni = x + w + z * CS;
+                                    if (visited[ni]) break;
+                                    const id2 = get(x + w, y, z);
+                                    if (id2 !== id) break;
+                                    if (getMaterialKey(id2, face.dir) !== materialKey) break;
+                                    if (!shouldDrawFace(id2, get(x + w, y + face.sign, z))) break;
+                                    w++;
+                                }
+                                let h = 1;
+                                outerY: while (z + h < CS) {
+                                    for (let k = 0; k < w; k++) {
+                                        const ni = (x + k) + (z + h) * CS;
+                                        if (visited[ni]) break outerY;
+                                        const id2 = get(x + k, y, z + h);
+                                        if (id2 !== id) break outerY;
+                                        if (getMaterialKey(id2, face.dir) !== materialKey) break outerY;
+                                        if (!shouldDrawFace(id2, get(x + k, y + face.sign, z + h))) break outerY;
+                                    }
+                                    h++;
+                                }
+                                for (let dz = 0; dz < h; dz++) for (let dx = 0; dx < w; dx++) visited[(x + dx) + (z + dz) * CS] = true;
+                                const wx = cx * CS + x;
+                                const wz = cz * CS + z;
+                                const py = face.sign > 0 ? y + 1 : y;
+                                const corners = face.sign > 0
+                                    ? [[wx, py, wz + h], [wx + w, py, wz + h], [wx + w, py, wz], [wx, py, wz]]
+                                    : [[wx, py, wz], [wx + w, py, wz], [wx + w, py, wz + h], [wx, py, wz + h]];
+                                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, w, h) : uvInfo.uv;
+                                emitQuad(id, materialKey, face.dir, corners, uv);
+                            }
                         }
-
-                        const id = get(x, y, z);
-                        if (y < sectionStartY || y >= sectionEndY) continue;
-                        if (id === 0 || id === 22) continue;
-                        const mat = blockMaterials[id];
-                        if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES')) continue;
-                        if (!shouldDrawFace(id, nid)) continue;
-
-                        const materialKey = getMaterialKey(id, face.dir);
-                        const key = `${id}|${materialKey}`;
-                        let bucket = buckets.get(key);
-                        if (!bucket) {
-                            bucket = {
-                                id,
-                                materialKey,
-                                uvInfo: getFaceUvInfo(id, face.name, [0,1, 0,0, 1,0, 1,1]),
-                                masks: new Uint32Array(V)
-                            };
-                            buckets.set(key, bucket);
-                        }
-                        bucket.masks[v] |= (1 << u);
                     }
-                }
-
-                return { U, V, buckets };
-            };
-
-            const runBinaryGreedyFace = (face) => {
-                const sliceCount = face.axis === 'y' ? CH : CS;
-                const useBits = Math.min(32, CS);
-                const sliceStart = face.axis === 'y' ? sectionStartY : 0;
-                const sliceEnd = face.axis === 'y' ? sectionEndY : sliceCount;
-
-                for (let slice = sliceStart; slice < sliceEnd; slice++) {
-                    const { U, V, buckets } = buildBinaryGreedyMasksForSlice(face, slice);
-                    const maxBits = Math.min(U, useBits);
-                    const validMask = maxBits >= 32 ? 0xFFFFFFFF : ((1 << maxBits) - 1);
-
-                    for (const bucket of buckets.values()) {
-                        const masks = bucket.masks;
-
-                        for (let v = 0; v < V; v++) {
-                            masks[v] &= validMask;
+                } else if (face.axis === 'x') {
+                    for (let x = 0; x < CS; x++) {
+                        const visited = Array(CH * CS).fill(false);
+                        for (let z = 0; z < CS; z++) {
+                            for (let y = 0; y < CH; y++) {
+                                const mi = y + z * CH;
+                                if (visited[mi]) continue;
+                                const id = get(x, y, z);
+                                if (id === 0 || id === 22) continue;
+                                const mat = blockMaterials[id];
+                                if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES')) continue;
+                                const nid = get(x + face.sign, y, z);
+                                if (!shouldDrawFace(id, nid)) continue;
+                                const materialKey = getMaterialKey(id, face.dir);
+                                const uvInfo = getFaceUvInfo(id, face.name, [0,1, 0,0, 1,0, 1,1]);
+                                let w = 1;
+                                while (y + w < CH) {
+                                    const ni = (y + w) + z * CH;
+                                    if (visited[ni]) break;
+                                    const id2 = get(x, y + w, z);
+                                    if (id2 !== id) break;
+                                    if (getMaterialKey(id2, face.dir) !== materialKey) break;
+                                    if (!shouldDrawFace(id2, get(x + face.sign, y + w, z))) break;
+                                    w++;
+                                }
+                                let h = 1;
+                                outerX: while (z + h < CS) {
+                                    for (let k = 0; k < w; k++) {
+                                        const ni = (y + k) + (z + h) * CH;
+                                        if (visited[ni]) break outerX;
+                                        const id2 = get(x, y + k, z + h);
+                                        if (id2 !== id) break outerX;
+                                        if (getMaterialKey(id2, face.dir) !== materialKey) break outerX;
+                                        if (!shouldDrawFace(id2, get(x + face.sign, y + k, z + h))) break outerX;
+                                    }
+                                    h++;
+                                }
+                                for (let dz = 0; dz < h; dz++) for (let dy = 0; dy < w; dy++) visited[(y + dy) + (z + dz) * CH] = true;
+                                const wx = cx * CS + x;
+                                const wz = cz * CS + z;
+                                const px = face.sign > 0 ? wx + 1 : wx;
+                                const corners = face.sign > 0
+                                    ? [[px, y + w, wz + h], [px, y, wz + h], [px, y, wz], [px, y + w, wz]]
+                                    : [[px, y + w, wz], [px, y, wz], [px, y, wz + h], [px, y + w, wz + h]];
+                                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, h, w) : uvInfo.uv;
+                                emitQuad(id, materialKey, face.dir, corners, uv);
+                            }
                         }
-
-                        for (let v = 0; v < V; v++) {
-                            while (masks[v] !== 0) {
-                                const rowMask = masks[v] >>> 0;
-                                const startBit = ctz32(rowMask);
-                                const uExtent = rectWidthFromBit(rowMask, startBit, maxBits);
-                                const runMask = (((1 << uExtent) - 1) << startBit) >>> 0;
-
-                                let vExtent = 1;
-                                while ((v + vExtent) < V && ((masks[v + vExtent] & runMask) === runMask)) {
-                                    vExtent++;
+                    }
+                } else {
+                    for (let z = 0; z < CS; z++) {
+                        const visited = Array(CH * CS).fill(false);
+                        for (let x = 0; x < CS; x++) {
+                            for (let y = 0; y < CH; y++) {
+                                const mi = y + x * CH;
+                                if (visited[mi]) continue;
+                                const id = get(x, y, z);
+                                if (id === 0 || id === 22) continue;
+                                const mat = blockMaterials[id];
+                                if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES')) continue;
+                                const nid = get(x, y, z + face.sign);
+                                if (!shouldDrawFace(id, nid)) continue;
+                                const materialKey = getMaterialKey(id, face.dir);
+                                const uvInfo = getFaceUvInfo(id, face.name, [0,1, 0,0, 1,0, 1,1]);
+                                let w = 1;
+                                while (y + w < CH) {
+                                    const ni = (y + w) + x * CH;
+                                    if (visited[ni]) break;
+                                    const id2 = get(x, y + w, z);
+                                    if (id2 !== id) break;
+                                    if (getMaterialKey(id2, face.dir) !== materialKey) break;
+                                    if (!shouldDrawFace(id2, get(x, y + w, z + face.sign))) break;
+                                    w++;
                                 }
-
-                                for (let dv = 0; dv < vExtent; dv++) {
-                                    masks[v + dv] &= (~runMask) >>> 0;
+                                let h = 1;
+                                outerZ: while (x + h < CS) {
+                                    for (let k = 0; k < w; k++) {
+                                        const ni = (y + k) + (x + h) * CH;
+                                        if (visited[ni]) break outerZ;
+                                        const id2 = get(x + h, y + k, z);
+                                        if (id2 !== id) break outerZ;
+                                        if (getMaterialKey(id2, face.dir) !== materialKey) break outerZ;
+                                        if (!shouldDrawFace(id2, get(x + h, y + k, z + face.sign))) break outerZ;
+                                    }
+                                    h++;
                                 }
-
-                                emitBinaryGreedyFaceRect(
-                                    face,
-                                    slice,
-                                    startBit,
-                                    v,
-                                    uExtent,
-                                    vExtent,
-                                    bucket.id,
-                                    bucket.materialKey,
-                                    bucket.uvInfo
-                                );
+                                for (let dx = 0; dx < h; dx++) for (let dy = 0; dy < w; dy++) visited[(y + dy) + (x + dx) * CH] = true;
+                                const wx = cx * CS + x;
+                                const wz = cz * CS + z;
+                                const pz = face.sign > 0 ? wz + 1 : wz;
+                                const corners = face.sign > 0
+                                    ? [[wx, y + w, pz], [wx, y, pz], [wx + h, y, pz], [wx + h, y + w, pz]]
+                                    : [[wx + h, y + w, pz], [wx + h, y, pz], [wx, y, pz], [wx, y + w, pz]];
+                                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, h, w) : uvInfo.uv;
+                                emitQuad(id, materialKey, face.dir, corners, uv);
                             }
                         }
                     }
                 }
-            };
-
-            for (const face of greedyFaces) {
-                runBinaryGreedyFace(face);
             }
 
             // Keep non-cube/transparent blocks on classic meshing path.
             for (let x = 0; x < CS; x++) {
                 for (let z = 0; z < CS; z++) {
-                    for (let y = sectionStartY; y < sectionEndY; y++) {
+                    for (let y = 0; y < CH; y++) {
                         const id = get(x, y, z);
                         if (id === 0) continue;
                         const mat = blockMaterials[id];
                         const isTorch = id === 22;
+                        if (isTorch) torchPositions.push({ x: x + cx * CS, y, z: z + cz * CS });
                         const isTrans = mat.transparent || (mat.textured && mat.textureKey === 'LEAVES');
                         if (!isTorch && !isTrans) continue;
                         const activeFaces = isTorch ? torchFaces : faces;
@@ -5624,38 +5328,18 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 if (!gd || gd.pos.length === 0) continue;
 
                 const geom = new THREE.BufferGeometry();
-                const vertCount = Math.floor(gd.pos.length / 3);
-                const packedPos = new Int16Array(vertCount * 3);
-                const packedNorm = new Int8Array(vertCount * 3);
-
-                const meshOriginX = cx * CS;
-                const meshOriginY = sectionStartY;
-                const meshOriginZ = cz * CS;
-
-                for (let i = 0; i < vertCount; i++) {
-                    const pBase = i * 3;
-                    packedPos[pBase] = Math.round((gd.pos[pBase] - meshOriginX) * POSITION_QUANT_SCALE);
-                    packedPos[pBase + 1] = Math.round((gd.pos[pBase + 1] - meshOriginY) * POSITION_QUANT_SCALE);
-                    packedPos[pBase + 2] = Math.round((gd.pos[pBase + 2] - meshOriginZ) * POSITION_QUANT_SCALE);
-
-                    packedNorm[pBase] = Math.max(-127, Math.min(127, Math.round(gd.norm[pBase] * 127)));
-                    packedNorm[pBase + 1] = Math.max(-127, Math.min(127, Math.round(gd.norm[pBase + 1] * 127)));
-                    packedNorm[pBase + 2] = Math.max(-127, Math.min(127, Math.round(gd.norm[pBase + 2] * 127)));
-                }
-
-                const posAttr = new THREE.Int16BufferAttribute(packedPos, 3);
-                const normAttr = new THREE.Int8BufferAttribute(packedNorm, 3, true);
+                const posAttr = new THREE.Float32BufferAttribute(gd.pos, 3);
+                const normAttr = new THREE.Float32BufferAttribute(gd.norm, 3);
                 posAttr.setUsage(THREE.StaticDrawUsage);
                 normAttr.setUsage(THREE.StaticDrawUsage);
                 geom.setAttribute('position', posAttr);
                 geom.setAttribute('normal', normAttr);
 
-                const logicalKey = key.startsWith(sectionPrefix) ? key.slice(sectionPrefix.length) : key;
-                let currentMaterial = materials[logicalKey];
+                let currentMaterial = materials[key];
 
                 // Set UVs if material is textured (i.e., it has a map)
-                if (currentMaterial && currentMaterial.map && packedUv && packedUv.length > 0) {
-                    const uvAttr = new THREE.Uint16BufferAttribute(packedUv, 2, true);
+                if (currentMaterial && currentMaterial.map && gd.uv.length > 0) {
+                    const uvAttr = new THREE.Float32BufferAttribute(gd.uv, 2);
                     uvAttr.setUsage(THREE.StaticDrawUsage);
                     geom.setAttribute('uv', uvAttr);
                 }
@@ -5667,7 +5351,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                     geom.setAttribute('color', colAttr);
 
                     // For non-textured materials keep vertex-color pipeline.
-                    if (!(currentMaterial && currentMaterial.map) && logicalKey !== 'WATER') {
+                    if (!(currentMaterial && currentMaterial.map) && key !== 'WATER') {
                        currentMaterial = materials.COLORED_OPAQUE;
                     }
                 }
@@ -5678,17 +5362,10 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                     existing.geometry = geom;
                     existing.material = currentMaterial;
                     existing.visible = true;
-                    existing.position.set(meshOriginX, meshOriginY, meshOriginZ);
-                    existing.scale.setScalar(1 / POSITION_QUANT_SCALE);
-                    existing.userData.isChunkBatchMesh = true;
                     if (oldGeom) oldGeom.dispose();
                 } else {
                     const mesh = new THREE.Mesh(geom, currentMaterial);
-                    // Chunk group visibility controls culling; disable per-mesh frustum to prevent angle artifacts.
-                    mesh.frustumCulled = false;
-                    mesh.position.set(meshOriginX, meshOriginY, meshOriginZ);
-                    mesh.scale.setScalar(1 / POSITION_QUANT_SCALE);
-                    mesh.userData.isChunkBatchMesh = true;
+                    mesh.frustumCulled = true;
                     meshesByKey.set(key, mesh);
                     group.add(mesh);
                 }
@@ -5696,19 +5373,13 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
             // Remove stale material VBOs no longer needed for this chunk.
             for (const [key, mesh] of meshesByKey.entries()) {
-                if (!key.startsWith(sectionPrefix)) continue;
                 if (activeKeys.has(key)) continue;
                 if (mesh.geometry) mesh.geometry.dispose();
                 group.remove(mesh);
                 meshesByKey.delete(key);
             }
 
-            for (const bucket of usedGeometryBuckets) {
-                releaseMeshVertexBucket(bucket);
-            }
-
-            syncTorchLightsForChunk(group, collectChunkTorchPositions(data, cx, cz));
-            markChunkBatchDirty();
+            syncTorchLightsForChunk(group, torchPositions);
         }
 
         const SPAWN_MIN_LIGHT_LEVEL = 13;
@@ -5803,41 +5474,16 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             if (budget > 0) {
                 const offsets = getChunkOffsetsForRadius(loadRadius);
                 const loadRadiusSq = loadRadius * loadRadius;
-
-                // Fast chunk scheduling without per-tick sort:
-                // 1) keep 3x3 around player stable, 2) favor forward hemisphere, 3) fill remainder by distance.
-                const yawSin = Math.sin(yawObject.rotation.y);
-                const yawCos = -Math.cos(yawObject.rotation.y);
                 let created = 0;
-
-                const tryCreateOffset = (off) => {
-                    if (created >= budget) return;
-                    if (off.dist2 > loadRadiusSq) return;
+                for (let i = 0; i < offsets.length && created < budget; i++) {
+                    const off = offsets[i];
+                    if (off.dist2 > loadRadiusSq) continue;
                     const cx = playerChunkX + off.dx;
                     const cz = playerChunkZ + off.dz;
                     const chunkKey = `${cx},${cz}`;
-                    if (chunks.has(chunkKey) || sparseAirChunkKeys.has(chunkKey)) return;
+                    if (chunks.has(chunkKey) || sparseAirChunkKeys.has(chunkKey)) continue;
                     createChunk(cx, cz);
                     created++;
-                };
-
-                for (const off of offsets) {
-                    if (Math.max(Math.abs(off.dx), Math.abs(off.dz)) <= 1) tryCreateOffset(off);
-                    if (created >= budget) break;
-                }
-
-                for (const off of offsets) {
-                    if (Math.max(Math.abs(off.dx), Math.abs(off.dz)) <= 1) continue;
-                    const len = Math.hypot(off.dx, off.dz) || 1;
-                    const frontDot = ((off.dx * yawSin) + (off.dz * yawCos)) / len;
-                    if (frontDot > 0.22) tryCreateOffset(off);
-                    if (created >= budget) break;
-                }
-
-                for (const off of offsets) {
-                    if (Math.max(Math.abs(off.dx), Math.abs(off.dz)) <= 1) continue;
-                    tryCreateOffset(off);
-                    if (created >= budget) break;
                 }
             }
 
@@ -5866,7 +5512,6 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                     chunkGroup.userData.meshesByKey.clear();
                 }
                 chunks.delete(chunkKey);
-                markChunkBatchDirty();
             }
         }
 
@@ -5967,13 +5612,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 maybeSpawnLavaParticles(delta);
                 updateWorldParticles(delta);
                 applyBlockPhysics(time);
-
-                // Chunk pipeline: load/generate -> mesh/VBO upload -> cull -> render.
                 ensureChunksAroundPlayer(false, time);
-                processMeshUpdateQueue();
                 maybeUpdateChunkFrustumCulling(time);
-                maybeUpdateChunkMeshBatching(time);
-
                 updateGnomes(time);
                 updatePigs(time, delta);
                 updateWolves(time, delta);
@@ -5982,6 +5622,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 updateEatingAnimation(delta, time);
                 updatePlayerAvatarVisuals(time);
                 updateFirstPersonHand(time);
+                processMeshUpdateQueue();
                 const dtSec = delta / 1000;
                 if (window.FurnaceSystem) {
                     for (const state of furnaceStates.values()) window.FurnaceSystem.updateState(state, dtSec);
@@ -5997,7 +5638,6 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 maybeSpawnLavaParticles(delta);
                 updateWorldParticles(delta);
                 processMeshUpdateQueue();
-                maybeUpdateChunkMeshBatching(time);
                 miningState.active = false;
                 updateBreakingOverlay();
             }
