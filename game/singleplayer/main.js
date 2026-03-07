@@ -4698,15 +4698,23 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 return data[x + y * CS + z * CS * CH];
             };
 
-            const shouldDrawFace = (id, nid) => {
+            const isTransparentBlock = (id) => {
                 const mat = blockMaterials[id];
-                const neighborMat = blockMaterials[nid];
-                const isTrans = mat.transparent || (mat.textured && mat.textureKey === 'LEAVES');
-                if (nid === 0) return true;
-                if (!isTrans && neighborMat?.transparent) return true;
-                if (isTrans && nid !== id) return true;
+                return Boolean(mat && (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES')));
+            };
+
+            // Face culling core rule:
+            // if neighbor block is not AIR and both sides are opaque, the face is hidden and skipped.
+            const shouldCullFace = (id, nid) => {
+                if (nid === 0) return false;
+                const selfTransparent = isTransparentBlock(id);
+                const neighborTransparent = isTransparentBlock(nid);
+                if (!selfTransparent && !neighborTransparent) return true;
+                if (selfTransparent && nid === id) return true;
                 return false;
             };
+
+            const shouldDrawFace = (id, nid) => !shouldCullFace(id, nid);
 
             const getFaceUvInfo = (blockId, faceName, fallbackUv) => {
                 const mat = blockMaterials[blockId];
