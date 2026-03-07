@@ -38,6 +38,10 @@
         const TerrainModules = {};
 
         const worldGenSettings = WORLD_GEN_SETTINGS || {};
+        const terrainCarvingSettings = worldGenSettings.terrainCarving || {};
+        const CAVE_SURFACE_SAFETY_DEPTH = Math.max(2, Number(terrainCarvingSettings.caveSurfaceSafetyDepth) || 7);
+        const RAVINE_SURFACE_SAFETY_DEPTH = Math.max(3, Number(terrainCarvingSettings.ravineSurfaceSafetyDepth) || 8);
+        const RAVINE_ACTIVATION_THRESHOLD = Math.max(0.75, Math.min(0.98, Number(terrainCarvingSettings.ravineActivationThreshold) || 0.9));
 
         function normalizeWorldSeed(seedValue) {
             const parsed = Number(seedValue);
@@ -4102,7 +4106,7 @@ function buildPartFaceRects(x, y, w, h, d) {
                          }
                          
                         // --- Cave Generation Pass (layered Perlin for bigger cave systems) ---
-                        if (y > CAVE_MIN_Y && y < h - CAVE_MAX_Y_OFFSET) {
+                        if (y > CAVE_MIN_Y && y < h - CAVE_MAX_Y_OFFSET && (h - y) >= CAVE_SURFACE_SAFETY_DEPTH) {
                             if (t === 3 || t === 2 || t === 7 || t === 13 || t === 28 || t === 59) {
                                 const n1 = perlin.noise3D(wx * CAVE_SCALE, y * CAVE_SCALE * 1.7, wz * CAVE_SCALE);
                                 const n2 = perlin.noise3D(wx * CAVE_SCALE * 2.2 + 100, y * CAVE_SCALE * 1.1, wz * CAVE_SCALE * 2.2 + 100);
@@ -4121,12 +4125,13 @@ function buildPartFaceRects(x, y, w, h, d) {
                          
 // 🔹 Optimized Ravine Generation
 const ravineMask = getRavineMask(wx, wz);
+const ravineTopCap = Math.max(3, h - RAVINE_SURFACE_SAFETY_DEPTH);
 
-if (ravineMask > 0.86) {
-    const strength = (ravineMask - 0.86) / 0.14;
+if (ravineMask > RAVINE_ACTIVATION_THRESHOLD && ravineTopCap > 3) {
+    const strength = (ravineMask - RAVINE_ACTIVATION_THRESHOLD) / (1 - RAVINE_ACTIVATION_THRESHOLD);
 
     // Limit top slightly above terrain
-    const ravineTop = Math.min(h + 3, CHUNK_HEIGHT - 1);
+    const ravineTop = Math.min(ravineTopCap, CHUNK_HEIGHT - 1);
 
     // Reduce max depth for smaller chunks
     const maxDepth = 12 + Math.floor(strength * 8); // 12–20 blocks deep
