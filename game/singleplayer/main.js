@@ -45,6 +45,8 @@
         const RAVINE_ACTIVATION_THRESHOLD = Math.max(0.75, Math.min(0.98, Number(terrainCarvingSettings.ravineActivationThreshold) || 0.9));
         const CHUNK_CREATION_BUDGET_PER_TICK = Math.max(1, Math.floor(Number(worldGenSettings.chunkCreationBudgetPerTick) || 3));
         const CHUNK_CREATION_BUDGET_FORCE = Math.max(CHUNK_CREATION_BUDGET_PER_TICK, Math.floor(Number(worldGenSettings.chunkCreationBudgetOnForceUpdate) || 10));
+        const MESH_REBUILD_BUDGET_PER_FRAME = Math.max(1, Math.floor(Number(worldGenSettings.meshRebuildBudgetPerFrame) || 2));
+        const MESH_REBUILD_BUDGET_FORCE = Math.max(MESH_REBUILD_BUDGET_PER_FRAME, Math.floor(Number(worldGenSettings.meshRebuildBudgetOnForceUpdate) || (MESH_REBUILD_BUDGET_PER_FRAME * 4)));
         const USE_WASM_CAVE_SAMPLING = Boolean(wasmSettings.enabled && wasmSettings.preferCaveSampling);
 
         function normalizeWorldSeed(seedValue) {
@@ -192,7 +194,85 @@ window.perlin = perlinInstance;
         const particleMaterials = { break: null, lava: null };
         let lavaParticleScanMs = 0;
         let lastPhysicsTickMs = 0;
-        const dirtyChunkKeys = new Set();
+        const dirtyChunkRemeshReasons = new Map();
+        let blockUpdateBatchDepth = 0;
+        const batchedChunkRemeshNeeds = new Map();
+
+        function chunkKeyFromCoords(cx, cz) {
+            return `${cx},${cz}`;
+        }
+
+        // Mesh caching policy:
+        // keep chunk meshes in GPU buffers and only remesh on explicit triggers.
+        function requestChunkRemesh(cx, cz, reason = 'block') {
+            const key = chunkKeyFromCoords(cx, cz);
+            const rank = { load: 0, neighbor: 1, block: 2, lighting: 3 };
+            const prev = dirtyChunkRemeshReasons.get(key);
+            if (!prev || (rank[reason] ?? 0) >= (rank[prev] ?? 0)) {
+                dirtyChunkRemeshReasons.set(key, reason);
+            }
+        }
+
+        function requestChunkAndNeighborsRemesh(cx, cz, reason = 'neighbor') {
+            requestChunkRemesh(cx, cz, reason);
+            requestChunkRemesh(cx - 1, cz, reason);
+            requestChunkRemesh(cx + 1, cz, reason);
+            requestChunkRemesh(cx, cz - 1, reason);
+            requestChunkRemesh(cx, cz + 1, reason);
+        }
+
+        function rebuildDirtyChunkMeshes(forceAll = false) {
+            if (dirtyChunkRemeshReasons.size === 0) return 0;
+            const budget = forceAll ? MESH_REBUILD_BUDGET_FORCE : MESH_REBUILD_BUDGET_PER_FRAME;
+            let processed = 0;
+
+            const pending = Array.from(dirtyChunkRemeshReasons.entries());
+            for (const [key, reason] of pending) {
+                if (processed >= budget) break;
+                dirtyChunkRemeshReasons.delete(key);
+                const g = chunks.get(key);
+                if (!g) continue;
+                const forceRemesh = reason === 'lighting';
+                updateChunkGeometry(g, g.userData.chunkData, forceRemesh);
+                processed++;
+            }
+            return processed;
+        }
+
+        function markBatchedChunkRemeshNeed(cx, cz, includeNeighbors = false) {
+            const key = chunkKeyFromCoords(cx, cz);
+            const prev = batchedChunkRemeshNeeds.get(key);
+            batchedChunkRemeshNeeds.set(key, Boolean(prev || includeNeighbors));
+        }
+
+        function beginBlockUpdateBatch() {
+            blockUpdateBatchDepth++;
+        }
+
+        function endBlockUpdateBatch() {
+            if (blockUpdateBatchDepth <= 0) return;
+            blockUpdateBatchDepth--;
+            if (blockUpdateBatchDepth > 0) return;
+
+            for (const [key, includeNeighbors] of batchedChunkRemeshNeeds.entries()) {
+                const [cxs, czs] = key.split(',');
+                const cx = Number(cxs);
+                const cz = Number(czs);
+                if (!Number.isFinite(cx) || !Number.isFinite(cz)) continue;
+                requestChunkRemesh(cx, cz, 'block');
+                if (includeNeighbors) requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
+            }
+            batchedChunkRemeshNeeds.clear();
+        }
+
+        function applyBlockUpdateBatch(cb) {
+            beginBlockUpdateBatch();
+            try {
+                return cb();
+            } finally {
+                endBlockUpdateBatch();
+            }
+        }
         let physicsCursorY = 1;
 
         const MOBILE_ASSET_BASE = `${window.SingleplayerConfig?.REPO_BASE_PREFIX || ''}/game/singleplayer/assets/mobile`;
@@ -228,7 +308,11 @@ window.perlin = perlinInstance;
             (cpuThreads !== null && cpuThreads <= 4)
         );
         const targetRenderPixelRatio = Math.min(window.devicePixelRatio || 1, isLowEndDevice ? 1 : 1.5);
-        const effectiveChunkLoadRadius = Math.max(4, Math.min(WORLD_RADIUS, isLowEndDevice ? Math.floor(WORLD_RADIUS * 0.65) : WORLD_RADIUS));
+        const configuredChunkRenderDistance = Math.floor(Number(worldGenSettings.chunkRenderDistance) || 12);
+        const baseChunkRenderDistance = Math.max(4, Math.min(WORLD_RADIUS, configuredChunkRenderDistance));
+        const effectiveChunkLoadRadius = Math.max(4, Math.min(WORLD_RADIUS, isLowEndDevice ? Math.max(4, baseChunkRenderDistance - 2) : baseChunkRenderDistance));
+        const ENTITY_ACTIVATION_RANGE = Math.max(24, Number(worldGenSettings.entityActivationRange) || 72);
+        const ENTITY_ACTIVATION_RANGE_SQ = ENTITY_ACTIVATION_RANGE * ENTITY_ACTIVATION_RANGE;
         const CHUNK_UPDATE_INTERVAL_MS = isLowEndDevice ? 220 : 90;
         const FRUSTUM_CULL_INTERVAL_MS = isLowEndDevice ? 120 : 60;
         const chunkOffsetsByRadius = new Map();
@@ -248,7 +332,11 @@ window.perlin = perlinInstance;
         const cameraViewProj = new THREE.Matrix4();
         const frustumTempCenter = new THREE.Vector3();
         const frustumTempSphere = new THREE.Sphere();
+        const lastFrustumCameraPos = new THREE.Vector3();
+        const lastFrustumCameraQuat = new THREE.Quaternion();
+        let hasFrustumCameraState = false;
         const chunks = new Map();
+        const sparseAirChunkKeys = new Set();
         const worldGroup = new THREE.Group();
         let yawObject, pitchObject; 
         let cameraViewMode = 0; // 0=first, 1=second, 2=third
@@ -316,6 +404,8 @@ window.perlin = perlinInstance;
                             texture.magFilter = THREE.NearestFilter; // Sharp pixel look
                             texture.minFilter = THREE.NearestMipmapNearestFilter;
                             texture.generateMipmaps = true;
+                            texture.wrapS = THREE.RepeatWrapping;
+                            texture.wrapT = THREE.RepeatWrapping;
                             if (renderer && renderer.capabilities) {
                                 texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
                             }
@@ -328,6 +418,7 @@ window.perlin = perlinInstance;
                                 alphaTest: key === 'LEAVES' ? 0.5 : 0,
                                 depthWrite: true,
                                 opacity: matCfg.opacity || 1.0,
+                                vertexColors: true,
                             });
                             resolve();
                         },
@@ -759,10 +850,18 @@ window.perlin = perlinInstance;
             scene.add(gnome);
         }
 
+        function isEntityActiveAt(position, rangeSq = ENTITY_ACTIVATION_RANGE_SQ) {
+            if (!yawObject || !position) return true;
+            const dx = position.x - yawObject.position.x;
+            const dz = position.z - yawObject.position.z;
+            return (dx * dx + dz * dz) <= rangeSq;
+        }
+
         function updateGnomes(time) {
             if (!gnomeEntities.length) return;
             const lookTarget = new THREE.Vector3(yawObject.position.x, 0, yawObject.position.z);
             for (const g of gnomeEntities) {
+                if (!isEntityActiveAt(g.root.position)) continue;
                 const swing = Math.sin(time * 0.007 + g.phase) * 0.16;
                 g.leftLeg.position.z = swing;
                 g.rightLeg.position.z = -swing;
@@ -979,9 +1078,51 @@ window.perlin = perlinInstance;
             return root;
         }
 
+        function getColumnTopFromData(data, lx, lz) {
+            for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
+                const idx = lx + y * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
+                const block = data[idx];
+                if (block !== 0 && block !== 6) return y;
+            }
+            return -1;
+        }
+
+        function buildChunkHeightmap(data) {
+            const heightmap = new Int16Array(CHUNK_SIZE * CHUNK_SIZE);
+            for (let x = 0; x < CHUNK_SIZE; x++) {
+                for (let z = 0; z < CHUNK_SIZE; z++) {
+                    heightmap[x + z * CHUNK_SIZE] = getColumnTopFromData(data, x, z);
+                }
+            }
+            return heightmap;
+        }
+
+        function updateChunkHeightmapColumn(group, lx, lz) {
+            if (!group?.userData?.heightmap || !group?.userData?.chunkData) return;
+            if (lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE) return;
+            const hm = group.userData.heightmap;
+            hm[lx + lz * CHUNK_SIZE] = getColumnTopFromData(group.userData.chunkData, lx, lz);
+        }
+
         function getSurfaceYForEntity(wx, wz, startY = null) {
             const x = Math.floor(wx);
             const z = Math.floor(wz);
+
+            const cx = Math.floor(x / CHUNK_SIZE);
+            const cz = Math.floor(z / CHUNK_SIZE);
+            const key = `${cx},${cz}`;
+            const loaded = chunks.get(key);
+            if (loaded?.userData?.heightmap) {
+                const lx = x - cx * CHUNK_SIZE;
+                const lz = z - cz * CHUNK_SIZE;
+                const top = loaded.userData.heightmap[lx + lz * CHUNK_SIZE];
+                if (top >= 1) {
+                    const candidate = top + 1;
+                    const under = getBlockType(x, candidate - 1, z);
+                    const feet = getBlockType(x, candidate, z);
+                    if (isSolid(under) && !isLiquid(under) && feet === 0) return candidate;
+                }
+            }
 
             if (Number.isFinite(startY)) {
                 const from = Math.min(CHUNK_HEIGHT - 2, Math.floor(startY) + 3);
@@ -1064,6 +1205,7 @@ window.perlin = perlinInstance;
             if (!pigEntities.length) return;
             const dt = Math.max(0.001, Math.min(0.05, deltaMs / 1000));
             for (const pig of pigEntities) {
+                if (!isEntityActiveAt(pig.root.position)) continue;
                 pig.changeDirMs -= deltaMs;
                 if (pig.changeDirMs <= 0) {
                     pig.changeDirMs = 900 + Math.random() * 1800;
@@ -1196,6 +1338,7 @@ window.perlin = perlinInstance;
         function commandTamedWolvesAttack(target, targetType) {
             if (!target) return;
             for (const wolf of wolfEntities) {
+                if (!isEntityActiveAt(wolf.root.position)) continue;
                 if (!wolf.tamed) continue;
                 wolf.combatTarget = target;
                 wolf.combatTargetType = targetType;
@@ -1231,6 +1374,7 @@ window.perlin = perlinInstance;
                     let bestPig = null;
                     let bestDist = 11;
                     for (const pig of pigEntities) {
+                if (!isEntityActiveAt(pig.root.position)) continue;
                         const d = pig.root.position.distanceTo(wolf.root.position);
                         if (d < bestDist) {
                             bestDist = d;
@@ -1376,6 +1520,7 @@ window.perlin = perlinInstance;
 
             for (let i = zombieEntities.length - 1; i >= 0; i--) {
                 const z = zombieEntities[i];
+                if (!isEntityActiveAt(z.root.position)) continue;
                 const toPlayer = new THREE.Vector3(playerPos.x - z.root.position.x, 0, playerPos.z - z.root.position.z);
                 const dist = toPlayer.length();
                 if (dist > 0.001) toPlayer.normalize();
@@ -2590,18 +2735,31 @@ window.perlin = perlinInstance;
 
             const index = lx + wy * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
             const chunkData = group.userData.chunkData;
-            if (chunkData[index] === newType) return false;
+            const oldType = chunkData[index];
+            if (oldType === newType) return false;
             chunkData[index] = newType;
 
-            if (deferGeometryUpdate) {
-                dirtyChunkKeys.add(chunkId);
-                if (lx <= 0) dirtyChunkKeys.add(`${cx-1},${cz}`);
-                if (lx >= CHUNK_SIZE - 1) dirtyChunkKeys.add(`${cx+1},${cz}`);
-                if (lz <= 0) dirtyChunkKeys.add(`${cx},${cz-1}`);
-                if (lz >= CHUNK_SIZE - 1) dirtyChunkKeys.add(`${cx},${cz+1}`);
-            } else {
-                updateChunkAndNeighbors(group, lx, lz);
+            // Chunk meshing rebuild triggers:
+            // - block changes
+            // - neighbor chunk changes (edge edits)
+            // - lighting-affecting changes (deferred through same dirty queue)
+            requestChunkRemesh(cx, cz, 'block');
+            if (lx <= 0) requestChunkRemesh(cx - 1, cz, 'neighbor');
+            if (lx >= CHUNK_SIZE - 1) requestChunkRemesh(cx + 1, cz, 'neighbor');
+            if (lz <= 0) requestChunkRemesh(cx, cz - 1, 'neighbor');
+            if (lz >= CHUNK_SIZE - 1) requestChunkRemesh(cx, cz + 1, 'neighbor');
+
+            updateChunkHeightmapColumn(group, lx, lz);
+
+            const oldMat = blockMaterials[oldType];
+            const newMat = blockMaterials[newType];
+            const lightingSensitive = Boolean(oldMat?.emissive || newMat?.emissive || oldType === 22 || newType === 22 || oldType === 4 || newType === 4 || oldType === 33 || newType === 33);
+            if (lightingSensitive) requestChunkAndNeighborsRemesh(cx, cz, 'lighting');
+
+            if (newType === 0 && isChunkAllAir(chunkData)) {
+                convertChunkToSparseAir(group);
             }
+
             return true;
         }
 
@@ -2676,13 +2834,6 @@ window.perlin = perlinInstance;
                 }
             }
 
-            if (dirtyChunkKeys.size > 0) {
-                for (const key of dirtyChunkKeys) {
-                    const g = chunks.get(key);
-                    if (g) updateChunkGeometry(g, g.userData.chunkData);
-                }
-                dirtyChunkKeys.clear();
-            }
 
         function modifyWorld(posVector, newType, options = {}) {
             const wx = Math.floor(posVector.x);
@@ -2723,9 +2874,28 @@ window.perlin = perlinInstance;
                 chunkData[index] = newType;
             }
 
-           
+            updateChunkHeightmapColumn(group, lx, lz);
+
+            if (chunkData[index] === 0 && isChunkAllAir(chunkData)) {
+                convertChunkToSparseAir(group);
+                return true;
+            }
+
             updateChunkAndNeighbors(group, lx, lz);
             return true;
+        }
+
+        // Bulk block update path (e.g. explosions): collect updates and enqueue remesh once.
+        function modifyWorldBatch(positions, newType, options = {}) {
+            if (!Array.isArray(positions) || positions.length === 0) return 0;
+            let changed = 0;
+            applyBlockUpdateBatch(() => {
+                for (const pos of positions) {
+                    if (!pos) continue;
+                    if (modifyWorld(pos, newType, options)) changed++;
+                }
+            });
+            return changed;
         }
 
     
@@ -3249,6 +3419,7 @@ window.perlin = perlinInstance;
                 const lz = wz - group.userData.cz * CHUNK_SIZE;
                 return group.userData.chunkData[lx + wy * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT];
             }
+            if (sparseAirChunkKeys.has(id)) return 0;
             
             // For blocks outside loaded chunks but inside the boundary, use noise (Fallback)
             const biome = getBiome(wx, wz); // Calculate biome for fallback
@@ -4314,15 +4485,16 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                      }
                  }
              }
+             const heightmap = buildChunkHeightmap(data);
              const spawnedPigs = [];
              const spawnedWolves = [];
-             placeIglooInChunk(data, cx, cz, spawnedGnomes);
-             placeDesertWellInChunk(data, cx, cz, spawnedPigs);
-             placeWolfPackInChunk(data, cx, cz, spawnedWolves);
-             return { data, spawnedGnomes, spawnedPigs, spawnedWolves };
+             placeIglooInChunk(data, heightmap, cx, cz, spawnedGnomes);
+             placeDesertWellInChunk(data, heightmap, cx, cz, spawnedPigs);
+             placeWolfPackInChunk(data, heightmap, cx, cz, spawnedWolves);
+             return { data, heightmap, spawnedGnomes, spawnedPigs, spawnedWolves };
         }
 
-        function placeIglooInChunk(data, cx, cz, spawnedGnomes) {
+        function placeIglooInChunk(data, heightmap, cx, cz, spawnedGnomes) {
             const snowyTerrain = window.SnowyPlainsTerrain || {};
             const iglooRules = snowyTerrain.structures?.igloo;
             if (!iglooRules || !iglooStructureDef) return;
@@ -4401,7 +4573,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             spawnedGnomes.push({ wx: worldX, wy: gnomeY, wz: worldZ });
         }
 
-        function placeDesertWellInChunk(data, cx, cz, spawnedPigs) {
+        function placeDesertWellInChunk(data, heightmap, cx, cz, spawnedPigs) {
             const centerX = Math.floor(CHUNK_SIZE / 2);
             const centerZ = Math.floor(CHUNK_SIZE / 2);
             const worldX = cx * CHUNK_SIZE + centerX;
@@ -4478,7 +4650,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             spawnedPigs.push({ wx: worldX + 0.5, wy: wellY + 1, wz: worldZ + 0.5 });
         }
 
-        function placeWolfPackInChunk(data, cx, cz, spawnedWolves) {
+        function placeWolfPackInChunk(data, heightmap, cx, cz, spawnedWolves) {
             const centerX = Math.floor(CHUNK_SIZE / 2);
             const centerZ = Math.floor(CHUNK_SIZE / 2);
             const worldX = cx * CHUNK_SIZE + centerX;
@@ -4511,10 +4683,19 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
         function createChunk(cx, cz) {
             const generated = generateChunkData(cx, cz);
             const data = generated.data;
+            const heightmap = generated.heightmap || buildChunkHeightmap(data);
+            const chunkKey = `${cx},${cz}`;
+
+            if (isChunkAllAir(data)) {
+                sparseAirChunkKeys.add(chunkKey);
+                return null;
+            }
+
+            sparseAirChunkKeys.delete(chunkKey);
             const group = new THREE.Group();
-            group.userData = { chunkData: data, cx, cz, meshHash: null, frustumRadius: Math.sqrt((CHUNK_SIZE*CHUNK_SIZE)*0.5 + (CHUNK_HEIGHT*CHUNK_HEIGHT)*0.25) };
-            updateChunkGeometry(group, data);
-            chunks.set(`${cx},${cz}`, group);
+            group.userData = { chunkData: data, heightmap, cx, cz, meshHash: null, frustumRadius: Math.sqrt((CHUNK_SIZE*CHUNK_SIZE)*0.5 + (CHUNK_HEIGHT*CHUNK_HEIGHT)*0.25) };
+            chunks.set(chunkKey, group);
+            requestChunkRemesh(cx, cz, 'load');
             worldGroup.add(group);
             if (generated.spawnedGnomes && generated.spawnedGnomes.length) {
                 for (const g of generated.spawnedGnomes) spawnGnomeAt(g.wx, g.wy, g.wz);
@@ -4538,10 +4719,42 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             return h >>> 0;
         }
 
+        function isChunkAllAir(data) {
+            for (let i = 0; i < data.length; i++) {
+                if (data[i] !== 0) return false;
+            }
+            return true;
+        }
+
+        function convertChunkToSparseAir(chunkGroup) {
+            if (!chunkGroup || !chunkGroup.userData) return;
+            const cx = chunkGroup.userData.cx;
+            const cz = chunkGroup.userData.cz;
+            const chunkKey = `${cx},${cz}`;
+
+            removeTorchLightsForChunk(chunkKey);
+            worldGroup.remove(chunkGroup);
+            if (chunkGroup.children) {
+                for (const child of chunkGroup.children) {
+                    if (child.geometry) child.geometry.dispose();
+                }
+            }
+            if (chunkGroup.userData?.meshesByKey) {
+                chunkGroup.userData.meshesByKey.clear();
+            }
+
+            chunks.delete(chunkKey);
+            sparseAirChunkKeys.add(chunkKey);
+            dirtyChunkRemeshReasons.delete(chunkKey);
+        }
+
         function updateChunkFrustumCulling() {
             camera.updateMatrixWorld();
             cameraViewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
             frustum.setFromProjectionMatrix(cameraViewProj);
+
+            // Stage 1: frustum culling candidates.
+            const candidates = [];
             for (const group of chunks.values()) {
                 frustumTempCenter.set(
                     group.userData.cx * CHUNK_SIZE + CHUNK_SIZE * 0.5,
@@ -4550,29 +4763,76 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 );
                 frustumTempSphere.center.copy(frustumTempCenter);
                 frustumTempSphere.radius = group.userData.frustumRadius || 40;
-                group.visible = frustum.intersectsSphere(frustumTempSphere);
+                const inView = frustum.intersectsSphere(frustumTempSphere);
+                // Chunk-level frustum culling: skip rendering chunks outside camera view.
+                group.visible = inView;
+                if (!inView) continue;
+
+                const camSpace = frustumTempCenter.clone().applyMatrix4(camera.matrixWorldInverse);
+                if (camSpace.z >= 0) {
+                    group.visible = false;
+                    continue;
+                }
+
+                const dist = Math.sqrt(camSpace.x * camSpace.x + camSpace.y * camSpace.y + camSpace.z * camSpace.z);
+                candidates.push({ group, camSpace, dist });
+            }
+
+            // Stage 2: lightweight chunk occlusion culling.
+            // Keep nearest chunk depth per angular cell; farther chunks in the same cell are treated as hidden.
+            const AZ_BINS = 24;
+            const EL_BINS = 14;
+            const nearestDepth = new Float32Array(AZ_BINS * EL_BINS);
+            nearestDepth.fill(Infinity);
+
+            const MAX_OCCLUSION_DIST = CHUNK_SIZE * 7;
+            const DEPTH_MARGIN = CHUNK_SIZE * 1.7;
+
+            for (const c of candidates) {
+                if (c.dist > MAX_OCCLUSION_DIST) continue;
+                const az = Math.atan2(c.camSpace.x, -c.camSpace.z);
+                const el = Math.atan2(c.camSpace.y, Math.max(0.0001, Math.hypot(c.camSpace.x, c.camSpace.z)));
+                const azN = (az + Math.PI) / (Math.PI * 2);
+                const elN = (el + Math.PI * 0.5) / Math.PI;
+                const ai = Math.max(0, Math.min(AZ_BINS - 1, Math.floor(azN * AZ_BINS)));
+                const ei = Math.max(0, Math.min(EL_BINS - 1, Math.floor(elN * EL_BINS)));
+                const idx = ai + ei * AZ_BINS;
+                if (c.dist < nearestDepth[idx]) nearestDepth[idx] = c.dist;
+            }
+
+            for (const c of candidates) {
+                // Never occlusion-cull near chunks to avoid visible popping around player.
+                if (c.dist <= CHUNK_SIZE * 2.5) {
+                    c.group.visible = true;
+                    continue;
+                }
+
+                const az = Math.atan2(c.camSpace.x, -c.camSpace.z);
+                const el = Math.atan2(c.camSpace.y, Math.max(0.0001, Math.hypot(c.camSpace.x, c.camSpace.z)));
+                const azN = (az + Math.PI) / (Math.PI * 2);
+                const elN = (el + Math.PI * 0.5) / Math.PI;
+                const ai = Math.max(0, Math.min(AZ_BINS - 1, Math.floor(azN * AZ_BINS)));
+                const ei = Math.max(0, Math.min(EL_BINS - 1, Math.floor(elN * EL_BINS)));
+                const idx = ai + ei * AZ_BINS;
+                const near = nearestDepth[idx];
+                const occluded = Number.isFinite(near) && (c.dist > near + DEPTH_MARGIN);
+                c.group.visible = !occluded;
             }
         }
 
         function updateChunkAndNeighbors(centerGroup, lx, lz) {
-            updateChunkGeometry(centerGroup, centerGroup.userData.chunkData);
-            
-           
-            if (lx === 0 || lx === CHUNK_SIZE - 1 || lz === 0 || lz === CHUNK_SIZE - 1) {
-                const cx = centerGroup.userData.cx;
-                const cz = centerGroup.userData.cz;
+            const cx = centerGroup.userData.cx;
+            const cz = centerGroup.userData.cz;
+            const needsNeighbors = (lx === 0 || lx === CHUNK_SIZE - 1 || lz === 0 || lz === CHUNK_SIZE - 1);
 
-                const neighborOffsets = [
-                    [-1, 0], [1, 0], [0, -1], [0, 1]
-                ];
+            if (blockUpdateBatchDepth > 0) {
+                markBatchedChunkRemeshNeed(cx, cz, needsNeighbors);
+                return;
+            }
 
-                for (const [dx, dz] of neighborOffsets) {
-                    const neighborId = `${cx + dx},${cz + dz}`;
-                    const neighborGroup = chunks.get(neighborId);
-                    if (neighborGroup) {
-                        updateChunkGeometry(neighborGroup, neighborGroup.userData.chunkData);
-                    }
-                }
+            requestChunkRemesh(cx, cz, 'block');
+            if (needsNeighbors) {
+                requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
             }
         }
         
@@ -4652,15 +4912,17 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             if (created.length) torchLightsByChunk.set(chunkKey, created);
         }
 
-        function updateChunkGeometry(group, data) {
+        function updateChunkGeometry(group, data, forceRemesh = false) {
 
+            // Chunk meshing pipeline: blocks -> greedy mesh -> vertex buffer -> GPU.
             const nextHash = computeChunkHash(data);
-            if (group.userData.meshHash === nextHash && group.children.length > 0) return;
+            if (!forceRemesh && group.userData.meshHash === nextHash && group.children.length > 0) return;
             group.userData.meshHash = nextHash;
 
-            while(group.children.length) group.remove(group.children[0]);
-            
-            // Map to hold position/normal/uv data arrays for each material key
+            const meshesByKey = group.userData.meshesByKey || new Map();
+            group.userData.meshesByKey = meshesByKey;
+
+            // Map to hold CPU-side staging arrays before single VBO upload per chunk material.
             const geometryData = {}; 
             
             const cx = group.userData.cx;
@@ -4684,100 +4946,390 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 { name: 'negZ', dir: [0,0,-1], corners: [[0.5625,0.8,0.4375],[0.5625,0.05,0.4375],[0.4375,0.05,0.4375],[0.4375,0.8,0.4375]], uv: [0,1,0,0,1,0,1,1] }
             ];
 
+            const CH = CHUNK_HEIGHT;
+            const CS = CHUNK_SIZE;
+
             const get = (x,y,z) => {
-                if(x<0||x>=16||z<0||z>=16||y<0||y>=96) {
-                    const wx = x + cx*16;
-                    const wz = z + cz*16;
-                    return getBlockType(wx, y, wz); 
+                if (x < 0 || x >= CS || z < 0 || z >= CS || y < 0 || y >= CH) {
+                    const wx = x + cx * CS;
+                    const wz = z + cz * CS;
+                    return getBlockType(wx, y, wz);
                 }
-                return data[x + y*16 + z*16*96];
+                return data[x + y * CS + z * CS * CH];
             };
 
-            for(let x=0; x<16; x++){
-                for(let y=0; y<96; y++){
-                    for(let z=0; z<16; z++){
-                        const id = data[x + y*16 + z*16*96];
-                        if(id===0) continue;
-                        
-                        const mat = blockMaterials[id];
-                        const isTorch = id === 22;
-                        if (isTorch) torchPositions.push({ x: x + cx*16, y, z: z + cz*16 });
-                        const isTrans = mat.transparent || (mat.textured && mat.textureKey === 'LEAVES');
-                        const activeFaces = isTorch ? torchFaces : faces;
+            const isTransparentBlock = (id) => {
+                const mat = blockMaterials[id];
+                return Boolean(mat && (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES')));
+            };
 
-                        for(let i=0; i<6; i++){
-                            const f = activeFaces[i];
-                            const nid = get(x+f.dir[0], y+f.dir[1], z+f.dir[2]);
-                            const neighborMat = blockMaterials[nid];
-                            
-                            let draw = false;
-                            if (isTorch) draw = true;
-                            else if (nid === 0) draw = true;
-                            else if (!isTrans && neighborMat?.transparent) draw = true;
-                            else if (isTrans && nid !== id) draw = true;
+            // Face culling core rule:
+            // if neighbor block is not AIR and both sides are opaque, the face is hidden and skipped.
+            const shouldCullFace = (id, nid) => {
+                if (nid === 0) return false;
+                const selfTransparent = isTransparentBlock(id);
+                const neighborTransparent = isTransparentBlock(nid);
+                if (!selfTransparent && !neighborTransparent) return true;
+                if (selfTransparent && nid === id) return true;
+                return false;
+            };
 
-                            if(draw) {
-                                const materialKey = getMaterialKey(id, f.dir);
-                                
-                                if (!geometryData[materialKey]) {
-                                    geometryData[materialKey] = { pos: [], norm: [], col: [], uv: [] };
+            const shouldDrawFace = (id, nid) => !shouldCullFace(id, nid);
+
+            const getFaceUvInfo = (blockId, faceName, fallbackUv) => {
+                const mat = blockMaterials[blockId];
+                const rect = mat?.textureUvByFace?.[faceName];
+                if (!rect) return { uv: fallbackUv, canTile: true };
+                return { uv: getFaceUVs(blockId, faceName, fallbackUv), canTile: false };
+            };
+
+            const scaledUv = (uv, repeatU, repeatV) => {
+                const u0 = Math.min(uv[0], uv[2], uv[4], uv[6]);
+                const u1 = Math.max(uv[0], uv[2], uv[4], uv[6]);
+                const v0 = Math.min(uv[1], uv[3], uv[5], uv[7]);
+                const v1 = Math.max(uv[1], uv[3], uv[5], uv[7]);
+                const du = Math.max(0.000001, u1 - u0);
+                const dv = Math.max(0.000001, v1 - v0);
+                const out = new Array(8);
+                for (let i = 0; i < 4; i++) {
+                    const bu = (uv[i * 2] - u0) / du;
+                    const bv = (uv[i * 2 + 1] - v0) / dv;
+                    out[i * 2] = u0 + du * (bu * repeatU);
+                    out[i * 2 + 1] = v0 + dv * (bv * repeatV);
+                }
+                return out;
+            };
+
+            const ensureGeometryData = (materialKey) => {
+                if (!geometryData[materialKey]) geometryData[materialKey] = { pos: [], norm: [], col: [], uv: [] };
+                return geometryData[materialKey];
+            };
+
+            const isAOOccluder = (id) => {
+                if (!id) return false;
+                if (id === 22) return false;
+                const mat = blockMaterials[id];
+                if (!mat) return false;
+                return !(mat.transparent || (mat.textured && mat.textureKey === 'LEAVES'));
+            };
+
+            const sampleAOFromCorner = (dir, corners, cornerIndex) => {
+                const c = corners[cornerIndex];
+                const center = [
+                    (corners[0][0] + corners[1][0] + corners[2][0] + corners[3][0]) * 0.25,
+                    (corners[0][1] + corners[1][1] + corners[2][1] + corners[3][1]) * 0.25,
+                    (corners[0][2] + corners[1][2] + corners[2][2] + corners[3][2]) * 0.25,
+                ];
+
+                const normalAxis = Math.abs(dir[0]) > 0 ? 0 : (Math.abs(dir[1]) > 0 ? 1 : 2);
+                const tangentAxes = normalAxis === 0 ? [1, 2] : (normalAxis === 1 ? [0, 2] : [0, 1]);
+                const a1 = tangentAxes[0];
+                const a2 = tangentAxes[1];
+                const s1 = c[a1] >= center[a1] ? 1 : -1;
+                const s2 = c[a2] >= center[a2] ? 1 : -1;
+
+                const wc = [Math.floor(c[0]), Math.floor(c[1]), Math.floor(c[2])];
+                wc[normalAxis] = dir[normalAxis] > 0 ? wc[normalAxis] : (wc[normalAxis] - 1);
+
+                const outer = (sign) => sign > 0 ? 0 : -1;
+                const inner = (sign) => sign > 0 ? -1 : 0;
+
+                const side1 = wc.slice();
+                side1[a1] += outer(s1);
+                side1[a2] += inner(s2);
+
+                const side2 = wc.slice();
+                side2[a1] += inner(s1);
+                side2[a2] += outer(s2);
+
+                const cornerCell = wc.slice();
+                cornerCell[a1] += outer(s1);
+                cornerCell[a2] += outer(s2);
+
+                const s1Occ = isAOOccluder(getBlockType(side1[0], side1[1], side1[2])) ? 1 : 0;
+                const s2Occ = isAOOccluder(getBlockType(side2[0], side2[1], side2[2])) ? 1 : 0;
+                const cOcc = isAOOccluder(getBlockType(cornerCell[0], cornerCell[1], cornerCell[2])) ? 1 : 0;
+
+                const aoLevel = (s1Occ && s2Occ) ? 0 : (3 - (s1Occ + s2Occ + cOcc));
+                return Math.max(0, Math.min(1, aoLevel / 3));
+            };
+
+            const emitQuad = (id, materialKey, dir, corners, uvValues, useAO = true) => {
+                const gd = ensureGeometryData(materialKey);
+                const triOrder = [0, 1, 2, 0, 2, 3];
+                const ao = useAO ? [
+                    sampleAOFromCorner(dir, corners, 0),
+                    sampleAOFromCorner(dir, corners, 1),
+                    sampleAOFromCorner(dir, corners, 2),
+                    sampleAOFromCorner(dir, corners, 3),
+                ] : [1, 1, 1, 1];
+                const baseColorHex = blockMaterials[id].color || 0xd1c17e;
+                const baseColor = new THREE.Color(baseColorHex);
+                const isTextured = Boolean(materials[materialKey] && materials[materialKey].map);
+
+                for (const ti of triOrder) {
+                    const c = corners[ti];
+                    gd.pos.push(c[0], c[1], c[2]);
+                    gd.norm.push(dir[0], dir[1], dir[2]);
+                    if (isTextured) {
+                        gd.uv.push(uvValues[ti * 2], uvValues[ti * 2 + 1]);
+                        const a = ao[ti];
+                        gd.col.push(a, a, a);
+                    } else {
+                        const a = ao[ti];
+                        gd.col.push(baseColor.r * a, baseColor.g * a, baseColor.b * a);
+                    }
+                }
+            };
+
+            const greedyFaces = [
+                { name: 'top', dir: [0, 1, 0], axis: 'y', sign: 1 },
+                { name: 'bottom', dir: [0, -1, 0], axis: 'y', sign: -1 },
+                { name: 'posX', dir: [1, 0, 0], axis: 'x', sign: 1 },
+                { name: 'negX', dir: [-1, 0, 0], axis: 'x', sign: -1 },
+                { name: 'posZ', dir: [0, 0, 1], axis: 'z', sign: 1 },
+                { name: 'negZ', dir: [0, 0, -1], axis: 'z', sign: -1 },
+            ];
+
+            for (const face of greedyFaces) {
+                if (face.axis === 'y') {
+                    for (let y = 0; y < CH; y++) {
+                        const visited = Array(CS * CS).fill(false);
+                        for (let z = 0; z < CS; z++) {
+                            for (let x = 0; x < CS; x++) {
+                                const mi = x + z * CS;
+                                if (visited[mi]) continue;
+                                const id = get(x, y, z);
+                                if (id === 0 || id === 22) continue;
+                                const mat = blockMaterials[id];
+                                if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES')) continue;
+                                const nid = get(x, y + face.sign, z);
+                                if (!shouldDrawFace(id, nid)) continue;
+                                const materialKey = getMaterialKey(id, face.dir);
+                                const uvInfo = getFaceUvInfo(id, face.name, [0,1, 0,0, 1,0, 1,1]);
+                                let w = 1;
+                                while (x + w < CS) {
+                                    const ni = x + w + z * CS;
+                                    if (visited[ni]) break;
+                                    const id2 = get(x + w, y, z);
+                                    if (id2 !== id) break;
+                                    if (getMaterialKey(id2, face.dir) !== materialKey) break;
+                                    if (!shouldDrawFace(id2, get(x + w, y + face.sign, z))) break;
+                                    w++;
                                 }
-                                const gd = geometryData[materialKey];
-                                
-                                const wx = x + cx*16;
-                                const wz = z + cz*16;
-                                const faceName = f.name || getFaceName(f.dir);
-                                const uvValues = getFaceUVs(id, faceName, f.uv);
-                                
-                                const triOrder = [0, 1, 2, 0, 2, 3];
-                                for (const ti of triOrder) {
-                                    const c = f.corners[ti];
-                                    gd.pos.push(wx + c[0], y + c[1], wz + c[2]);
-                                    gd.norm.push(f.dir[0], f.dir[1], f.dir[2]);
-                                    if (materials[materialKey] && materials[materialKey].map) {
-                                        gd.uv.push(uvValues[ti * 2], uvValues[ti * 2 + 1]);
-                                    } else {
-                                        const color = blockMaterials[id].color || 0xd1c17e;
-                                        const cc = new THREE.Color(color);
-                                        gd.col.push(cc.r, cc.g, cc.b);
+                                let h = 1;
+                                outerY: while (z + h < CS) {
+                                    for (let k = 0; k < w; k++) {
+                                        const ni = (x + k) + (z + h) * CS;
+                                        if (visited[ni]) break outerY;
+                                        const id2 = get(x + k, y, z + h);
+                                        if (id2 !== id) break outerY;
+                                        if (getMaterialKey(id2, face.dir) !== materialKey) break outerY;
+                                        if (!shouldDrawFace(id2, get(x + k, y + face.sign, z + h))) break outerY;
                                     }
+                                    h++;
                                 }
+                                for (let dz = 0; dz < h; dz++) for (let dx = 0; dx < w; dx++) visited[(x + dx) + (z + dz) * CS] = true;
+                                const wx = cx * CS + x;
+                                const wz = cz * CS + z;
+                                const py = face.sign > 0 ? y + 1 : y;
+                                const corners = face.sign > 0
+                                    ? [[wx, py, wz + h], [wx + w, py, wz + h], [wx + w, py, wz], [wx, py, wz]]
+                                    : [[wx, py, wz], [wx + w, py, wz], [wx + w, py, wz + h], [wx, py, wz + h]];
+                                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, w, h) : uvInfo.uv;
+                                emitQuad(id, materialKey, face.dir, corners, uv);
+                            }
+                        }
+                    }
+                } else if (face.axis === 'x') {
+                    for (let x = 0; x < CS; x++) {
+                        const visited = Array(CH * CS).fill(false);
+                        for (let z = 0; z < CS; z++) {
+                            for (let y = 0; y < CH; y++) {
+                                const mi = y + z * CH;
+                                if (visited[mi]) continue;
+                                const id = get(x, y, z);
+                                if (id === 0 || id === 22) continue;
+                                const mat = blockMaterials[id];
+                                if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES')) continue;
+                                const nid = get(x + face.sign, y, z);
+                                if (!shouldDrawFace(id, nid)) continue;
+                                const materialKey = getMaterialKey(id, face.dir);
+                                const uvInfo = getFaceUvInfo(id, face.name, [0,1, 0,0, 1,0, 1,1]);
+                                let w = 1;
+                                while (y + w < CH) {
+                                    const ni = (y + w) + z * CH;
+                                    if (visited[ni]) break;
+                                    const id2 = get(x, y + w, z);
+                                    if (id2 !== id) break;
+                                    if (getMaterialKey(id2, face.dir) !== materialKey) break;
+                                    if (!shouldDrawFace(id2, get(x + face.sign, y + w, z))) break;
+                                    w++;
+                                }
+                                let h = 1;
+                                outerX: while (z + h < CS) {
+                                    for (let k = 0; k < w; k++) {
+                                        const ni = (y + k) + (z + h) * CH;
+                                        if (visited[ni]) break outerX;
+                                        const id2 = get(x, y + k, z + h);
+                                        if (id2 !== id) break outerX;
+                                        if (getMaterialKey(id2, face.dir) !== materialKey) break outerX;
+                                        if (!shouldDrawFace(id2, get(x + face.sign, y + k, z + h))) break outerX;
+                                    }
+                                    h++;
+                                }
+                                for (let dz = 0; dz < h; dz++) for (let dy = 0; dy < w; dy++) visited[(y + dy) + (z + dz) * CH] = true;
+                                const wx = cx * CS + x;
+                                const wz = cz * CS + z;
+                                const px = face.sign > 0 ? wx + 1 : wx;
+                                const corners = face.sign > 0
+                                    ? [[px, y + w, wz + h], [px, y, wz + h], [px, y, wz], [px, y + w, wz]]
+                                    : [[px, y + w, wz], [px, y, wz], [px, y, wz + h], [px, y + w, wz + h]];
+                                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, h, w) : uvInfo.uv;
+                                emitQuad(id, materialKey, face.dir, corners, uv);
+                            }
+                        }
+                    }
+                } else {
+                    for (let z = 0; z < CS; z++) {
+                        const visited = Array(CH * CS).fill(false);
+                        for (let x = 0; x < CS; x++) {
+                            for (let y = 0; y < CH; y++) {
+                                const mi = y + x * CH;
+                                if (visited[mi]) continue;
+                                const id = get(x, y, z);
+                                if (id === 0 || id === 22) continue;
+                                const mat = blockMaterials[id];
+                                if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES')) continue;
+                                const nid = get(x, y, z + face.sign);
+                                if (!shouldDrawFace(id, nid)) continue;
+                                const materialKey = getMaterialKey(id, face.dir);
+                                const uvInfo = getFaceUvInfo(id, face.name, [0,1, 0,0, 1,0, 1,1]);
+                                let w = 1;
+                                while (y + w < CH) {
+                                    const ni = (y + w) + x * CH;
+                                    if (visited[ni]) break;
+                                    const id2 = get(x, y + w, z);
+                                    if (id2 !== id) break;
+                                    if (getMaterialKey(id2, face.dir) !== materialKey) break;
+                                    if (!shouldDrawFace(id2, get(x, y + w, z + face.sign))) break;
+                                    w++;
+                                }
+                                let h = 1;
+                                outerZ: while (x + h < CS) {
+                                    for (let k = 0; k < w; k++) {
+                                        const ni = (y + k) + (x + h) * CH;
+                                        if (visited[ni]) break outerZ;
+                                        const id2 = get(x + h, y + k, z);
+                                        if (id2 !== id) break outerZ;
+                                        if (getMaterialKey(id2, face.dir) !== materialKey) break outerZ;
+                                        if (!shouldDrawFace(id2, get(x + h, y + k, z + face.sign))) break outerZ;
+                                    }
+                                    h++;
+                                }
+                                for (let dx = 0; dx < h; dx++) for (let dy = 0; dy < w; dy++) visited[(y + dy) + (x + dx) * CH] = true;
+                                const wx = cx * CS + x;
+                                const wz = cz * CS + z;
+                                const pz = face.sign > 0 ? wz + 1 : wz;
+                                const corners = face.sign > 0
+                                    ? [[wx, y + w, pz], [wx, y, pz], [wx + h, y, pz], [wx + h, y + w, pz]]
+                                    : [[wx + h, y + w, pz], [wx + h, y, pz], [wx, y, pz], [wx, y + w, pz]];
+                                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, h, w) : uvInfo.uv;
+                                emitQuad(id, materialKey, face.dir, corners, uv);
                             }
                         }
                     }
                 }
             }
-            
-            // Generate meshes for all accumulated materials
-            for (const key in geometryData) {
+
+            // Keep non-cube/transparent blocks on classic meshing path.
+            for (let x = 0; x < CS; x++) {
+                for (let z = 0; z < CS; z++) {
+                    for (let y = 0; y < CH; y++) {
+                        const id = get(x, y, z);
+                        if (id === 0) continue;
+                        const mat = blockMaterials[id];
+                        const isTorch = id === 22;
+                        if (isTorch) torchPositions.push({ x: x + cx * CS, y, z: z + cz * CS });
+                        const isTrans = mat.transparent || (mat.textured && mat.textureKey === 'LEAVES');
+                        if (!isTorch && !isTrans) continue;
+                        const activeFaces = isTorch ? torchFaces : faces;
+
+                        for (let i = 0; i < 6; i++) {
+                            const f = activeFaces[i];
+                            const nid = get(x + f.dir[0], y + f.dir[1], z + f.dir[2]);
+                            let draw = false;
+                            if (isTorch) draw = true;
+                            else if (shouldDrawFace(id, nid)) draw = true;
+                            if (!draw) continue;
+
+                            const materialKey = getMaterialKey(id, f.dir);
+                            const faceName = f.name || getFaceName(f.dir);
+                            const uvInfo = getFaceUvInfo(id, faceName, f.uv);
+                            const wx = x + cx * CS;
+                            const wz = z + cz * CS;
+                            const corners = f.corners.map((c) => [wx + c[0], y + c[1], wz + c[2]]);
+                            emitQuad(id, materialKey, f.dir, corners, uvInfo.uv, !isTorch);
+                        }
+                    }
+                }
+            }
+            // Generate / update chunk VBO meshes for all accumulated materials.
+            const activeKeys = new Set(Object.keys(geometryData));
+            for (const key of activeKeys) {
                 const gd = geometryData[key];
-                if (gd.pos.length === 0) continue;
-                
+                if (!gd || gd.pos.length === 0) continue;
+
                 const geom = new THREE.BufferGeometry();
-                geom.setAttribute('position', new THREE.Float32BufferAttribute(gd.pos, 3));
-                geom.getAttribute('position').setUsage(THREE.StaticDrawUsage);
-                geom.setAttribute('normal', new THREE.Float32BufferAttribute(gd.norm, 3));
+                const posAttr = new THREE.Float32BufferAttribute(gd.pos, 3);
+                const normAttr = new THREE.Float32BufferAttribute(gd.norm, 3);
+                posAttr.setUsage(THREE.StaticDrawUsage);
+                normAttr.setUsage(THREE.StaticDrawUsage);
+                geom.setAttribute('position', posAttr);
+                geom.setAttribute('normal', normAttr);
 
                 let currentMaterial = materials[key];
 
                 // Set UVs if material is textured (i.e., it has a map)
                 if (currentMaterial && currentMaterial.map && gd.uv.length > 0) {
-                    geom.setAttribute('uv', new THREE.Float32BufferAttribute(gd.uv, 2));
+                    const uvAttr = new THREE.Float32BufferAttribute(gd.uv, 2);
+                    uvAttr.setUsage(THREE.StaticDrawUsage);
+                    geom.setAttribute('uv', uvAttr);
                 }
 
-                // Set vertex colors if data was accumulated (means texture failed or block is color-only)
+                // Set vertex colors for AO tint / color fallback.
                 if (gd.col.length > 0) {
-                    geom.setAttribute('color', new THREE.Float32BufferAttribute(gd.col, 3));
+                    const colAttr = new THREE.Float32BufferAttribute(gd.col, 3);
+                    colAttr.setUsage(THREE.StaticDrawUsage);
+                    geom.setAttribute('color', colAttr);
 
-                    // If we have vertex colors AND it's not the transparent WATER material, use COLORED_OPAQUE.
-                    if (key !== 'WATER') {
+                    // For non-textured materials keep vertex-color pipeline.
+                    if (!(currentMaterial && currentMaterial.map) && key !== 'WATER') {
                        currentMaterial = materials.COLORED_OPAQUE;
                     }
                 }
 
-                const mesh = new THREE.Mesh(geom, currentMaterial);
-                mesh.frustumCulled = true;
-                group.add(mesh);
+                const existing = meshesByKey.get(key);
+                if (existing) {
+                    const oldGeom = existing.geometry;
+                    existing.geometry = geom;
+                    existing.material = currentMaterial;
+                    existing.visible = true;
+                    if (oldGeom) oldGeom.dispose();
+                } else {
+                    const mesh = new THREE.Mesh(geom, currentMaterial);
+                    mesh.frustumCulled = true;
+                    meshesByKey.set(key, mesh);
+                    group.add(mesh);
+                }
+            }
+
+            // Remove stale material VBOs no longer needed for this chunk.
+            for (const [key, mesh] of meshesByKey.entries()) {
+                if (activeKeys.has(key)) continue;
+                if (mesh.geometry) mesh.geometry.dispose();
+                group.remove(mesh);
+                meshesByKey.delete(key);
             }
 
             syncTorchLightsForChunk(group, torchPositions);
@@ -4853,7 +5405,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
 
         function getChunkRetentionRadius() {
-            return effectiveChunkLoadRadius + 2;
+            // Small hysteresis band prevents rapid load/unload thrashing when crossing chunk borders.
+            return effectiveChunkLoadRadius + 1;
         }
 
         function ensureChunksAroundPlayer(forceUpdate = false, nowMs = performance.now()) {
@@ -4873,23 +5426,27 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             const budget = forceUpdate ? CHUNK_CREATION_BUDGET_FORCE : CHUNK_CREATION_BUDGET_PER_TICK;
             if (budget > 0) {
                 const offsets = getChunkOffsetsForRadius(loadRadius);
+                const loadRadiusSq = loadRadius * loadRadius;
                 let created = 0;
                 for (let i = 0; i < offsets.length && created < budget; i++) {
                     const off = offsets[i];
+                    if (off.dist2 > loadRadiusSq) continue;
                     const cx = playerChunkX + off.dx;
                     const cz = playerChunkZ + off.dz;
                     const chunkKey = `${cx},${cz}`;
-                    if (chunks.has(chunkKey)) continue;
+                    if (chunks.has(chunkKey) || sparseAirChunkKeys.has(chunkKey)) continue;
                     createChunk(cx, cz);
                     created++;
                 }
             }
 
             const chunkKeysToRemove = [];
+            const keepRadiusSq = keepRadius * keepRadius;
             for (const [chunkKey, chunkGroup] of chunks.entries()) {
                 const dx = chunkGroup.userData.cx - playerChunkX;
                 const dz = chunkGroup.userData.cz - playerChunkZ;
-                if (Math.abs(dx) > keepRadius || Math.abs(dz) > keepRadius) {
+                const dist2 = dx * dx + dz * dz;
+                if (dist2 > keepRadiusSq) {
                     chunkKeysToRemove.push(chunkKey);
                 }
             }
@@ -4904,6 +5461,9 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                         if (child.geometry) child.geometry.dispose();
                     }
                 }
+                if (chunkGroup.userData?.meshesByKey) {
+                    chunkGroup.userData.meshesByKey.clear();
+                }
                 chunks.delete(chunkKey);
             }
         }
@@ -4912,9 +5472,24 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             ensureChunksAroundPlayer(true);
         }
 
+        function processMeshUpdateQueue() {
+            // Spread chunk mesh rebuilds across frames to avoid spikes.
+            rebuildDirtyChunkMeshes(false);
+        }
+
         function maybeUpdateChunkFrustumCulling(nowMs) {
-            if ((nowMs - lastFrustumCullMs) < FRUSTUM_CULL_INTERVAL_MS) return;
+            const intervalElapsed = (nowMs - lastFrustumCullMs) >= FRUSTUM_CULL_INTERVAL_MS;
+
+            const movedSq = hasFrustumCameraState ? camera.position.distanceToSquared(lastFrustumCameraPos) : Infinity;
+            const rotatedDelta = hasFrustumCameraState ? (1 - Math.abs(camera.quaternion.dot(lastFrustumCameraQuat))) : Infinity;
+            const cameraChanged = movedSq > 0.04 || rotatedDelta > 0.00008;
+
+            if (!intervalElapsed && !cameraChanged) return;
+
             lastFrustumCullMs = nowMs;
+            lastFrustumCameraPos.copy(camera.position);
+            lastFrustumCameraQuat.copy(camera.quaternion);
+            hasFrustumCameraState = true;
             updateChunkFrustumCulling();
         }
 
@@ -5000,6 +5575,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 updateEatingAnimation(delta, time);
                 updatePlayerAvatarVisuals(time);
                 updateFirstPersonHand(time);
+                processMeshUpdateQueue();
                 const dtSec = delta / 1000;
                 if (window.FurnaceSystem) {
                     for (const state of furnaceStates.values()) window.FurnaceSystem.updateState(state, dtSec);
@@ -5014,6 +5590,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 updateEatingAnimation(delta, time);
                 maybeSpawnLavaParticles(delta);
                 updateWorldParticles(delta);
+                processMeshUpdateQueue();
                 miningState.active = false;
                 updateBreakingOverlay();
             }
