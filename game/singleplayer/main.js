@@ -4668,6 +4668,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             if (lx === 0 || lx === CHUNK_SIZE - 1 || lz === 0 || lz === CHUNK_SIZE - 1) {
                 requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
             }
+            rebuildDirtyChunkMeshes();
         }
         
         // Maps block ID to the THREE.js material key/fallback key
