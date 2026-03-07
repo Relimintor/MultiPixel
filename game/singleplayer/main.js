@@ -882,12 +882,14 @@ window.perlin = perlinInstance;
         }
 
         function getZombiePartRects(partName) {
+            // Minecraft 64x64 skin layout (classic model):
+            // right arm/leg use upper-sheet regions, left arm/leg use lower-sheet regions.
             if (partName === 'head') return buildMobPartFaceRects(0, 0, 8, 8, 8);
             if (partName === 'body') return buildMobPartFaceRects(16, 16, 8, 12, 4);
             if (partName === 'rightArm') return buildMobPartFaceRects(40, 16, 4, 12, 4);
-            if (partName === 'leftArm') return buildMobPartFaceRects(40, 16, 4, 12, 4);
+            if (partName === 'leftArm') return buildMobPartFaceRects(32, 48, 4, 12, 4);
             if (partName === 'rightLeg') return buildMobPartFaceRects(0, 16, 4, 12, 4);
-            if (partName === 'leftLeg') return buildMobPartFaceRects(0, 16, 4, 12, 4);
+            if (partName === 'leftLeg') return buildMobPartFaceRects(16, 48, 4, 12, 4);
             return null;
         }
 
@@ -922,7 +924,6 @@ window.perlin = perlinInstance;
             leftArmPivot.position.set(-6 * U, 24 * U, 0);
             const leftArm = createZombiePart([4 * U, 12 * U, 4 * U], getZombiePartRects('leftArm'));
             leftArm.position.set(0, -6 * U, 0);
-            leftArm.scale.x = -1;
             leftArmPivot.add(leftArm);
 
             const rightLegPivot = new THREE.Group();
@@ -935,7 +936,6 @@ window.perlin = perlinInstance;
             leftLegPivot.position.set(-2 * U, 12 * U, 0);
             const leftLeg = createZombiePart([4 * U, 12 * U, 4 * U], getZombiePartRects('leftLeg'));
             leftLeg.position.set(0, -6 * U, 0);
-            leftLeg.scale.x = -1;
             leftLegPivot.add(leftLeg);
 
             root.add(leftArmPivot, rightArmPivot, leftLegPivot, rightLegPivot);
@@ -1361,11 +1361,14 @@ window.perlin = perlinInstance;
 
                 const parts = z.root.userData.zombieParts;
                 if (parts) {
-                    const walk = Math.sin(time * 0.01 + i) * 0.45;
+                    const walk = Math.sin(time * 0.01 + i) * 0.52;
                     parts.leftLegPivot.rotation.x = walk;
                     parts.rightLegPivot.rotation.x = -walk;
-                    parts.leftArmPivot.rotation.x = -walk;
-                    parts.rightArmPivot.rotation.x = walk;
+
+                    // Minecraft-like zombie gait: both arms held forward, swaying while walking.
+                    const armSwing = Math.sin(time * 0.01 + i + Math.PI * 0.2) * 0.20;
+                    parts.leftArmPivot.rotation.x = -1.35 + armSwing;
+                    parts.rightArmPivot.rotation.x = -1.35 - armSwing;
                 }
 
                 z.attackCooldownMs = Math.max(0, z.attackCooldownMs - deltaMs);
