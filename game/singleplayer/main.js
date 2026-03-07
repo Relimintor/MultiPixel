@@ -200,28 +200,58 @@ window.perlin = perlinInstance;
         const dirtyChunkRemeshReasons = new Map();
         let blockUpdateBatchDepth = 0;
         const batchedChunkRemeshNeeds = new Map();
+        const meshVertexBucketPool = [];
+
+        function acquireMeshVertexBucket() {
+            return meshVertexBucketPool.pop() || { pos: [], norm: [], col: [], uv: [] };
+        }
+
+        function releaseMeshVertexBucket(bucket) {
+            if (!bucket) return;
+            bucket.pos.length = 0;
+            bucket.norm.length = 0;
+            bucket.col.length = 0;
+            bucket.uv.length = 0;
+            meshVertexBucketPool.push(bucket);
+        }
 
         function chunkKeyFromCoords(cx, cz) {
             return `${cx},${cz}`;
         }
 
+        function sectionIndexFromY(y) {
+            return Math.max(0, Math.min(CHUNK_SECTION_COUNT - 1, Math.floor(y / CHUNK_SECTION_HEIGHT)));
+        }
+
         // Mesh caching policy:
         // keep chunk meshes in GPU buffers and only remesh on explicit triggers.
-        function requestChunkRemesh(cx, cz, reason = 'block') {
+        function requestChunkRemesh(cx, cz, reason = 'block', sectionIndex = null) {
             const key = chunkKeyFromCoords(cx, cz);
             const rank = { load: 0, neighbor: 1, block: 2, lighting: 3 };
             const prev = dirtyChunkRemeshReasons.get(key);
-            if (!prev || (rank[reason] ?? 0) >= (rank[prev] ?? 0)) {
-                dirtyChunkRemeshReasons.set(key, reason);
+            const sections = sectionIndex === null ? null : new Set([Math.max(0, Math.min(CHUNK_SECTION_COUNT - 1, sectionIndex))]);
+            if (!prev) {
+                dirtyChunkRemeshReasons.set(key, { reason, sections });
+                return;
             }
+
+            const prevRank = rank[prev.reason] ?? 0;
+            const nextRank = rank[reason] ?? 0;
+            const mergedReason = nextRank >= prevRank ? reason : prev.reason;
+            let mergedSections = null;
+            if (prev.sections && sections) {
+                mergedSections = new Set(prev.sections);
+                for (const sec of sections) mergedSections.add(sec);
+            }
+            dirtyChunkRemeshReasons.set(key, { reason: mergedReason, sections: mergedSections });
         }
 
-        function requestChunkAndNeighborsRemesh(cx, cz, reason = 'neighbor') {
-            requestChunkRemesh(cx, cz, reason);
-            requestChunkRemesh(cx - 1, cz, reason);
-            requestChunkRemesh(cx + 1, cz, reason);
-            requestChunkRemesh(cx, cz - 1, reason);
-            requestChunkRemesh(cx, cz + 1, reason);
+        function requestChunkAndNeighborsRemesh(cx, cz, reason = 'neighbor', sectionIndex = null) {
+            requestChunkRemesh(cx, cz, reason, sectionIndex);
+            requestChunkRemesh(cx - 1, cz, reason, sectionIndex);
+            requestChunkRemesh(cx + 1, cz, reason, sectionIndex);
+            requestChunkRemesh(cx, cz - 1, reason, sectionIndex);
+            requestChunkRemesh(cx, cz + 1, reason, sectionIndex);
         }
 
         function rebuildDirtyChunkMeshes(forceAll = false) {
@@ -230,22 +260,31 @@ window.perlin = perlinInstance;
             let processed = 0;
 
             const pending = Array.from(dirtyChunkRemeshReasons.entries());
-            for (const [key, reason] of pending) {
+            for (const [key, request] of pending) {
                 if (processed >= budget) break;
                 dirtyChunkRemeshReasons.delete(key);
                 const g = chunks.get(key);
                 if (!g) continue;
-                const forceRemesh = reason === 'lighting';
-                updateChunkGeometry(g, g.userData.chunkData, forceRemesh);
+                const forceRemesh = request.reason === 'lighting';
+                const sections = request.sections ? Array.from(request.sections).sort((a, b) => a - b) : Array.from({ length: CHUNK_SECTION_COUNT }, (_, i) => i);
+                for (const sectionIndex of sections) {
+                    updateChunkGeometry(g, g.userData.chunkData, forceRemesh, sectionIndex);
+                }
                 processed++;
             }
             return processed;
         }
 
-        function markBatchedChunkRemeshNeed(cx, cz, includeNeighbors = false) {
+        function markBatchedChunkRemeshNeed(cx, cz, includeNeighbors = false, sectionIndex = null) {
             const key = chunkKeyFromCoords(cx, cz);
-            const prev = batchedChunkRemeshNeeds.get(key);
-            batchedChunkRemeshNeeds.set(key, Boolean(prev || includeNeighbors));
+            const prev = batchedChunkRemeshNeeds.get(key) || { includeNeighbors: false, sections: new Set() };
+            prev.includeNeighbors = Boolean(prev.includeNeighbors || includeNeighbors);
+            if (sectionIndex === null) {
+                prev.sections.clear();
+            } else if (prev.sections.size > 0 || !batchedChunkRemeshNeeds.has(key)) {
+                prev.sections.add(Math.max(0, Math.min(CHUNK_SECTION_COUNT - 1, sectionIndex)));
+            }
+            batchedChunkRemeshNeeds.set(key, prev);
         }
 
         function beginBlockUpdateBatch() {
@@ -257,13 +296,16 @@ window.perlin = perlinInstance;
             blockUpdateBatchDepth--;
             if (blockUpdateBatchDepth > 0) return;
 
-            for (const [key, includeNeighbors] of batchedChunkRemeshNeeds.entries()) {
+            for (const [key, req] of batchedChunkRemeshNeeds.entries()) {
                 const [cxs, czs] = key.split(',');
                 const cx = Number(cxs);
                 const cz = Number(czs);
                 if (!Number.isFinite(cx) || !Number.isFinite(cz)) continue;
-                requestChunkRemesh(cx, cz, 'block');
-                if (includeNeighbors) requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
+                const sections = req.sections && req.sections.size ? Array.from(req.sections) : [null];
+                for (const sectionIndex of sections) {
+                    requestChunkRemesh(cx, cz, 'block', sectionIndex);
+                    if (req.includeNeighbors) requestChunkAndNeighborsRemesh(cx, cz, 'neighbor', sectionIndex);
+                }
             }
             batchedChunkRemeshNeeds.clear();
         }
@@ -319,6 +361,10 @@ window.perlin = perlinInstance;
         const CHUNK_UPDATE_INTERVAL_MS = isLowEndDevice ? 220 : 90;
         const FRUSTUM_CULL_INTERVAL_MS = isLowEndDevice ? 120 : 60;
         const ENABLE_ANGULAR_OCCLUSION_CULLING = false;
+        const CHUNK_SECTION_HEIGHT = 16;
+        const CHUNK_SECTION_COUNT = Math.ceil(CHUNK_HEIGHT / CHUNK_SECTION_HEIGHT);
+        const CHUNK_RENDER_CULL_RADIUS = effectiveChunkLoadRadius;
+        const CHUNK_RENDER_CULL_RADIUS_SQ = CHUNK_RENDER_CULL_RADIUS * CHUNK_RENDER_CULL_RADIUS;
         const chunkOffsetsByRadius = new Map();
         let lastChunkUpdateMs = -Infinity;
         let lastFrustumCullMs = -Infinity;
@@ -358,6 +404,9 @@ window.perlin = perlinInstance;
         let skinSystem = null;
         let iglooStructureDef = null;
         const gnomeEntities = [];
+        const GNOME_INSTANCE_CAPACITY = 512;
+        const gnomeInstancedParts = {};
+        const gnomePartDummy = new THREE.Object3D();
         const pigEntities = [];
         const zombieEntities = [];
         const wolfEntities = [];
@@ -609,6 +658,13 @@ window.perlin = perlinInstance;
             renderer = new THREE.WebGLRenderer({ antialias: !isLowEndDevice });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(targetRenderPixelRatio);
+            // GPU backface culling: skip rendering triangles facing away from camera.
+            // This cuts fragment/triangle workload for closed meshes while keeping
+            // explicitly double-sided materials (e.g. leaves/water) working as-is.
+            const gl = renderer.getContext();
+            gl.enable(gl.CULL_FACE);
+            gl.cullFace(gl.BACK);
+            gl.frontFace(gl.CCW);
             document.body.appendChild(renderer.domElement);
             setupFirstPersonHandOverlay();
             setupInventorySkinRig();
@@ -828,32 +884,42 @@ window.perlin = perlinInstance;
             return sprite;
         }
 
+        function ensureGnomeInstancing() {
+            if (gnomeInstancedParts.body) return;
+
+            const bodyGeom = new THREE.BoxGeometry(0.7, 0.7, 0.7);
+            const headGeom = new THREE.BoxGeometry(0.52, 0.52, 0.52);
+            const legGeom = new THREE.BoxGeometry(0.2, 0.55, 0.2);
+
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0x3d70ff, roughness: 0.7 });
+            const headMat = new THREE.MeshStandardMaterial({ color: 0x7ea2ff, roughness: 0.65 });
+            const legMat = new THREE.MeshStandardMaterial({ color: 0x2a4bc0, roughness: 0.8 });
+
+            gnomeInstancedParts.body = new THREE.InstancedMesh(bodyGeom, bodyMat, GNOME_INSTANCE_CAPACITY);
+            gnomeInstancedParts.head = new THREE.InstancedMesh(headGeom, headMat, GNOME_INSTANCE_CAPACITY);
+            gnomeInstancedParts.leftLeg = new THREE.InstancedMesh(legGeom, legMat, GNOME_INSTANCE_CAPACITY);
+            gnomeInstancedParts.rightLeg = new THREE.InstancedMesh(legGeom, legMat, GNOME_INSTANCE_CAPACITY);
+
+            for (const key of ['body', 'head', 'leftLeg', 'rightLeg']) {
+                const mesh = gnomeInstancedParts[key];
+                mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+                mesh.frustumCulled = false;
+                scene.add(mesh);
+            }
+        }
+
         function spawnGnomeAt(wx, wy, wz) {
-            const gnome = new THREE.Group();
-            gnome.position.set(wx + 0.5, wy, wz + 0.5);
-
-            const body = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), new THREE.MeshStandardMaterial({ color: 0x3d70ff, roughness: 0.7 }));
-            body.position.y = 0.95;
-            gnome.add(body);
-
-            const head = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.52, 0.52), new THREE.MeshStandardMaterial({ color: 0x7ea2ff, roughness: 0.65 }));
-            head.position.y = 1.55;
-            gnome.add(head);
-
-            const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.55, 0.2), new THREE.MeshStandardMaterial({ color: 0x2a4bc0, roughness: 0.8 }));
-            leftLeg.position.set(-0.18, 0.28, 0);
-            gnome.add(leftLeg);
-
-            const rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.55, 0.2), new THREE.MeshStandardMaterial({ color: 0x2a4bc0, roughness: 0.8 }));
-            rightLeg.position.set(0.18, 0.28, 0);
-            gnome.add(rightLeg);
+            if (gnomeEntities.length >= GNOME_INSTANCE_CAPACITY) return;
+            ensureGnomeInstancing();
+            const anchor = new THREE.Group();
+            anchor.position.set(wx + 0.5, wy, wz + 0.5);
 
             const tag = createNameTagSprite('gnomes');
             tag.position.y = 2.15;
-            gnome.add(tag);
+            anchor.add(tag);
 
-            gnomeEntities.push({ root: gnome, head, leftLeg, rightLeg, phase: Math.random() * Math.PI * 2 });
-            scene.add(gnome);
+            gnomeEntities.push({ root: anchor, phase: Math.random() * Math.PI * 2 });
+            scene.add(anchor);
         }
 
         function isEntityActiveAt(position, rangeSq = ENTITY_ACTIVATION_RANGE_SQ) {
@@ -866,13 +932,38 @@ window.perlin = perlinInstance;
         function updateGnomes(time) {
             if (!gnomeEntities.length) return;
             const lookTarget = new THREE.Vector3(yawObject.position.x, 0, yawObject.position.z);
-            for (const g of gnomeEntities) {
-                if (!isEntityActiveAt(g.root.position)) continue;
-                const swing = Math.sin(time * 0.007 + g.phase) * 0.16;
-                g.leftLeg.position.z = swing;
-                g.rightLeg.position.z = -swing;
+            for (let i = 0; i < gnomeEntities.length; i++) {
+                const g = gnomeEntities[i];
+                const active = isEntityActiveAt(g.root.position);
+                const swing = active ? Math.sin(time * 0.007 + g.phase) * 0.16 : 0;
+
                 lookTarget.y = g.root.position.y + 1.55;
-                g.head.lookAt(lookTarget);
+                const headYaw = Math.atan2(lookTarget.x - g.root.position.x, lookTarget.z - g.root.position.z);
+
+                gnomePartDummy.position.set(g.root.position.x, g.root.position.y + 0.95, g.root.position.z);
+                gnomePartDummy.rotation.set(0, 0, 0);
+                gnomePartDummy.updateMatrix();
+                gnomeInstancedParts.body.setMatrixAt(i, gnomePartDummy.matrix);
+
+                gnomePartDummy.position.set(g.root.position.x, g.root.position.y + 1.55, g.root.position.z);
+                gnomePartDummy.rotation.set(0, headYaw, 0);
+                gnomePartDummy.updateMatrix();
+                gnomeInstancedParts.head.setMatrixAt(i, gnomePartDummy.matrix);
+
+                gnomePartDummy.position.set(g.root.position.x - 0.18, g.root.position.y + 0.28, g.root.position.z + swing);
+                gnomePartDummy.rotation.set(0, 0, 0);
+                gnomePartDummy.updateMatrix();
+                gnomeInstancedParts.leftLeg.setMatrixAt(i, gnomePartDummy.matrix);
+
+                gnomePartDummy.position.set(g.root.position.x + 0.18, g.root.position.y + 0.28, g.root.position.z - swing);
+                gnomePartDummy.rotation.set(0, 0, 0);
+                gnomePartDummy.updateMatrix();
+                gnomeInstancedParts.rightLeg.setMatrixAt(i, gnomePartDummy.matrix);
+            }
+
+            for (const key of ['body', 'head', 'leftLeg', 'rightLeg']) {
+                gnomeInstancedParts[key].count = gnomeEntities.length;
+                gnomeInstancedParts[key].instanceMatrix.needsUpdate = true;
             }
         }
 
@@ -1282,7 +1373,7 @@ window.perlin = perlinInstance;
             const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
             if (under !== 1 && under !== 2) return false;
             const biome = getBiome(Math.floor(wx), Math.floor(wz));
-            if (biome !== 'Forest') return false;
+            if (biome !== 'Forest' && biome !== 'Snowy Plains') return false;
             return spawnWolfAtExact(wx, y, wz);
         }
 
@@ -2750,15 +2841,15 @@ window.perlin = perlinInstance;
             if (oldType === newType) return false;
             chunkData[index] = newType;
 
-            // Chunk meshing rebuild triggers:
-            // - block changes
-            // - neighbor chunk changes (edge edits)
-            // - lighting-affecting changes (deferred through same dirty queue)
-            requestChunkRemesh(cx, cz, 'block');
-            if (lx <= 0) requestChunkRemesh(cx - 1, cz, 'neighbor');
-            if (lx >= CHUNK_SIZE - 1) requestChunkRemesh(cx + 1, cz, 'neighbor');
-            if (lz <= 0) requestChunkRemesh(cx, cz - 1, 'neighbor');
-            if (lz >= CHUNK_SIZE - 1) requestChunkRemesh(cx, cz + 1, 'neighbor');
+            // Chunk meshing rebuild triggers by 16x16x16 section:
+            const section = sectionIndexFromY(wy);
+            requestChunkRemesh(cx, cz, 'block', section);
+            if (wy % CHUNK_SECTION_HEIGHT === 0 && section > 0) requestChunkRemesh(cx, cz, 'block', section - 1);
+            if (wy % CHUNK_SECTION_HEIGHT === CHUNK_SECTION_HEIGHT - 1 && section < CHUNK_SECTION_COUNT - 1) requestChunkRemesh(cx, cz, 'block', section + 1);
+            if (lx <= 0) requestChunkRemesh(cx - 1, cz, 'neighbor', section);
+            if (lx >= CHUNK_SIZE - 1) requestChunkRemesh(cx + 1, cz, 'neighbor', section);
+            if (lz <= 0) requestChunkRemesh(cx, cz - 1, 'neighbor', section);
+            if (lz >= CHUNK_SIZE - 1) requestChunkRemesh(cx, cz + 1, 'neighbor', section);
 
             updateChunkHeightmapColumn(group, lx, lz);
 
@@ -2911,7 +3002,7 @@ window.perlin = perlinInstance;
                 return true;
             }
 
-            updateChunkAndNeighbors(group, lx, lz);
+            updateChunkAndNeighbors(group, lx, wy, lz);
             return true;
         }
 
@@ -4271,7 +4362,7 @@ function buildPartFaceRects(x, y, w, h, d) {
         }
         
         function generateChunkData(cx, cz) {
-             const data = new Array(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
+             const data = new Array(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE).fill(0);
              const spawnedGnomes = [];
              
              for (let x = 0; x < CHUNK_SIZE; x++) {
@@ -4685,7 +4776,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             const centerZ = Math.floor(CHUNK_SIZE / 2);
             const worldX = cx * CHUNK_SIZE + centerX;
             const worldZ = cz * CHUNK_SIZE + centerZ;
-            if (getBiome(worldX, worldZ) !== 'Forest') return;
+            const packBiome = getBiome(worldX, worldZ);
+            if (packBiome !== 'Forest' && packBiome !== 'Snowy Plains') return;
             if (hashRand2D(cx, cz, 7701) > 0.12) return;
 
             const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
@@ -4723,7 +4815,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
             sparseAirChunkKeys.delete(chunkKey);
             const group = new THREE.Group();
-            group.userData = { chunkData: data, heightmap, cx, cz, meshHash: null, frustumRadius: Math.sqrt((CHUNK_SIZE*CHUNK_SIZE)*0.5 + (CHUNK_HEIGHT*CHUNK_HEIGHT)*0.25) };
+            group.userData = { chunkData: data, heightmap, cx, cz, sectionMeshHashes: new Array(CHUNK_SECTION_COUNT).fill(null), frustumRadius: Math.sqrt((CHUNK_SIZE*CHUNK_SIZE)*0.5 + (CHUNK_HEIGHT*CHUNK_HEIGHT)*0.25) };
             chunks.set(chunkKey, group);
             requestChunkAndNeighborsRemesh(cx, cz, 'load');
             worldGroup.add(group);
@@ -4740,11 +4832,18 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
         }
 
 
-        function computeChunkHash(data) {
+        function computeChunkSectionHash(data, sectionIndex) {
+            const sectionStartY = sectionIndex * CHUNK_SECTION_HEIGHT;
+            const sectionEndY = Math.min(CHUNK_HEIGHT, sectionStartY + CHUNK_SECTION_HEIGHT);
             let h = 2166136261 >>> 0;
-            for (let i = 0; i < data.length; i++) {
-                h ^= data[i] & 0xff;
-                h = Math.imul(h, 16777619) >>> 0;
+            for (let z = 0; z < CHUNK_SIZE; z++) {
+                for (let y = sectionStartY; y < sectionEndY; y++) {
+                    for (let x = 0; x < CHUNK_SIZE; x++) {
+                        const idx = x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
+                        h ^= data[idx] & 0xff;
+                        h = Math.imul(h, 16777619) >>> 0;
+                    }
+                }
             }
             return h >>> 0;
         }
@@ -4782,10 +4881,20 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             camera.updateMatrixWorld();
             cameraViewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
             frustum.setFromProjectionMatrix(cameraViewProj);
+            const playerChunkX = yawObject ? Math.floor(yawObject.position.x / CHUNK_SIZE) : 0;
+            const playerChunkZ = yawObject ? Math.floor(yawObject.position.z / CHUNK_SIZE) : 0;
 
             // Stage 1: frustum culling candidates.
             const candidates = [];
             for (const group of chunks.values()) {
+                const dxChunks = group.userData.cx - playerChunkX;
+                const dzChunks = group.userData.cz - playerChunkZ;
+                const chunkDistSq = dxChunks * dxChunks + dzChunks * dzChunks;
+                if (chunkDistSq > CHUNK_RENDER_CULL_RADIUS_SQ) {
+                    group.visible = false;
+                    continue;
+                }
+
                 frustumTempCenter.set(
                     group.userData.cx * CHUNK_SIZE + CHUNK_SIZE * 0.5,
                     CHUNK_HEIGHT * 0.5,
@@ -4841,9 +4950,6 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 if (c.dist < nearestDepth[idx]) nearestDepth[idx] = c.dist;
             }
 
-            const playerChunkX = yawObject ? Math.floor(yawObject.position.x / CHUNK_SIZE) : 0;
-            const playerChunkZ = yawObject ? Math.floor(yawObject.position.z / CHUNK_SIZE) : 0;
-
             for (const c of candidates) {
                 // Keep local neighborhood around the player always visible to prevent x-ray holes.
                 const dx = c.group.userData.cx - playerChunkX;
@@ -4867,19 +4973,22 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             }
         }
 
-        function updateChunkAndNeighbors(centerGroup, lx, lz) {
+        function updateChunkAndNeighbors(centerGroup, lx, ly, lz) {
             const cx = centerGroup.userData.cx;
             const cz = centerGroup.userData.cz;
             const needsNeighbors = (lx === 0 || lx === CHUNK_SIZE - 1 || lz === 0 || lz === CHUNK_SIZE - 1);
+            const touchedSections = new Set([sectionIndexFromY(ly)]);
+            if (ly % CHUNK_SECTION_HEIGHT === 0 && ly > 0) touchedSections.add(sectionIndexFromY(ly - 1));
+            if (ly % CHUNK_SECTION_HEIGHT === CHUNK_SECTION_HEIGHT - 1 && ly < CHUNK_HEIGHT - 1) touchedSections.add(sectionIndexFromY(ly + 1));
 
             if (blockUpdateBatchDepth > 0) {
-                markBatchedChunkRemeshNeed(cx, cz, needsNeighbors);
+                for (const sec of touchedSections) markBatchedChunkRemeshNeed(cx, cz, needsNeighbors, sec);
                 return;
             }
 
-            requestChunkRemesh(cx, cz, 'block');
-            if (needsNeighbors) {
-                requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
+            for (const sec of touchedSections) {
+                requestChunkRemesh(cx, cz, 'block', sec);
+                if (needsNeighbors) requestChunkAndNeighborsRemesh(cx, cz, 'neighbor', sec);
             }
             rebuildDirtyChunkMeshes();
         }
@@ -4942,6 +5051,19 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             torchLightsByChunk.delete(chunkKey);
         }
 
+        function collectChunkTorchPositions(data, cx, cz) {
+            const out = [];
+            for (let x = 0; x < CHUNK_SIZE; x++) {
+                for (let z = 0; z < CHUNK_SIZE; z++) {
+                    for (let y = 0; y < CHUNK_HEIGHT; y++) {
+                        const idx = x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
+                        if (data[idx] === 22) out.push({ x: x + cx * CHUNK_SIZE, y, z: z + cz * CHUNK_SIZE });
+                    }
+                }
+            }
+            return out;
+        }
+
         function syncTorchLightsForChunk(group, torchPositions) {
             if (!scene) return;
             const chunkKey = `${group.userData.cx},${group.userData.cz}`;
@@ -4960,22 +5082,23 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             if (created.length) torchLightsByChunk.set(chunkKey, created);
         }
 
-        function updateChunkGeometry(group, data, forceRemesh = false) {
+        function updateChunkGeometry(group, data, forceRemesh = false, sectionIndex = 0) {
 
-            // Chunk meshing pipeline: blocks -> greedy mesh -> vertex buffer -> GPU.
-            const nextHash = computeChunkHash(data);
-            if (!forceRemesh && group.userData.meshHash === nextHash && group.children.length > 0) return;
-            group.userData.meshHash = nextHash;
+            // Chunk meshing pipeline (subchunk mode): blocks -> greedy mesh -> vertex buffer -> GPU.
+            const nextHash = computeChunkSectionHash(data, sectionIndex);
+            const sectionHashes = group.userData.sectionMeshHashes || (group.userData.sectionMeshHashes = new Array(CHUNK_SECTION_COUNT).fill(null));
+            if (!forceRemesh && sectionHashes[sectionIndex] === nextHash && group.children.length > 0) return;
+            sectionHashes[sectionIndex] = nextHash;
 
             const meshesByKey = group.userData.meshesByKey || new Map();
             group.userData.meshesByKey = meshesByKey;
 
             // Map to hold CPU-side staging arrays before single VBO upload per chunk material.
-            const geometryData = {}; 
+            const geometryData = {};
+            const usedGeometryBuckets = [];
             
             const cx = group.userData.cx;
             const cz = group.userData.cz;
-            const torchPositions = [];
 
             const faces = [
                 { name: 'posX', dir: [1,0,0], corners: [[1,1,1],[1,0,1],[1,0,0],[1,1,0]], uv: [0,1, 0,0, 1,0, 1,1] },
@@ -4996,6 +5119,9 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
             const CH = CHUNK_HEIGHT;
             const CS = CHUNK_SIZE;
+            const sectionStartY = sectionIndex * CHUNK_SECTION_HEIGHT;
+            const sectionEndY = Math.min(CH, sectionStartY + CHUNK_SECTION_HEIGHT);
+            const sectionPrefix = `s${sectionIndex}|`;
 
             const westChunk = chunks.get(`${cx - 1},${cz}`);
             const eastChunk = chunks.get(`${cx + 1},${cz}`);
@@ -5072,8 +5198,12 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             };
 
             const ensureGeometryData = (materialKey) => {
-                if (!geometryData[materialKey]) geometryData[materialKey] = { pos: [], norm: [], col: [], uv: [] };
-                return geometryData[materialKey];
+                const sectionKey = `${sectionPrefix}${materialKey}`;
+                if (!geometryData[sectionKey]) {
+                    geometryData[sectionKey] = acquireMeshVertexBucket();
+                    usedGeometryBuckets.push(geometryData[sectionKey]);
+                }
+                return geometryData[sectionKey];
             };
 
             const isAOOccluder = (id) => {
@@ -5239,6 +5369,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                         }
 
                         const id = get(x, y, z);
+                        if (y < sectionStartY || y >= sectionEndY) continue;
                         if (id === 0 || id === 22) continue;
                         const mat = blockMaterials[id];
                         if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES')) continue;
@@ -5266,8 +5397,10 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             const runBinaryGreedyFace = (face) => {
                 const sliceCount = face.axis === 'y' ? CH : CS;
                 const useBits = Math.min(32, CS);
+                const sliceStart = face.axis === 'y' ? sectionStartY : 0;
+                const sliceEnd = face.axis === 'y' ? sectionEndY : sliceCount;
 
-                for (let slice = 0; slice < sliceCount; slice++) {
+                for (let slice = sliceStart; slice < sliceEnd; slice++) {
                     const { U, V, buckets } = buildBinaryGreedyMasksForSlice(face, slice);
                     const maxBits = Math.min(U, useBits);
                     const validMask = maxBits >= 32 ? 0xFFFFFFFF : ((1 << maxBits) - 1);
@@ -5319,12 +5452,11 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             // Keep non-cube/transparent blocks on classic meshing path.
             for (let x = 0; x < CS; x++) {
                 for (let z = 0; z < CS; z++) {
-                    for (let y = 0; y < CH; y++) {
+                    for (let y = sectionStartY; y < sectionEndY; y++) {
                         const id = get(x, y, z);
                         if (id === 0) continue;
                         const mat = blockMaterials[id];
                         const isTorch = id === 22;
-                        if (isTorch) torchPositions.push({ x: x + cx * CS, y, z: z + cz * CS });
                         const isTrans = mat.transparent || (mat.textured && mat.textureKey === 'LEAVES');
                         if (!isTorch && !isTrans) continue;
                         const activeFaces = isTorch ? torchFaces : faces;
@@ -5362,7 +5494,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 geom.setAttribute('position', posAttr);
                 geom.setAttribute('normal', normAttr);
 
-                let currentMaterial = materials[key];
+                const logicalKey = key.startsWith(sectionPrefix) ? key.slice(sectionPrefix.length) : key;
+                let currentMaterial = materials[logicalKey];
 
                 // Set UVs if material is textured (i.e., it has a map)
                 if (currentMaterial && currentMaterial.map && gd.uv.length > 0) {
@@ -5378,7 +5511,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                     geom.setAttribute('color', colAttr);
 
                     // For non-textured materials keep vertex-color pipeline.
-                    if (!(currentMaterial && currentMaterial.map) && key !== 'WATER') {
+                    if (!(currentMaterial && currentMaterial.map) && logicalKey !== 'WATER') {
                        currentMaterial = materials.COLORED_OPAQUE;
                     }
                 }
@@ -5401,13 +5534,18 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
             // Remove stale material VBOs no longer needed for this chunk.
             for (const [key, mesh] of meshesByKey.entries()) {
+                if (!key.startsWith(sectionPrefix)) continue;
                 if (activeKeys.has(key)) continue;
                 if (mesh.geometry) mesh.geometry.dispose();
                 group.remove(mesh);
                 meshesByKey.delete(key);
             }
 
-            syncTorchLightsForChunk(group, torchPositions);
+            for (const bucket of usedGeometryBuckets) {
+                releaseMeshVertexBucket(bucket);
+            }
+
+            syncTorchLightsForChunk(group, collectChunkTorchPositions(data, cx, cz));
         }
 
         const SPAWN_MIN_LIGHT_LEVEL = 13;
