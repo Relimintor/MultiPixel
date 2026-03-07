@@ -159,8 +159,8 @@
 
       if (temp === C.WARM) {
         if (r < 0.50) return 'Desert';
-        if (r < 0.83) return 'Savanna';
-        return 'Plains';
+        if (r < 0.83) return 'Plains';
+        return 'Badlands Plateau';
       }
       if (temp === C.TEMPERATE) {
         if (r < 0.56) return 'Forest';
@@ -177,15 +177,13 @@
     }
 
     bambooJungleVariant(biome, wx, wz, scale) {
-      if (biome !== 'Jungle') return biome;
-      const c = this.toCell(wx, wz, scale);
-      return this.random.pick2D(c.x, c.z, this.seed + 1300, 10) === 0 ? 'Bamboo Jungle' : biome;
+      // Explicitly disabled for this worldgen profile.
+      return biome;
     }
 
     sunflowerPlainsVariant(biome, wx, wz, scale) {
-      if (biome !== 'Plains') return biome;
-      const c = this.toCell(wx, wz, scale);
-      return this.random.pick2D(c.x, c.z, this.seed + 1301, 57) === 0 ? 'Sunflower Plains' : biome;
+      // Explicitly disabled for this worldgen profile.
+      return biome;
     }
 
     biomeEdge(biome, wx, wz, scale) {
