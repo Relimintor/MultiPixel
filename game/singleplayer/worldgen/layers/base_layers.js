@@ -158,44 +158,22 @@
       if (coldSpecial) return 'Giant Tree Taiga';
 
       if (temp === C.WARM) {
-        if (r < 0.32) return 'Desert';
-        if (r < 0.48) return 'Desert Hills';
-        if (r < 0.66) return 'Savanna';
-        if (r < 0.74) return 'Savanna Plateau';
-        if (r < 0.80) return 'Shattered Savanna';
-        if (r < 0.85) return 'Shattered Savanna Plateau';
-        if (r < 0.93) return 'Badlands';
-        return 'Wooded Badlands Plateau';
+        if (r < 0.50) return 'Desert';
+        if (r < 0.83) return 'Savanna';
+        return 'Plains';
       }
       if (temp === C.TEMPERATE) {
-        if (r < 0.18) return 'Forest';
-        if (r < 0.29) return 'Flower Forest';
-        if (r < 0.40) return 'Birch Forest';
-        if (r < 0.47) return 'Tall Birch Forest';
-        if (r < 0.58) return 'Dark Forest';
-        if (r < 0.66) return 'Plains';
-        if (r < 0.71) return 'Sunflower Plains';
-        if (r < 0.80) return 'Swamp';
-        if (r < 0.89) return 'Taiga';
-        return 'Taiga Hills';
+        if (r < 0.50) return 'Forest';
+        if (r < 0.80) return 'Plains';
+        return 'Mountains';
       }
       if (temp === C.COLD) {
-        if (r < 0.14) return 'Forest';
-        if (r < 0.28) return 'Taiga';
-        if (r < 0.40) return 'Taiga Hills';
-        if (r < 0.54) return 'Giant Tree Taiga';
-        if (r < 0.64) return 'Giant Spruce Taiga';
-        if (r < 0.76) return 'Wooded Mountains';
-        if (r < 0.86) return 'Gravelly Mountains';
-        return 'Snowy Mountains';
+        if (r < 0.55) return 'Taiga';
+        return 'Mountains';
       }
       if (temp === C.FREEZING) {
-        if (r < 0.38) return 'Snowy Tundra';
-        if (r < 0.58) return 'Snowy Mountains';
-        if (r < 0.70) return 'Snowy Taiga';
-        if (r < 0.80) return 'Snowy Taiga Hills';
-        if (r < 0.88) return 'Snowy Taiga Mountains';
-        return 'Ice Spikes';
+        if (r < 0.72) return 'Snowy Plains';
+        return 'Snowy Mountains';
       }
       return 'Ocean';
     }

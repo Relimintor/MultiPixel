@@ -1,11 +1,5 @@
 (function () {
-  const C = () => window.WorldgenLayers.Constants;
-
-  const isOceanCell = (v) => v === C().OCEAN || v === C().DEEP_OCEAN;
-  const isOceanBiome = (b) => b === 'Ocean' || b === 'Deep Ocean';
-  const isWarmClass = (t) => t === C().WARM || t === C().WARM_SPECIAL;
-  const isColdClass = (t) => t === C().COLD || t === C().COLD_SPECIAL;
-  const isFreezingClass = (t) => t === C().FREEZING;
+  const S = () => window.WorldgenStacksMain.shared;
 
   class MainBiomeStack {
     constructor(layerOps, settings = {}) {
@@ -72,6 +66,7 @@
     }
 
     addIsland(parentFn, x, z, salt) {
+      const { C, isOceanCell } = S();
       return this.cached(`add_island_${salt}`, x, z, () => {
         const center = parentFn(x, z);
         const north = parentFn(x, z - 1);
@@ -94,6 +89,7 @@
     }
 
     removeTooMuchOcean(parentFn, x, z) {
+      const { isOceanCell, C } = S();
       return this.cached('remove_ocean', x, z, () => {
         const center = parentFn(x, z);
         if (!isOceanCell(center)) return center;
@@ -109,6 +105,7 @@
     }
 
     addTemperatures(landFn, x, z) {
+      const { C } = S();
       return this.cached('temperature', x, z, () => {
         if (landFn(x, z) !== C().LAND) return C().OCEAN;
         const r = this.ops.random.at2D(x, z, this.ops.seed + 303);
@@ -122,6 +119,7 @@
     }
 
     warmToTemperate(tempFn, x, z) {
+      const { C, isWarmClass, isColdClass, isFreezingClass } = S();
       return this.cached('warm_to_temperate', x, z, () => {
         const center = tempFn(x, z);
         if (!isWarmClass(center)) return center;
@@ -133,6 +131,7 @@
     }
 
     freezingToCold(tempFn, x, z) {
+      const { C, isFreezingClass, isWarmClass } = S();
       return this.cached('freezing_to_cold', x, z, () => {
         const center = tempFn(x, z);
         if (!isFreezingClass(center)) return center;
@@ -146,7 +145,31 @@
       return this.cached('biome_variant', x, z, () => tempFn(x, z));
     }
 
+
+    expandTemperatureToLand(tempFn, landFn, x, z, salt) {
+      const { C } = S();
+      return this.cached(`temperature_expand_${salt}`, x, z, () => {
+        if (landFn(x, z) !== C().LAND) return C().OCEAN;
+        const center = tempFn(x, z);
+        if (center !== C().OCEAN) return center;
+
+        const neighbors = [
+          tempFn(x, z - 1),
+          tempFn(x, z + 1),
+          tempFn(x - 1, z),
+          tempFn(x + 1, z),
+        ].filter((v) => v !== C().OCEAN);
+        if (neighbors.length > 0) {
+          const pick = Math.floor(this.ops.random.at2D(x, z, this.ops.seed + salt) * neighbors.length);
+          return neighbors[pick];
+        }
+
+        return this.addTemperatures(() => C().LAND, x, z);
+      });
+    }
+
     addMushroomIsland(landFn, x, z) {
+      const { isOceanCell } = S();
       return this.cached('mushroom', x, z, () => {
         const center = landFn(x, z);
         if (!isOceanCell(center)) return center;
@@ -158,6 +181,7 @@
     }
 
     addDeepOcean(landFn, x, z) {
+      const { isOceanCell, C } = S();
       return this.cached('deep_ocean', x, z, () => {
         const center = landFn(x, z);
         if (!isOceanCell(center)) return center;
@@ -168,114 +192,11 @@
     }
 
     sampleLegacyMain(wx, wz) {
-      const x4096 = Math.floor(wx / 4096);
-      const z4096 = Math.floor(wz / 4096);
-      const x256 = Math.floor(wx / 256);
-      const z256 = Math.floor(wz / 256);
-
-      const island4096 = (x, z) => this.cached('island_4096', x, z, () => this.ops.island(x, z));
-      const zoom2048 = (x, z) => this.zoom(island4096, x, z, 1);
-      const addIsland2048 = (x, z) => this.addIsland(zoom2048, x, z, 2);
-      const zoom1024 = (x, z) => this.zoom(addIsland2048, x, z, 3);
-      const addIsland1024a = (x, z) => this.addIsland(zoom1024, x, z, 4);
-      const addIsland1024b = (x, z) => this.addIsland(addIsland1024a, x, z, 5);
-      const addIsland1024c = (x, z) => this.addIsland(addIsland1024b, x, z, 6);
-      const removeOcean1024 = (x, z) => this.removeTooMuchOcean(addIsland1024c, x, z);
-      const temp1024 = (x, z) => this.addTemperatures(removeOcean1024, x, z);
-      const addIslandPostTemp1024 = (x, z) => this.addIsland(removeOcean1024, x, z, 7);
-      const warmTemp1024 = (x, z) => this.warmToTemperate(temp1024, x, z);
-      const coldTemp1024 = (x, z) => this.freezingToCold(warmTemp1024, x, z);
-      const variantTemp1024 = (x, z) => this.addBiomeVariants(coldTemp1024, x, z);
-      const zoomLand512 = (x, z) => this.zoom(addIslandPostTemp1024, x, z, 8);
-      const zoomTemp512 = (x, z) => this.zoom(variantTemp1024, x, z, 9);
-      const zoomLand256 = (x, z) => this.zoom(zoomLand512, x, z, 10);
-      const zoomTemp256 = (x, z) => this.zoom(zoomTemp512, x, z, 11);
-      const addIsland256 = (x, z) => this.addIsland(zoomLand256, x, z, 12);
-      const mushroom256 = (x, z) => this.addMushroomIsland(addIsland256, x, z);
-      const deepOcean256 = (x, z) => this.addDeepOcean(mushroom256, x, z);
-
-      return {
-        island: island4096(x4096, z4096),
-        land: deepOcean256(x256, z256),
-        temp: zoomTemp256(x256, z256),
-        landFn256: deepOcean256,
-        tempFn256: zoomTemp256,
-      };
+      return window.WorldgenStacksMain.sampleLegacyMain(this, wx, wz);
     }
 
     sampleBiomeStack(wx, wz, legacyMain, hillNoise) {
-      const x256 = Math.floor(wx / 256);
-      const z256 = Math.floor(wz / 256);
-
-      const biome256 = (x, z) => this.cached('biome_256', x, z, () => {
-        const landCell = legacyMain.landFn256(x, z);
-        const tempCell = legacyMain.tempFn256(x, z);
-        let b = this.ops.temperatureToBiome(tempCell, x * 256, z * 256, 256);
-        if (landCell !== C().LAND && landCell !== 99) b = landCell === C().DEEP_OCEAN ? 'Deep Ocean' : 'Ocean';
-        if (this.settings.enableBambooJungleVariant) b = this.ops.bambooJungleVariant(b, x * 256, z * 256, 256);
-        return b;
-      });
-
-      const zoomBiome = (parentFn, x, z, salt) => this.cached(`biome_zoom_${salt}`, x, z, () => {
-        const px = x >> 1;
-        const pz = z >> 1;
-        const sx = x & 1;
-        const sz = z & 1;
-        const c00 = parentFn(px, pz);
-        if (sx === 0 && sz === 0) return c00;
-        const c10 = parentFn(px + 1, pz);
-        const c01 = parentFn(px, pz + 1);
-        const c11 = parentFn(px + 1, pz + 1);
-        const roll = this.ops.random.at2D(x, z, this.ops.seed + salt);
-        if (sx === 0 && sz === 1) return roll < 0.5 ? c00 : c01;
-        if (sx === 1 && sz === 0) return roll < 0.5 ? c00 : c10;
-        if (c10 === c01 && c01 === c11) return c10;
-        if (c00 === c10 && c00 === c01) return c00;
-        return [c00, c10, c01, c11][Math.floor(roll * 4)];
-      });
-
-      const biome128 = (x, z) => zoomBiome(biome256, x, z, 2001);
-      const biome64Pre = (x, z) => zoomBiome(biome128, x, z, 2002);
-      const biome64 = (x, z) => this.cached('biome_64', x, z, () => {
-        let b = biome64Pre(x, z);
-        b = this.ops.biomeEdge(b, x * 64, z * 64, 64);
-        b = this.ops.regionHills(b, hillNoise, x * 64, z * 64, 64);
-        if (this.settings.enableSunflowerPlainsVariant) b = this.ops.sunflowerPlainsVariant(b, x * 64, z * 64, 64);
-        return b;
-      });
-      const biome32 = (x, z) => zoomBiome(biome64, x, z, 2003);
-      const biomeAddIsland32 = (x, z) => this.cached('biome_add_island_32', x, z, () => {
-        const center = biome32(x, z);
-        if (!isOceanBiome(center)) return center;
-
-        const north = biome32(x, z - 1);
-        const south = biome32(x, z + 1);
-        const west = biome32(x - 1, z);
-        const east = biome32(x + 1, z);
-        const neighbors = [north, south, west, east].filter((b) => !isOceanBiome(b));
-        if (neighbors.length === 0) return center;
-
-        // Legacy-style add-island pass at 32 scale:
-        // ocean tiles next to land can flip into neighboring land biomes.
-        const flipChance = this.ops.random.at2D(x, z, this.ops.seed + 2015);
-        if (flipChance >= 0.22) return center;
-
-        // Separate random draw for biome selection to avoid biasing toward the first neighbor.
-        const pickRoll = this.ops.random.at2D(x, z, this.ops.seed + 2016);
-        return neighbors[Math.floor(pickRoll * neighbors.length)];
-      });
-
-      const biome16Pre = (x, z) => zoomBiome(biomeAddIsland32, x, z, 2004);
-      const biome16 = (x, z) => this.cached('biome_16', x, z, () => this.ops.shore(biome16Pre(x, z), x * 16, z * 16, 16));
-      const biome8 = (x, z) => zoomBiome(biome16, x, z, 2005);
-      const biome4Pre = (x, z) => zoomBiome(biome8, x, z, 2006);
-      const biome4 = (x, z) => this.cached('biome_4', x, z, () => this.ops.smoothBiome(biome4Pre(x, z), x * 4, z * 4, 4));
-      const biome2Pre = (x, z) => zoomBiome(biome4, x, z, 2007);
-      const biome2 = (x, z) => this.cached('biome_2', x, z, () => this.ops.smoothBiome(biome2Pre(x, z), x * 2, z * 2, 2));
-      const biome1Pre = (x, z) => zoomBiome(biome2, x, z, 2008);
-      const biome1 = (x, z) => this.cached('biome_1', x, z, () => this.ops.smoothBiome(biome1Pre(x, z), x, z, 1));
-
-      return biome1(wx, wz);
+      return window.WorldgenStacksMain.sampleBiomeStack(this, wx, wz, legacyMain, hillNoise);
     }
   }
 
