@@ -1068,9 +1068,51 @@ window.perlin = perlinInstance;
             return root;
         }
 
+        function getColumnTopFromData(data, lx, lz) {
+            for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
+                const idx = lx + y * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
+                const block = data[idx];
+                if (block !== 0 && block !== 6) return y;
+            }
+            return -1;
+        }
+
+        function buildChunkHeightmap(data) {
+            const heightmap = new Int16Array(CHUNK_SIZE * CHUNK_SIZE);
+            for (let x = 0; x < CHUNK_SIZE; x++) {
+                for (let z = 0; z < CHUNK_SIZE; z++) {
+                    heightmap[x + z * CHUNK_SIZE] = getColumnTopFromData(data, x, z);
+                }
+            }
+            return heightmap;
+        }
+
+        function updateChunkHeightmapColumn(group, lx, lz) {
+            if (!group?.userData?.heightmap || !group?.userData?.chunkData) return;
+            if (lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE) return;
+            const hm = group.userData.heightmap;
+            hm[lx + lz * CHUNK_SIZE] = getColumnTopFromData(group.userData.chunkData, lx, lz);
+        }
+
         function getSurfaceYForEntity(wx, wz, startY = null) {
             const x = Math.floor(wx);
             const z = Math.floor(wz);
+
+            const cx = Math.floor(x / CHUNK_SIZE);
+            const cz = Math.floor(z / CHUNK_SIZE);
+            const key = `${cx},${cz}`;
+            const loaded = chunks.get(key);
+            if (loaded?.userData?.heightmap) {
+                const lx = x - cx * CHUNK_SIZE;
+                const lz = z - cz * CHUNK_SIZE;
+                const top = loaded.userData.heightmap[lx + lz * CHUNK_SIZE];
+                if (top >= 1) {
+                    const candidate = top + 1;
+                    const under = getBlockType(x, candidate - 1, z);
+                    const feet = getBlockType(x, candidate, z);
+                    if (isSolid(under) && !isLiquid(under) && feet === 0) return candidate;
+                }
+            }
 
             if (Number.isFinite(startY)) {
                 const from = Math.min(CHUNK_HEIGHT - 2, Math.floor(startY) + 3);
@@ -2693,6 +2735,8 @@ window.perlin = perlinInstance;
             if (lz <= 0) requestChunkRemesh(cx, cz - 1, 'neighbor');
             if (lz >= CHUNK_SIZE - 1) requestChunkRemesh(cx, cz + 1, 'neighbor');
 
+            updateChunkHeightmapColumn(group, lx, lz);
+
             const oldMat = blockMaterials[oldType];
             const newMat = blockMaterials[newType];
             const lightingSensitive = Boolean(oldMat?.emissive || newMat?.emissive || oldType === 22 || newType === 22 || oldType === 4 || newType === 4 || oldType === 33 || newType === 33);
@@ -2816,7 +2860,8 @@ window.perlin = perlinInstance;
                 chunkData[index] = newType;
             }
 
-           
+            updateChunkHeightmapColumn(group, lx, lz);
+
             if (chunkData[index] === 0 && isChunkAllAir(chunkData)) {
                 convertChunkToSparseAir(group);
                 return true;
@@ -4426,15 +4471,16 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                      }
                  }
              }
+             const heightmap = buildChunkHeightmap(data);
              const spawnedPigs = [];
              const spawnedWolves = [];
-             placeIglooInChunk(data, cx, cz, spawnedGnomes);
-             placeDesertWellInChunk(data, cx, cz, spawnedPigs);
-             placeWolfPackInChunk(data, cx, cz, spawnedWolves);
-             return { data, spawnedGnomes, spawnedPigs, spawnedWolves };
+             placeIglooInChunk(data, heightmap, cx, cz, spawnedGnomes);
+             placeDesertWellInChunk(data, heightmap, cx, cz, spawnedPigs);
+             placeWolfPackInChunk(data, heightmap, cx, cz, spawnedWolves);
+             return { data, heightmap, spawnedGnomes, spawnedPigs, spawnedWolves };
         }
 
-        function placeIglooInChunk(data, cx, cz, spawnedGnomes) {
+        function placeIglooInChunk(data, heightmap, cx, cz, spawnedGnomes) {
             const snowyTerrain = window.SnowyPlainsTerrain || {};
             const iglooRules = snowyTerrain.structures?.igloo;
             if (!iglooRules || !iglooStructureDef) return;
@@ -4513,7 +4559,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             spawnedGnomes.push({ wx: worldX, wy: gnomeY, wz: worldZ });
         }
 
-        function placeDesertWellInChunk(data, cx, cz, spawnedPigs) {
+        function placeDesertWellInChunk(data, heightmap, cx, cz, spawnedPigs) {
             const centerX = Math.floor(CHUNK_SIZE / 2);
             const centerZ = Math.floor(CHUNK_SIZE / 2);
             const worldX = cx * CHUNK_SIZE + centerX;
@@ -4590,7 +4636,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             spawnedPigs.push({ wx: worldX + 0.5, wy: wellY + 1, wz: worldZ + 0.5 });
         }
 
-        function placeWolfPackInChunk(data, cx, cz, spawnedWolves) {
+        function placeWolfPackInChunk(data, heightmap, cx, cz, spawnedWolves) {
             const centerX = Math.floor(CHUNK_SIZE / 2);
             const centerZ = Math.floor(CHUNK_SIZE / 2);
             const worldX = cx * CHUNK_SIZE + centerX;
@@ -4623,6 +4669,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
         function createChunk(cx, cz) {
             const generated = generateChunkData(cx, cz);
             const data = generated.data;
+            const heightmap = generated.heightmap || buildChunkHeightmap(data);
             const chunkKey = `${cx},${cz}`;
 
             if (isChunkAllAir(data)) {
@@ -4632,7 +4679,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
             sparseAirChunkKeys.delete(chunkKey);
             const group = new THREE.Group();
-            group.userData = { chunkData: data, cx, cz, meshHash: null, frustumRadius: Math.sqrt((CHUNK_SIZE*CHUNK_SIZE)*0.5 + (CHUNK_HEIGHT*CHUNK_HEIGHT)*0.25) };
+            group.userData = { chunkData: data, heightmap, cx, cz, meshHash: null, frustumRadius: Math.sqrt((CHUNK_SIZE*CHUNK_SIZE)*0.5 + (CHUNK_HEIGHT*CHUNK_HEIGHT)*0.25) };
             chunks.set(chunkKey, group);
             requestChunkRemesh(cx, cz, 'load');
             worldGroup.add(group);
@@ -4766,11 +4813,6 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             if (blockUpdateBatchDepth > 0) {
                 markBatchedChunkRemeshNeed(cx, cz, needsNeighbors);
                 return;
-            }
-
-            requestChunkRemesh(cx, cz, 'block');
-            if (needsNeighbors) {
-                requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
             }
 
             requestChunkRemesh(cx, cz, 'block');
