@@ -11,9 +11,9 @@
     version: '1.17-inspired-v1',
     seedStorageKey: 'singleplayer.worldSeed',
     biomeMap: {
-      // Keep optional micro-variants off by default; code stays in place for later enablement.
-      enableBambooJungleVariant: false,
-      enableSunflowerPlainsVariant: false,
+      // Enable optional micro-variants for fuller biome variety in this profile.
+      enableBambooJungleVariant: true,
+      enableSunflowerPlainsVariant: true,
       // Climate probabilities from the design plan: warm 4/6, cold 1/6, freezing 1/6.
       temperatureRatios: { warm: 4 / 6, cold: 1 / 6, freezing: 1 / 6 },
       specialRegionChance: 1 / 13,
