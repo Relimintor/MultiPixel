@@ -4021,12 +4021,14 @@ function buildPartFaceRects(x, y, w, h, d) {
             return true;
         }
 
-        function placeMinecraftLikeTree(data, x, z, topY, trunkHeight, wx, wz) {
+        function placeMinecraftLikeTree(data, x, z, topY, trunkHeight, wx, wz, treeStyle = 'oak') {
             const trunkTopY = topY + trunkHeight;
+            const trunkType = treeStyle === 'glass_mushroom' ? 80 : 5;
+            const leafType = treeStyle === 'glass_mushroom' ? 26 : 6;
             for (let i = 1; i <= trunkHeight; i++) {
                 const ty = topY + i;
                 const idx = x + ty * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
-                data[idx] = 5;
+                data[idx] = trunkType;
             }
 
             for (let y = trunkTopY - 2; y <= trunkTopY + 1; y++) {
@@ -4040,7 +4042,7 @@ function buildPartFaceRects(x, y, w, h, d) {
                         const tz = z + oz;
                         if (tx < 0 || tx >= CHUNK_SIZE || tz < 0 || tz >= CHUNK_SIZE) continue;
                         const idx = tx + y * CHUNK_SIZE + tz * CHUNK_SIZE * CHUNK_HEIGHT;
-                        if (data[idx] === 0) data[idx] = 6;
+                        if (data[idx] === 0) data[idx] = leafType;
                     }
                 }
             }
@@ -4048,7 +4050,7 @@ function buildPartFaceRects(x, y, w, h, d) {
             const crownY = trunkTopY + 2;
             if (crownY < CHUNK_HEIGHT) {
                 const crownIdx = x + crownY * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
-                if (data[crownIdx] === 0) data[crownIdx] = 6;
+                if (data[crownIdx] === 0) data[crownIdx] = leafType;
             }
         }
         
@@ -4254,7 +4256,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                      }
                   
                      // --- Tree Generation (Minecraft-like oaks on natural low/mid elevations) ---
-                     if (!isRiver && (biome === 'Forest' || biome === 'Plains')) {
+                     if (!isRiver && (biome === 'Forest' || biome === 'Plains' || biome === 'Mushroom Fields')) {
                          let topY = -1;
                          for (let yy = CHUNK_HEIGHT - 2; yy >= 1; yy--) {
                              const tidx = x + yy * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
@@ -4267,16 +4269,16 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
                          // 1.17-style shaping raises inland plateaus a lot higher than before.
                          // Keep a low cutoff near beaches, but allow higher inland forest/plains trees.
-                         const maxTreeY = biome === 'Forest' ? (SEA_LEVEL + 42) : (SEA_LEVEL + 32);
+                         const maxTreeY = biome === 'Forest' ? (SEA_LEVEL + 42) : (biome === 'Mushroom Fields' ? (SEA_LEVEL + 28) : (SEA_LEVEL + 32));
                          if (topY >= SEA_LEVEL && topY <= maxTreeY) {
                              const topIdx = x + topY * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
                              const topType = data[topIdx];
-                             const validGround = (topType === 1 || topType === 2);
+                             const validGround = (topType === 1 || topType === 2 || topType === 7 || topType === 28);
                              if (validGround) {
                                  const treeNoise = octaveNoise2D(wx, wz, 2, 0.56, 2.0, 0.028, 700, -350) * 0.5 + 0.5;
                                  const scatter = hashRand2D(wx, wz, 99);
                                  const density = treeNoise * 0.6 + scatter * 0.4;
-                                 const chance = getTreeSpawnChanceForBiome(biome, topY);
+                                 const chance = biome === 'Mushroom Fields' ? 0.017 : getTreeSpawnChanceForBiome(biome, topY);
                                  const clusterBonus = Number(worldGenSettings.treeClusterBonus ?? 0.12);
                                  const nearbyTree = hasNearbyTreeTrunk(data, x, z, 3);
                                  const spacingGate = Number(worldGenSettings.treeMinSpacingChance ?? 0.65);
@@ -4287,7 +4289,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                                      const trunkHeight = 4 + Math.floor(hashRand2D(wx, wz, 157) * 2); // 4-5
                                      if (canPlaceMinecraftLikeTree(data, x, z, topY, trunkHeight)) {
                                          if (data[topIdx] === 2) data[topIdx] = 1;
-                                         placeMinecraftLikeTree(data, x, z, topY, trunkHeight, wx, wz);
+                                         placeMinecraftLikeTree(data, x, z, topY, trunkHeight, wx, wz, biome === 'Mushroom Fields' ? 'glass_mushroom' : 'oak');
                                      }
                                  }
                              }
