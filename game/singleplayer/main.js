@@ -231,6 +231,7 @@ window.perlin = perlinInstance;
         const effectiveChunkLoadRadius = Math.max(4, Math.min(WORLD_RADIUS, isLowEndDevice ? Math.floor(WORLD_RADIUS * 0.65) : WORLD_RADIUS));
         const CHUNK_UPDATE_INTERVAL_MS = isLowEndDevice ? 220 : 90;
         const FRUSTUM_CULL_INTERVAL_MS = isLowEndDevice ? 120 : 60;
+        const chunkOffsetsByRadius = new Map();
         let lastChunkUpdateMs = -Infinity;
         let lastFrustumCullMs = -Infinity;
         let lastChunkCoordX = Number.NaN;
@@ -282,6 +283,20 @@ window.perlin = perlinInstance;
         function isSolid(type) { return SOLID_BLOCKS.includes(type); }
        
         function isLiquid(type) { return LIQUID_BLOCKS.includes(type); }
+
+        function getChunkOffsetsForRadius(radius) {
+            const cached = chunkOffsetsByRadius.get(radius);
+            if (cached) return cached;
+            const offsets = [];
+            for (let dx = -radius; dx <= radius; dx++) {
+                for (let dz = -radius; dz <= radius; dz++) {
+                    offsets.push({ dx, dz, dist2: dx * dx + dz * dz });
+                }
+            }
+            offsets.sort((a, b) => a.dist2 - b.dist2);
+            chunkOffsetsByRadius.set(radius, offsets);
+            return offsets;
+        }
         
         async function loadAssets() {
             const loader = new THREE.TextureLoader();
@@ -4109,10 +4124,11 @@ function buildPartFaceRects(x, y, w, h, d) {
                             }
 
                             if (biome === 'Mountains' && t !== 0) {
-                                // Keep mountain tops rugged, but avoid aggressive floating pillars.
+                                // Keep mountain silhouettes rugged, but avoid swiss-cheese cliff faces.
                                 const ridgeRough = Math.abs(perlin.noise3D(wx * 0.017 + 310, y * 0.024, wz * 0.017 - 145));
                                 const microBreak = Math.abs(perlin.noise3D(wx * 0.035 - 980, y * 0.045, wz * 0.035 + 410));
-                                const shouldCarve = distFromSurface <= 8 && ridgeRough > 0.87 && microBreak > 0.82;
+                                const carvingBand = distFromSurface >= 3 && distFromSurface <= 9;
+                                const shouldCarve = carvingBand && ridgeRough > 0.92 && microBreak > 0.9;
                                 if (shouldCarve) t = 0;
                             }
                              
@@ -4139,15 +4155,16 @@ function buildPartFaceRects(x, y, w, h, d) {
                          }
                          
                         // --- Cave Generation Pass (layered Perlin for bigger cave systems) ---
-                        if (y > CAVE_MIN_Y && y < h - CAVE_MAX_Y_OFFSET && (h - y) >= CAVE_SURFACE_SAFETY_DEPTH) {
+                        if (y > CAVE_MIN_Y && y < h - CAVE_MAX_Y_OFFSET && (h - y) >= (CAVE_SURFACE_SAFETY_DEPTH + 2)) {
                             if (t === 3 || t === 2 || t === 7 || t === 13 || t === 28 || t === 59) {
                                 const caveShape = sampleCaveShape(wx, y, wz);
 
                                 const depth = Math.max(0, (h - y) / Math.max(1, h));
-                                const dynamicThreshold = CAVE_THRESHOLD - Math.min(0.14, depth * 0.2);
+                                const nearSurfaceGuard = depth < 0.2 ? 0.1 : (depth < 0.35 ? 0.05 : 0);
+                                const dynamicThreshold = CAVE_THRESHOLD + nearSurfaceGuard - Math.min(0.1, depth * 0.14);
                                 const tunnelNoise = Math.abs(perlin.noise3D(wx * CAVE_SCALE * 0.7, y * CAVE_SCALE * 0.45, wz * CAVE_SCALE * 0.7));
 
-                                if (caveShape > dynamicThreshold || (depth > 0.35 && tunnelNoise < 0.06)) {
+                                if (caveShape > dynamicThreshold || (depth > 0.55 && tunnelNoise < 0.05)) {
                                     t = 0;
                                 }
                             }
@@ -4853,24 +4870,18 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             const loadRadius = effectiveChunkLoadRadius;
             const keepRadius = getChunkRetentionRadius();
 
-            const missing = [];
-            for (let cx = playerChunkX - loadRadius; cx <= playerChunkX + loadRadius; cx++) {
-                for (let cz = playerChunkZ - loadRadius; cz <= playerChunkZ + loadRadius; cz++) {
+            const budget = forceUpdate ? CHUNK_CREATION_BUDGET_FORCE : CHUNK_CREATION_BUDGET_PER_TICK;
+            if (budget > 0) {
+                const offsets = getChunkOffsetsForRadius(loadRadius);
+                let created = 0;
+                for (let i = 0; i < offsets.length && created < budget; i++) {
+                    const off = offsets[i];
+                    const cx = playerChunkX + off.dx;
+                    const cz = playerChunkZ + off.dz;
                     const chunkKey = `${cx},${cz}`;
                     if (chunks.has(chunkKey)) continue;
-                    const dx = cx - playerChunkX;
-                    const dz = cz - playerChunkZ;
-                    missing.push({ cx, cz, dist2: dx * dx + dz * dz });
-                }
-            }
-
-            if (missing.length) {
-                missing.sort((a, b) => a.dist2 - b.dist2);
-                const budget = forceUpdate ? CHUNK_CREATION_BUDGET_FORCE : CHUNK_CREATION_BUDGET_PER_TICK;
-                const createCount = Math.min(budget, missing.length);
-                for (let i = 0; i < createCount; i++) {
-                    const item = missing[i];
-                    createChunk(item.cx, item.cz);
+                    createChunk(cx, cz);
+                    created++;
                 }
             }
 
