@@ -1,17 +1,23 @@
 (function () {
   const P = () => window.WorldgenLayerPrograms;
 
+
+  const enforceBiomePolicy = (biome) => {
+    // Keep 1.17-style biome family names stable and avoid runtime issues from unknown variants.
+    if (!biome || typeof biome !== 'string') return 'Plains';
+    if (biome === 'Snowy Plains') return 'Snowy Tundra';
+    return biome;
+  };
+
   const normalizeForGameplay = (biome) => {
-    if (biome === 'Savanna') return 'Plains';
-    if (biome === 'Badlands Plateau') return 'Desert';
-    if (biome === 'Jungle' || biome === 'Bamboo Jungle' || biome === 'Giant Taiga') return 'Forest';
-    if (biome === 'Sunflower Plains') return 'Plains';
-    if (biome === 'Beach' || biome === 'Frozen Beach') return 'Plains';
-    if (biome === 'Desert Hills') return 'Desert';
-    if (biome === 'Wooded Hills') return 'Forest';
-    if (biome === 'Windswept Hills') return 'Mountains';
-    if (biome === 'Mushroom Fields') return 'Forest';
-    if (biome === 'Deep Ocean' || biome.includes('Ocean')) return 'Ocean';
+    if (biome.includes('Ocean')) return 'Ocean';
+    if (biome === 'Frozen River') return 'Snowy Plains';
+    if (biome === 'River') return 'Plains';
+    if (biome === 'Desert' || biome === 'Desert Hills' || biome === 'Badlands' || biome === 'Badlands Plateau' || biome === 'Wooded Badlands Plateau' || biome === 'Eroded Badlands') return 'Desert';
+    if (biome === 'Mountains' || biome === 'Windswept Hills' || biome === 'Wooded Mountains' || biome === 'Gravelly Mountains' || biome === 'Mountain Edge') return 'Mountains';
+    if (biome === 'Snowy Tundra' || biome === 'Snowy Plains' || biome === 'Snowy Mountains' || biome === 'Ice Spikes' || biome === 'Snowy Taiga' || biome === 'Snowy Taiga Hills' || biome === 'Snowy Taiga Mountains' || biome === 'Snowy Beach') return 'Snowy Plains';
+    if (biome === 'Jungle' || biome === 'Jungle Hills' || biome === 'Jungle Edge' || biome === 'Bamboo Jungle' || biome === 'Bamboo Jungle Hills' || biome === 'Forest' || biome === 'Flower Forest' || biome === 'Birch Forest' || biome === 'Tall Birch Forest' || biome === 'Dark Forest' || biome === 'Taiga' || biome === 'Taiga Hills' || biome === 'Giant Tree Taiga' || biome === 'Giant Spruce Taiga' || biome === 'Wooded Hills' || biome === 'Mushroom Fields' || biome === 'Mushroom Field Shore') return 'Forest';
+    if (biome === 'Savanna' || biome === 'Savanna Plateau' || biome === 'Shattered Savanna' || biome === 'Shattered Savanna Plateau' || biome === 'Plains' || biome === 'Sunflower Plains' || biome === 'Swamp' || biome === 'Beach' || biome === 'Stone Shore') return 'Plains';
     return biome;
   };
 
@@ -38,6 +44,7 @@
       const mainLegacy = this.main.sampleLegacyMain(wx, wz);
       const hillNoise = this.hills.sample(wx, wz);
       let biome = this.main.sampleBiomeStack(wx, wz, mainLegacy, hillNoise);
+      biome = enforceBiomePolicy(biome);
 
       const riverMask = this.river.sampleMask(wx, wz, hillNoise);
       const isMushroom = mainLegacy.land === 99;
@@ -48,12 +55,15 @@
 
       const freezeBand = mainLegacy.temp === this.constants.FREEZING;
       biome = p.mix_river({ biome, riverMask, freezeBand, isMushroom, isOcean });
+      biome = enforceBiomePolicy(biome);
 
       const oceanTempNoise = this.oceanTemp.sample(wx, wz);
       biome = p.mix_ocean({ ops: this.ops, biome, oceanTempNoise });
+      biome = enforceBiomePolicy(biome);
       const oceanTempClass = this.ops.classifyOceanTemperature(oceanTempNoise);
 
       biome = p.mix_voronoi_4_1({ ops: this.ops, biome, wx, wz });
+      biome = enforceBiomePolicy(biome);
 
       return {
         biome,

@@ -70,20 +70,43 @@
       const cached = this.heightCache.get(key);
       if (cached !== undefined) return cached;
 
-      const center = this.terrain.heightFromBiome(wx, wz, biome, riverMask);
-      const offsets = [[2, 0], [-2, 0], [0, 2], [0, -2]];
-      let sum = center * 0.58;
-      let weight = 0.58;
-      for (const [dx, dz] of offsets) {
-        const nSample = this.sample(wx + dx, wz + dz);
-        const nBiome = this.sampleBiome(wx + dx, wz + dz, nSample);
-        const nRiver = this.sampleRiverMask(wx + dx, wz + dz, nSample);
-        const nh = this.terrain.heightFromBiome(wx + dx, wz + dz, nBiome, nRiver);
-        sum += nh * 0.105;
-        weight += 0.105;
-      }
+      const sampleHeightAt = (sx, sz) => {
+        const s = this.sample(sx, sz);
+        const sb = this.sampleBiome(sx, sz, s);
+        const sr = this.sampleRiverMask(sx, sz, s);
+        return this.terrain.heightFromBiome(sx, sz, sb, sr);
+      };
 
-      const h = Math.floor(sum / weight);
+      const averageAtDistance = (distance, includeDiagonals = true) => {
+        const offsets = [[distance, 0], [-distance, 0], [0, distance], [0, -distance]];
+        if (includeDiagonals) {
+          offsets.push([distance, distance], [distance, -distance], [-distance, distance], [-distance, -distance]);
+        }
+        let sum = 0;
+        for (const [dx, dz] of offsets) sum += sampleHeightAt(wx + dx, wz + dz);
+        return sum / offsets.length;
+      };
+
+      const center = this.terrain.heightFromBiome(wx, wz, biome, riverMask);
+
+      // Multi-scale blending to reduce vertical pillar artifacts:
+      // blend coarse -> medium -> fine neighborhoods (4 -> 2 -> 1 block distances).
+      const avg4 = averageAtDistance(4, true);
+      const avg2 = averageAtDistance(2, true);
+      const avg1 = averageAtDistance(1, false);
+
+      let blended = center;
+      blended = blended * 0.78 + avg4 * 0.22;
+      blended = blended * 0.72 + avg2 * 0.28;
+      blended = blended * 0.82 + avg1 * 0.18;
+
+      // Extra anti-spike clamp so isolated towers/pits are softened without flattening terrain.
+      const localMean = avg1 * 0.55 + avg2 * 0.45;
+      const spike = blended - localMean;
+      if (spike > 10) blended -= (spike - 10) * 0.45;
+      if (spike < -12) blended -= (spike + 12) * 0.30;
+
+      const h = Math.floor(blended);
       this.setCache(this.heightCache, key, h);
       return h;
     }
