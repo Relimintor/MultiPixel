@@ -38,12 +38,14 @@
         const TerrainModules = {};
 
         const worldGenSettings = WORLD_GEN_SETTINGS || {};
+        const wasmSettings = worldGenSettings.wasm || {};
         const terrainCarvingSettings = worldGenSettings.terrainCarving || {};
         const CAVE_SURFACE_SAFETY_DEPTH = Math.max(2, Number(terrainCarvingSettings.caveSurfaceSafetyDepth) || 7);
         const RAVINE_SURFACE_SAFETY_DEPTH = Math.max(3, Number(terrainCarvingSettings.ravineSurfaceSafetyDepth) || 8);
         const RAVINE_ACTIVATION_THRESHOLD = Math.max(0.75, Math.min(0.98, Number(terrainCarvingSettings.ravineActivationThreshold) || 0.9));
         const CHUNK_CREATION_BUDGET_PER_TICK = Math.max(1, Math.floor(Number(worldGenSettings.chunkCreationBudgetPerTick) || 3));
         const CHUNK_CREATION_BUDGET_FORCE = Math.max(CHUNK_CREATION_BUDGET_PER_TICK, Math.floor(Number(worldGenSettings.chunkCreationBudgetOnForceUpdate) || 10));
+        const USE_WASM_CAVE_SAMPLING = Boolean(wasmSettings.enabled && wasmSettings.preferCaveSampling);
 
         function normalizeWorldSeed(seedValue) {
             const parsed = Number(seedValue);
@@ -238,6 +240,7 @@ window.perlin = perlinInstance;
       
         let scene, camera, renderer, perlin, raycaster;
         let worldGenerator = null;
+        let wasmRuntime = window.WorldgenWasmRuntime || null;
         let lightingSystem = null;
         const torchLightsByChunk = new Map();
         const frustum = new THREE.Frustum();
@@ -387,6 +390,12 @@ window.perlin = perlinInstance;
                     chunkHeight: CHUNK_HEIGHT,
                     worldGenSettings,
                 });
+                if (wasmRuntime?.init) {
+                    wasmRuntime.init({
+                        enabled: Boolean(wasmSettings.enabled),
+                        modulePath: wasmSettings.modulePath || 'worldgen/wasm/worldgen.wasm',
+                    }).catch(() => {});
+                }
                 console.info('[World seed]', worldSeed);
                 lightingSystem = SpawnLighting.create ? SpawnLighting.create({ getBlockType, isLiquid, CHUNK_HEIGHT }) : null;
             } else {
@@ -3135,6 +3144,17 @@ window.perlin = perlinInstance;
             return h / 4294967296;
         }
 
+        function sampleCaveShape(wx, y, wz) {
+            if (USE_WASM_CAVE_SAMPLING && wasmRuntime?.has && wasmRuntime.has('caveShape')) {
+                const out = wasmRuntime.call('caveShape', wx, y, wz, CAVE_SCALE);
+                if (typeof out === 'number' && Number.isFinite(out)) return out;
+            }
+
+            const n1 = perlin.noise3D(wx * CAVE_SCALE, y * CAVE_SCALE * 1.7, wz * CAVE_SCALE);
+            const n2 = perlin.noise3D(wx * CAVE_SCALE * 2.2 + 100, y * CAVE_SCALE * 1.1, wz * CAVE_SCALE * 2.2 + 100);
+            return n1 * 0.7 + n2 * 0.3;
+        }
+
         function sampleTerrainVector(wx, wz) {
             // Multi-noise vector: continentalness/erosion/weirdness/humidity.
             const continentalness = octaveNoise2D(wx, wz, 3, 0.52, 2.0, 0.00145, 200, 200);
@@ -4119,9 +4139,7 @@ function buildPartFaceRects(x, y, w, h, d) {
                         // --- Cave Generation Pass (layered Perlin for bigger cave systems) ---
                         if (y > CAVE_MIN_Y && y < h - CAVE_MAX_Y_OFFSET && (h - y) >= CAVE_SURFACE_SAFETY_DEPTH) {
                             if (t === 3 || t === 2 || t === 7 || t === 13 || t === 28 || t === 59) {
-                                const n1 = perlin.noise3D(wx * CAVE_SCALE, y * CAVE_SCALE * 1.7, wz * CAVE_SCALE);
-                                const n2 = perlin.noise3D(wx * CAVE_SCALE * 2.2 + 100, y * CAVE_SCALE * 1.1, wz * CAVE_SCALE * 2.2 + 100);
-                                const caveShape = n1 * 0.7 + n2 * 0.3;
+                                const caveShape = sampleCaveShape(wx, y, wz);
 
                                 const depth = Math.max(0, (h - y) / Math.max(1, h));
                                 const dynamicThreshold = CAVE_THRESHOLD - Math.min(0.14, depth * 0.2);
