@@ -2857,7 +2857,6 @@ window.perlin = perlinInstance;
                 }
             }
 
-
         function modifyWorld(posVector, newType, options = {}) {
             const wx = Math.floor(posVector.x);
             const wy = Math.floor(posVector.y);
