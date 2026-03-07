@@ -10,6 +10,20 @@
   const WORLD_GEN_SETTINGS = {
     version: '1.17-inspired-v1',
     seedStorageKey: 'singleplayer.worldSeed',
+    wasm: {
+      enabled: true,
+      modulePath: 'worldgen/wasm/worldgen.wasm',
+      preferCaveSampling: true,
+    },
+    terrainCarving: {
+      // Keep the surface mostly intact: caves/ravines start carving a few blocks below ground.
+      caveSurfaceSafetyDepth: 7,
+      ravineSurfaceSafetyDepth: 8,
+      ravineActivationThreshold: 0.9,
+    },
+    // Limit new chunk generation per update to avoid frame spikes while moving/jumping.
+    chunkCreationBudgetPerTick: 3,
+    chunkCreationBudgetOnForceUpdate: 10,
     biomeMap: {
       // Enable optional micro-variants for fuller biome variety in this profile.
       enableBambooJungleVariant: true,

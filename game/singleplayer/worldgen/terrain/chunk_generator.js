@@ -21,64 +21,66 @@
       this.chunkHeight = chunkHeight;
     }
 
-    // 1.17-style continentalness + erosion + peaks/valleys inspired terrain shaping.
+    // Noise-first terrain shaping (biome only does light modulation, not hard control).
     heightFromBiome(wx, wz, biome, riverMask) {
-      const continentalness = window.WorldgenNoise.fbm2D(this.perlin, wx * 0.00085 + 220, wz * 0.00085 - 220, 5, 0.5, 2.0);
-      const erosion = window.WorldgenNoise.fbm2D(this.perlin, wx * 0.0022 - 150, wz * 0.0022 + 150, 4, 0.53, 2.0);
-      const weirdness = window.WorldgenNoise.fbm2D(this.perlin, wx * 0.0016 + 410, wz * 0.0016 - 90, 4, 0.5, 2.0);
-      const detail = window.WorldgenNoise.fbm2D(this.perlin, wx * 0.011 + 40, wz * 0.011 - 40, 3, 0.5, 2.1);
-      const jagged = window.WorldgenNoise.ridge2D(this.perlin, wx * 0.0042, wz * 0.0042, 4);
+      const continentalness = window.WorldgenNoise.fbm2D(this.perlin, wx * 0.00082 + 220, wz * 0.00082 - 220, 5, 0.5, 2.0);
+      const erosion = window.WorldgenNoise.fbm2D(this.perlin, wx * 0.002 + 111, wz * 0.002 - 111, 4, 0.53, 2.0);
+      const weirdness = window.WorldgenNoise.fbm2D(this.perlin, wx * 0.0015 - 410, wz * 0.0015 + 90, 4, 0.5, 2.0);
+      const macro = window.WorldgenNoise.fbm2D(this.perlin, wx * 0.00045 + 650, wz * 0.00045 - 650, 4, 0.55, 2.0);
+      const detail = window.WorldgenNoise.fbm2D(this.perlin, wx * 0.009 + 40, wz * 0.009 - 40, 3, 0.5, 2.1);
+      const ridge = window.WorldgenNoise.ridge2D(this.perlin, wx * 0.0038 + 90, wz * 0.0038 - 90, 4);
 
       const inland = clamp((continentalness + 1) * 0.5, 0, 1);
       const erosionInv = clamp(1 - (erosion + 1) * 0.5, 0, 1);
       const peaksValleys = 1 - Math.abs(weirdness);
-      const ridgeShape = Math.pow(clamp(peaksValleys, 0, 1), 1.8);
+      const ridgeShape = Math.pow(clamp(peaksValleys, 0, 1), 1.7);
+      const macroMask = smoothstep(0.35, 0.75, (macro + 1) * 0.5);
 
-      const biomeBase = {
-        Ocean: this.seaLevel - 10,
-        'Deep Ocean': this.seaLevel - 16,
-        Plains: this.baseLandY + 3,
-        Forest: this.baseLandY + 6,
-        Desert: this.baseLandY + 5,
-        'Snowy Plains': this.baseLandY + 7,
-        Mountains: this.baseLandY + 12,
-      };
+      // Core terrain is fully noise-driven.
+      const continentalLift = lerp(-18, 24, Math.pow(inland, 1.22));
+      const baseRelief = lerp(2.5, 16.5, Math.pow(erosionInv, 1.15));
+      const ridgeRelief = ridgeShape * lerp(0.8, 20, erosionInv) * lerp(0.65, 1.2, macroMask);
+      const detailRelief = detail * lerp(1.1, 4.2, smoothstep(0.38, 0.84, inland));
+      const jaggedRelief = Math.max(0, ridge - 0.48) * lerp(1.5, 8, erosionInv);
 
-      const base = biomeBase[biome] ?? (this.baseLandY + 5);
-
-      const continentalLift = lerp(-12, 48, Math.pow(inland, 1.22));
-      const biomeRelief = {
-        Ocean: 2.6,
-        'Deep Ocean': 3.5,
-        Plains: 7.4,
-        Forest: 8.2,
-        Desert: 7.8,
-        'Snowy Plains': 8.8,
-        Mountains: 34,
-      }[biome] ?? 7.5;
-
-      const erosionScale = lerp(0.45, 1.35, Math.pow(erosionInv, 1.1));
-      const ridgedness = biome === 'Mountains'
-        ? ridgeShape * lerp(8, 48, erosionInv)
-        : ridgeShape * lerp(1, 8, 1 - erosionInv);
-      const jaggedness = biome === 'Mountains'
-        ? Math.max(0, jagged - 0.25) * 16
-        : Math.max(0, jagged - 0.45) * 4;
-
-      let h = base
+      let h = this.baseLandY
         + continentalLift
-        + biomeRelief * erosionScale
-        + ridgedness
-        + jaggedness
-        + detail * lerp(1.4, 4.5, smoothstep(0.45, 0.8, inland));
+        + baseRelief
+        + ridgeRelief
+        + detailRelief
+        + jaggedRelief;
 
-      if (biome === 'Ocean' || biome === 'Deep Ocean') {
-        h -= lerp(0, 18, 1 - inland);
+      // Gentle biome modulation only (keeps style, avoids biome cliff walls).
+      const biomeOffset = {
+        Ocean: -4,
+        'Deep Ocean': -8,
+        Plains: 0,
+        Forest: 1,
+        Desert: 0,
+        'Snowy Plains': 1,
+        Mountains: 2,
+      }[biome] ?? 0;
+      const biomeReliefScale = {
+        Ocean: 0.65,
+        'Deep Ocean': 0.62,
+        Plains: 0.92,
+        Forest: 0.98,
+        Desert: 0.94,
+        'Snowy Plains': 1.0,
+        Mountains: 1.08,
+      }[biome] ?? 0.95;
+
+      h = this.baseLandY + (h - this.baseLandY) * biomeReliefScale + biomeOffset;
+
+      // Ocean shaping still based on continentalness (noise), not biome category switches.
+      if (inland < 0.38) {
+        const oceanDepth = 1 - smoothstep(0.0, 0.38, inland);
+        h -= lerp(0, 16, oceanDepth);
       }
 
       // Soft river carving to keep connected valleys without cutting giant trenches.
-      if (biome !== 'Ocean' && biome !== 'Deep Ocean' && riverMask > 0.1) {
-        h -= Math.min(8.5, (riverMask - 0.1) * 11.5);
+      if (riverMask > 0.1) {
+        h -= Math.min(7.5, (riverMask - 0.1) * 9.2);
       }
 
       return Math.max(2, Math.min(this.chunkHeight - 2, Math.floor(h)));

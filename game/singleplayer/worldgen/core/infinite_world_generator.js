@@ -103,8 +103,12 @@
       // Extra anti-spike clamp so isolated towers/pits are softened without flattening terrain.
       const localMean = avg1 * 0.55 + avg2 * 0.45;
       const spike = blended - localMean;
-      if (spike > 10) blended -= (spike - 10) * 0.45;
-      if (spike < -12) blended -= (spike + 12) * 0.30;
+      if (spike > 6) blended -= (spike - 6) * 0.52;
+      if (spike < -8) blended -= (spike + 8) * 0.36;
+
+      // Final local slope guard to avoid sheer 1-column cliffs.
+      const maxDeltaFromNear = 5.5;
+      blended = Math.max(avg1 - maxDeltaFromNear, Math.min(avg1 + maxDeltaFromNear, blended));
 
       const h = Math.floor(blended);
       this.setCache(this.heightCache, key, h);
