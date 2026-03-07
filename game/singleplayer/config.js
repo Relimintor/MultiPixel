@@ -26,6 +26,10 @@
     chunkCreationBudgetOnForceUpdate: 10,
     // Max chunk mesh rebuilds processed per frame from the remesh queue.
     meshRebuildBudgetPerFrame: 2,
+    // Tick-limiting caps to prevent chain-reaction lag spikes.
+    blockUpdatesPerTickMax: 100,
+    fluidUpdatesPerTickMax: 100,
+    redstoneUpdatesPerTickMax: 100,
     // Chunk render distance in chunk units (radius). Example: 12 ~= up to 625 chunks in square mode.
     chunkRenderDistance: 12,
     // Entities farther than this many blocks are frozen (AI/pathfinding/physics skipped).

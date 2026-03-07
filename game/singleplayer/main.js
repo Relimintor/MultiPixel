@@ -45,6 +45,9 @@
         const RAVINE_ACTIVATION_THRESHOLD = Math.max(0.75, Math.min(0.98, Number(terrainCarvingSettings.ravineActivationThreshold) || 0.9));
         const CHUNK_CREATION_BUDGET_PER_TICK = Math.max(1, Math.floor(Number(worldGenSettings.chunkCreationBudgetPerTick) || 3));
         const CHUNK_CREATION_BUDGET_FORCE = Math.max(CHUNK_CREATION_BUDGET_PER_TICK, Math.floor(Number(worldGenSettings.chunkCreationBudgetOnForceUpdate) || 10));
+        const BLOCK_UPDATES_PER_TICK_MAX = Math.max(1, Math.floor(Number(worldGenSettings.blockUpdatesPerTickMax) || 100));
+        const FLUID_UPDATES_PER_TICK_MAX = Math.max(1, Math.floor(Number(worldGenSettings.fluidUpdatesPerTickMax) || 100));
+        const REDSTONE_UPDATES_PER_TICK_MAX = Math.max(0, Math.floor(Number(worldGenSettings.redstoneUpdatesPerTickMax) || 100));
         const MESH_REBUILD_BUDGET_PER_FRAME = Math.max(1, Math.floor(Number(worldGenSettings.meshRebuildBudgetPerFrame) || 2));
         const MESH_REBUILD_BUDGET_FORCE = Math.max(MESH_REBUILD_BUDGET_PER_FRAME, Math.floor(Number(worldGenSettings.meshRebuildBudgetOnForceUpdate) || (MESH_REBUILD_BUDGET_PER_FRAME * 4)));
         const USE_WASM_CAVE_SAMPLING = Boolean(wasmSettings.enabled && wasmSettings.preferCaveSampling);
@@ -2782,9 +2785,14 @@ window.perlin = perlinInstance;
             const centerCx = Math.floor(yawObject.position.x / CHUNK_SIZE);
             const centerCz = Math.floor(yawObject.position.z / CHUNK_SIZE);
             const activeRadius = 3;
-            const maxUpdates = 360;
+            const maxUpdates = BLOCK_UPDATES_PER_TICK_MAX;
+            const maxFluidUpdates = FLUID_UPDATES_PER_TICK_MAX;
+            // Reserved cap for redstone-style systems when enabled.
+            const maxRedstoneUpdates = REDSTONE_UPDATES_PER_TICK_MAX;
 
             let updates = 0;
+            let fluidUpdates = 0;
+            let redstoneUpdates = 0;
 
             const startY = physicsCursorY;
             const bandHeight = 34;
@@ -2805,7 +2813,10 @@ window.perlin = perlinInstance;
                             const type = data[idx];
                             const isWater = type === 4 || (type >= 47 && type <= 53);
                             const isLava = type === 33 || (type >= 60 && type <= 66);
-                            if (!isWater && !isLava && type !== 7) continue;
+                            const isFluid = isWater || isLava;
+                            const isSandLike = type === 7;
+                            if (!isFluid && !isSandLike) continue;
+                            if (isFluid && fluidUpdates >= maxFluidUpdates) continue;
 
 
                             const wx = cx * CHUNK_SIZE + x;
@@ -2825,10 +2836,22 @@ window.perlin = perlinInstance;
                                         changed = window.WaterPhysics.tryUpdate(ctx);
                                 } else if (isLava) {
                                         changed = window.LavaPhysics.tryUpdate(ctx);
-                                } else if (type === 7) {
+                                } else if (isSandLike) {
                                         changed = window.SandPhysics.tryUpdate(ctx);
                                 }
-                                if (changed) updates++;
+                                if (changed) {
+                                    updates++;
+                                    if (isFluid) fluidUpdates++;
+                                }
+
+                                // Redstone budget hook (system may be absent in this build).
+                                if (maxRedstoneUpdates > 0 && window.RedstoneSystem?.tryUpdate && redstoneUpdates < maxRedstoneUpdates) {
+                                    const redChanged = window.RedstoneSystem.tryUpdate(ctx);
+                                    if (redChanged) {
+                                        updates++;
+                                        redstoneUpdates++;
+                                    }
+                                }
                         }
                     }
                 }
@@ -4832,16 +4855,6 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             requestChunkRemesh(cx, cz, 'block');
             if (needsNeighbors) {
                 requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
-            }
-
-        function updateChunkAndNeighbors(centerGroup, lx, lz) {
-            const cx = centerGroup.userData.cx;
-            const cz = centerGroup.userData.cz;
-            const needsNeighbors = (lx === 0 || lx === CHUNK_SIZE - 1 || lz === 0 || lz === CHUNK_SIZE - 1);
-
-            if (blockUpdateBatchDepth > 0) {
-                markBatchedChunkRemeshNeed(cx, cz, needsNeighbors);
-                return;
             }
 
             requestChunkRemesh(cx, cz, 'block');
