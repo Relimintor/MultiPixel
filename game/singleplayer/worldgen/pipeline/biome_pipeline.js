@@ -3,20 +3,14 @@
 
 
   const normalizeForGameplay = (biome) => {
-    if (biome === 'Savanna') return 'Plains';
-    if (biome === 'Badlands Plateau') return 'Desert';
-    if (biome === 'Jungle' || biome === 'Bamboo Jungle' || biome === 'Giant Taiga') return 'Forest';
-    if (biome === 'Sunflower Plains') return 'Plains';
-    if (biome === 'Beach' || biome === 'Frozen Beach') return 'Plains';
-    if (biome === 'Desert Hills') return 'Desert';
-    if (biome === 'Wooded Hills') return 'Forest';
-    if (biome === 'Windswept Hills') return 'Mountains';
-    if (biome === 'Birch Forest' || biome === 'Flower Forest' || biome === 'Dark Forest') return 'Forest';
-    if (biome === 'Taiga' || biome === 'Snowy Taiga' || biome === 'Giant Taiga') return 'Forest';
-    if (biome === 'Swamp') return 'Plains';
-    if (biome === 'Snowy Mountains' || biome === 'Gravelly Mountains') return 'Mountains';
-    if (biome === 'Mushroom Fields') return 'Forest';
-    if (biome === 'Deep Ocean' || biome.includes('Ocean')) return 'Ocean';
+    if (biome.includes('Ocean')) return 'Ocean';
+    if (biome === 'Frozen River') return 'Snowy Plains';
+    if (biome === 'River') return 'Plains';
+    if (biome === 'Desert' || biome === 'Desert Hills' || biome === 'Badlands' || biome === 'Badlands Plateau' || biome === 'Wooded Badlands Plateau' || biome === 'Eroded Badlands') return 'Desert';
+    if (biome === 'Mountains' || biome === 'Windswept Hills' || biome === 'Wooded Mountains' || biome === 'Gravelly Mountains' || biome === 'Mountain Edge') return 'Mountains';
+    if (biome === 'Snowy Tundra' || biome === 'Snowy Plains' || biome === 'Snowy Mountains' || biome === 'Ice Spikes' || biome === 'Snowy Taiga' || biome === 'Snowy Taiga Hills' || biome === 'Snowy Taiga Mountains' || biome === 'Snowy Beach') return 'Snowy Plains';
+    if (biome === 'Jungle' || biome === 'Jungle Hills' || biome === 'Jungle Edge' || biome === 'Bamboo Jungle' || biome === 'Bamboo Jungle Hills' || biome === 'Forest' || biome === 'Flower Forest' || biome === 'Birch Forest' || biome === 'Tall Birch Forest' || biome === 'Dark Forest' || biome === 'Taiga' || biome === 'Taiga Hills' || biome === 'Giant Tree Taiga' || biome === 'Giant Spruce Taiga' || biome === 'Wooded Hills' || biome === 'Mushroom Fields' || biome === 'Mushroom Field Shore') return 'Forest';
+    if (biome === 'Savanna' || biome === 'Savanna Plateau' || biome === 'Shattered Savanna' || biome === 'Shattered Savanna Plateau' || biome === 'Plains' || biome === 'Sunflower Plains' || biome === 'Swamp' || biome === 'Beach' || biome === 'Stone Shore') return 'Plains';
     return biome;
   };
 
