@@ -28,6 +28,8 @@
     meshRebuildBudgetPerFrame: 2,
     // Chunk render distance in chunk units (radius). Example: 12 ~= up to 625 chunks in square mode.
     chunkRenderDistance: 12,
+    // Entities farther than this many blocks are frozen (AI/pathfinding/physics skipped).
+    entityActivationRange: 72,
     biomeMap: {
       // Enable optional micro-variants for fuller biome variety in this profile.
       enableBambooJungleVariant: true,

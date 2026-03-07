@@ -311,6 +311,8 @@ window.perlin = perlinInstance;
         const configuredChunkRenderDistance = Math.floor(Number(worldGenSettings.chunkRenderDistance) || 12);
         const baseChunkRenderDistance = Math.max(4, Math.min(WORLD_RADIUS, configuredChunkRenderDistance));
         const effectiveChunkLoadRadius = Math.max(4, Math.min(WORLD_RADIUS, isLowEndDevice ? Math.max(4, baseChunkRenderDistance - 2) : baseChunkRenderDistance));
+        const ENTITY_ACTIVATION_RANGE = Math.max(24, Number(worldGenSettings.entityActivationRange) || 72);
+        const ENTITY_ACTIVATION_RANGE_SQ = ENTITY_ACTIVATION_RANGE * ENTITY_ACTIVATION_RANGE;
         const CHUNK_UPDATE_INTERVAL_MS = isLowEndDevice ? 220 : 90;
         const FRUSTUM_CULL_INTERVAL_MS = isLowEndDevice ? 120 : 60;
         const chunkOffsetsByRadius = new Map();
@@ -848,10 +850,18 @@ window.perlin = perlinInstance;
             scene.add(gnome);
         }
 
+        function isEntityActiveAt(position, rangeSq = ENTITY_ACTIVATION_RANGE_SQ) {
+            if (!yawObject || !position) return true;
+            const dx = position.x - yawObject.position.x;
+            const dz = position.z - yawObject.position.z;
+            return (dx * dx + dz * dz) <= rangeSq;
+        }
+
         function updateGnomes(time) {
             if (!gnomeEntities.length) return;
             const lookTarget = new THREE.Vector3(yawObject.position.x, 0, yawObject.position.z);
             for (const g of gnomeEntities) {
+                if (!isEntityActiveAt(g.root.position)) continue;
                 const swing = Math.sin(time * 0.007 + g.phase) * 0.16;
                 g.leftLeg.position.z = swing;
                 g.rightLeg.position.z = -swing;
@@ -1195,6 +1205,7 @@ window.perlin = perlinInstance;
             if (!pigEntities.length) return;
             const dt = Math.max(0.001, Math.min(0.05, deltaMs / 1000));
             for (const pig of pigEntities) {
+                if (!isEntityActiveAt(pig.root.position)) continue;
                 pig.changeDirMs -= deltaMs;
                 if (pig.changeDirMs <= 0) {
                     pig.changeDirMs = 900 + Math.random() * 1800;
@@ -1327,6 +1338,7 @@ window.perlin = perlinInstance;
         function commandTamedWolvesAttack(target, targetType) {
             if (!target) return;
             for (const wolf of wolfEntities) {
+                if (!isEntityActiveAt(wolf.root.position)) continue;
                 if (!wolf.tamed) continue;
                 wolf.combatTarget = target;
                 wolf.combatTargetType = targetType;
@@ -1362,6 +1374,7 @@ window.perlin = perlinInstance;
                     let bestPig = null;
                     let bestDist = 11;
                     for (const pig of pigEntities) {
+                if (!isEntityActiveAt(pig.root.position)) continue;
                         const d = pig.root.position.distanceTo(wolf.root.position);
                         if (d < bestDist) {
                             bestDist = d;
@@ -1507,6 +1520,7 @@ window.perlin = perlinInstance;
 
             for (let i = zombieEntities.length - 1; i >= 0; i--) {
                 const z = zombieEntities[i];
+                if (!isEntityActiveAt(z.root.position)) continue;
                 const toPlayer = new THREE.Vector3(playerPos.x - z.root.position.x, 0, playerPos.z - z.root.position.z);
                 const dist = toPlayer.length();
                 if (dist > 0.001) toPlayer.normalize();
@@ -4803,6 +4817,21 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 const near = nearestDepth[idx];
                 const occluded = Number.isFinite(near) && (c.dist > near + DEPTH_MARGIN);
                 c.group.visible = !occluded;
+            }
+
+        function updateChunkAndNeighbors(centerGroup, lx, lz) {
+            const cx = centerGroup.userData.cx;
+            const cz = centerGroup.userData.cz;
+            const needsNeighbors = (lx === 0 || lx === CHUNK_SIZE - 1 || lz === 0 || lz === CHUNK_SIZE - 1);
+
+            if (blockUpdateBatchDepth > 0) {
+                markBatchedChunkRemeshNeed(cx, cz, needsNeighbors);
+                return;
+            }
+
+            requestChunkRemesh(cx, cz, 'block');
+            if (needsNeighbors) {
+                requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
             }
 
         function updateChunkAndNeighbors(centerGroup, lx, lz) {
