@@ -336,6 +336,7 @@ window.perlin = perlinInstance;
         const cameraViewProj = new THREE.Matrix4();
         const frustumTempCenter = new THREE.Vector3();
         const frustumTempSphere = new THREE.Sphere();
+        const frustumTempCamSpace = new THREE.Vector3();
         const frustumCameraForward = new THREE.Vector3();
         const lastFrustumCameraPos = new THREE.Vector3();
         const lastFrustumCameraQuat = new THREE.Quaternion();
@@ -2525,22 +2526,31 @@ window.perlin = perlinInstance;
             worldGroup.add(breakingCrackMesh);
         }
 
+        function getRaycastMeshes() {
+            const meshes = [];
+            for (const g of worldGroup.children) {
+                if (!g) continue;
+                if (g === breakingCrackMesh) continue;
+                if (g.isMesh) {
+                    meshes.push(g);
+                    continue;
+                }
+                if (g.visible === false) continue;
+                if (!g.children) continue;
+                for (const m of g.children) {
+                    if (!m || m === breakingCrackMesh) continue;
+                    if (m.visible === false) continue;
+                    meshes.push(m);
+                }
+            }
+            return meshes;
+        }
+
         function getTargetBlockFromCrosshair() {
             if (!raycaster || !camera) return null;
             raycaster.setFromCamera({ x: 0, y: 0 }, camera);
 
-            const meshes = [];
-            worldGroup.children.forEach(g => {
-                if (g === breakingCrackMesh) return;
-                if (g.isMesh) meshes.push(g);
-                else if (g.children) {
-                    g.children.forEach(m => {
-                        if (m !== breakingCrackMesh) meshes.push(m);
-                    });
-                }
-            });
-
-            const intersects = raycaster.intersectObjects(meshes, true);
+            const intersects = raycaster.intersectObjects(getRaycastMeshes(), true);
             if (intersects.length <= 0) return null;
 
             for (const hit of intersects) {
@@ -2630,9 +2640,7 @@ window.perlin = perlinInstance;
         function interactOrPlaceAtCrosshair() {
             if (tryEatSelectedItem()) return;
             raycaster.setFromCamera({ x: 0, y: 0 }, camera);
-            const meshes = [];
-            worldGroup.children.forEach(g => g.children.forEach(m => meshes.push(m)));
-            const intersects = raycaster.intersectObjects(meshes, true);
+            const intersects = raycaster.intersectObjects(getRaycastMeshes(), true);
             if (!intersects.length) return;
 
             const hit = intersects[0];
@@ -2678,9 +2686,7 @@ window.perlin = perlinInstance;
             if (!player.canMove || isInventoryOpen) return;
 
             raycaster.setFromCamera({ x: 0, y: 0 }, camera);
-            const meshes = [];
-            worldGroup.children.forEach(g => g.children.forEach(m => meshes.push(m)));
-            const intersects = raycaster.intersectObjects(meshes, true);
+            const intersects = raycaster.intersectObjects(getRaycastMeshes(), true);
             if (!intersects.length) return;
 
             if (event.button === 0) {
@@ -4792,9 +4798,12 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 group.visible = inView;
                 if (!inView) continue;
 
-                const camSpace = frustumTempCenter.clone().applyMatrix4(camera.matrixWorldInverse);
-                const dist = Math.sqrt(camSpace.x * camSpace.x + camSpace.y * camSpace.y + camSpace.z * camSpace.z);
-                candidates.push({ group, camSpace, dist });
+                frustumTempCamSpace.copy(frustumTempCenter).applyMatrix4(camera.matrixWorldInverse);
+                const camX = frustumTempCamSpace.x;
+                const camY = frustumTempCamSpace.y;
+                const camZ = frustumTempCamSpace.z;
+                const dist = Math.sqrt(camX * camX + camY * camY + camZ * camZ);
+                candidates.push({ group, camX, camY, camZ, dist });
             }
 
             // Stage 2: lightweight chunk occlusion culling.
@@ -4822,8 +4831,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
             for (const c of candidates) {
                 if (c.dist > MAX_OCCLUSION_DIST) continue;
-                const az = Math.atan2(c.camSpace.x, -c.camSpace.z);
-                const el = Math.atan2(c.camSpace.y, Math.max(0.0001, Math.hypot(c.camSpace.x, c.camSpace.z)));
+                const az = Math.atan2(c.camX, -c.camZ);
+                const el = Math.atan2(c.camY, Math.max(0.0001, Math.hypot(c.camX, c.camZ)));
                 const azN = (az + Math.PI) / (Math.PI * 2);
                 const elN = (el + Math.PI * 0.5) / Math.PI;
                 const ai = Math.max(0, Math.min(AZ_BINS - 1, Math.floor(azN * AZ_BINS)));
@@ -4845,8 +4854,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                     continue;
                 }
 
-                const az = Math.atan2(c.camSpace.x, -c.camSpace.z);
-                const el = Math.atan2(c.camSpace.y, Math.max(0.0001, Math.hypot(c.camSpace.x, c.camSpace.z)));
+                const az = Math.atan2(c.camX, -c.camZ);
+                const el = Math.atan2(c.camY, Math.max(0.0001, Math.hypot(c.camX, c.camZ)));
                 const azN = (az + Math.PI) / (Math.PI * 2);
                 const elN = (el + Math.PI * 0.5) / Math.PI;
                 const ai = Math.max(0, Math.min(AZ_BINS - 1, Math.floor(azN * AZ_BINS)));
@@ -5494,30 +5503,40 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 const offsets = getChunkOffsetsForRadius(loadRadius);
                 const loadRadiusSq = loadRadius * loadRadius;
 
-                // Always prioritize the 3x3 ring around the player chunk, then bias creation forward.
-                const prioritizedOffsets = offsets.slice().sort((a, b) => {
-                    const aRing = Math.max(Math.abs(a.dx), Math.abs(a.dz)) <= 1 ? 0 : 1;
-                    const bRing = Math.max(Math.abs(b.dx), Math.abs(b.dz)) <= 1 ? 0 : 1;
-                    if (aRing !== bRing) return aRing - bRing;
-                    if (a.dist2 !== b.dist2) return a.dist2 - b.dist2;
-
-                    const aLen = Math.hypot(a.dx, a.dz) || 1;
-                    const bLen = Math.hypot(b.dx, b.dz) || 1;
-                    const aFront = ((a.dx * Math.sin(yawObject.rotation.y)) + (a.dz * -Math.cos(yawObject.rotation.y))) / aLen;
-                    const bFront = ((b.dx * Math.sin(yawObject.rotation.y)) + (b.dz * -Math.cos(yawObject.rotation.y))) / bLen;
-                    return bFront - aFront;
-                });
-
+                // Fast chunk scheduling without per-tick sort:
+                // 1) keep 3x3 around player stable, 2) favor forward hemisphere, 3) fill remainder by distance.
+                const yawSin = Math.sin(yawObject.rotation.y);
+                const yawCos = -Math.cos(yawObject.rotation.y);
                 let created = 0;
-                for (let i = 0; i < prioritizedOffsets.length && created < budget; i++) {
-                    const off = prioritizedOffsets[i];
-                    if (off.dist2 > loadRadiusSq) continue;
+
+                const tryCreateOffset = (off) => {
+                    if (created >= budget) return;
+                    if (off.dist2 > loadRadiusSq) return;
                     const cx = playerChunkX + off.dx;
                     const cz = playerChunkZ + off.dz;
                     const chunkKey = `${cx},${cz}`;
-                    if (chunks.has(chunkKey) || sparseAirChunkKeys.has(chunkKey)) continue;
+                    if (chunks.has(chunkKey) || sparseAirChunkKeys.has(chunkKey)) return;
                     createChunk(cx, cz);
                     created++;
+                };
+
+                for (const off of offsets) {
+                    if (Math.max(Math.abs(off.dx), Math.abs(off.dz)) <= 1) tryCreateOffset(off);
+                    if (created >= budget) break;
+                }
+
+                for (const off of offsets) {
+                    if (Math.max(Math.abs(off.dx), Math.abs(off.dz)) <= 1) continue;
+                    const len = Math.hypot(off.dx, off.dz) || 1;
+                    const frontDot = ((off.dx * yawSin) + (off.dz * yawCos)) / len;
+                    if (frontDot > 0.22) tryCreateOffset(off);
+                    if (created >= budget) break;
+                }
+
+                for (const off of offsets) {
+                    if (Math.max(Math.abs(off.dx), Math.abs(off.dz)) <= 1) continue;
+                    tryCreateOffset(off);
+                    if (created >= budget) break;
                 }
             }
 
