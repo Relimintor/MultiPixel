@@ -367,6 +367,7 @@ window.perlin = perlinInstance;
                                 alphaTest: key === 'LEAVES' ? 0.5 : 0,
                                 depthWrite: true,
                                 opacity: matCfg.opacity || 1.0,
+                                vertexColors: true,
                             });
                             resolve();
                         },
@@ -4745,9 +4746,10 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             if (!forceRemesh && group.userData.meshHash === nextHash && group.children.length > 0) return;
             group.userData.meshHash = nextHash;
 
-            while(group.children.length) group.remove(group.children[0]);
-            
-            // Map to hold position/normal/uv data arrays for each material key
+            const meshesByKey = group.userData.meshesByKey || new Map();
+            group.userData.meshesByKey = meshesByKey;
+
+            // Map to hold CPU-side staging arrays before single VBO upload per chunk material.
             const geometryData = {}; 
             
             const cx = group.userData.cx;
@@ -4830,19 +4832,79 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 return geometryData[materialKey];
             };
 
-            const emitQuad = (id, materialKey, dir, corners, uvValues) => {
+            const isAOOccluder = (id) => {
+                if (!id) return false;
+                if (id === 22) return false;
+                const mat = blockMaterials[id];
+                if (!mat) return false;
+                return !(mat.transparent || (mat.textured && mat.textureKey === 'LEAVES'));
+            };
+
+            const sampleAOFromCorner = (dir, corners, cornerIndex) => {
+                const c = corners[cornerIndex];
+                const center = [
+                    (corners[0][0] + corners[1][0] + corners[2][0] + corners[3][0]) * 0.25,
+                    (corners[0][1] + corners[1][1] + corners[2][1] + corners[3][1]) * 0.25,
+                    (corners[0][2] + corners[1][2] + corners[2][2] + corners[3][2]) * 0.25,
+                ];
+
+                const normalAxis = Math.abs(dir[0]) > 0 ? 0 : (Math.abs(dir[1]) > 0 ? 1 : 2);
+                const tangentAxes = normalAxis === 0 ? [1, 2] : (normalAxis === 1 ? [0, 2] : [0, 1]);
+                const a1 = tangentAxes[0];
+                const a2 = tangentAxes[1];
+                const s1 = c[a1] >= center[a1] ? 1 : -1;
+                const s2 = c[a2] >= center[a2] ? 1 : -1;
+
+                const wc = [Math.floor(c[0]), Math.floor(c[1]), Math.floor(c[2])];
+                wc[normalAxis] = dir[normalAxis] > 0 ? wc[normalAxis] : (wc[normalAxis] - 1);
+
+                const outer = (sign) => sign > 0 ? 0 : -1;
+                const inner = (sign) => sign > 0 ? -1 : 0;
+
+                const side1 = wc.slice();
+                side1[a1] += outer(s1);
+                side1[a2] += inner(s2);
+
+                const side2 = wc.slice();
+                side2[a1] += inner(s1);
+                side2[a2] += outer(s2);
+
+                const cornerCell = wc.slice();
+                cornerCell[a1] += outer(s1);
+                cornerCell[a2] += outer(s2);
+
+                const s1Occ = isAOOccluder(getBlockType(side1[0], side1[1], side1[2])) ? 1 : 0;
+                const s2Occ = isAOOccluder(getBlockType(side2[0], side2[1], side2[2])) ? 1 : 0;
+                const cOcc = isAOOccluder(getBlockType(cornerCell[0], cornerCell[1], cornerCell[2])) ? 1 : 0;
+
+                const aoLevel = (s1Occ && s2Occ) ? 0 : (3 - (s1Occ + s2Occ + cOcc));
+                return Math.max(0, Math.min(1, aoLevel / 3));
+            };
+
+            const emitQuad = (id, materialKey, dir, corners, uvValues, useAO = true) => {
                 const gd = ensureGeometryData(materialKey);
                 const triOrder = [0, 1, 2, 0, 2, 3];
+                const ao = useAO ? [
+                    sampleAOFromCorner(dir, corners, 0),
+                    sampleAOFromCorner(dir, corners, 1),
+                    sampleAOFromCorner(dir, corners, 2),
+                    sampleAOFromCorner(dir, corners, 3),
+                ] : [1, 1, 1, 1];
+                const baseColorHex = blockMaterials[id].color || 0xd1c17e;
+                const baseColor = new THREE.Color(baseColorHex);
+                const isTextured = Boolean(materials[materialKey] && materials[materialKey].map);
+
                 for (const ti of triOrder) {
                     const c = corners[ti];
                     gd.pos.push(c[0], c[1], c[2]);
                     gd.norm.push(dir[0], dir[1], dir[2]);
-                    if (materials[materialKey] && materials[materialKey].map) {
+                    if (isTextured) {
                         gd.uv.push(uvValues[ti * 2], uvValues[ti * 2 + 1]);
+                        const a = ao[ti];
+                        gd.col.push(a, a, a);
                     } else {
-                        const color = blockMaterials[id].color || 0xd1c17e;
-                        const cc = new THREE.Color(color);
-                        gd.col.push(cc.r, cc.g, cc.b);
+                        const a = ao[ti];
+                        gd.col.push(baseColor.r * a, baseColor.g * a, baseColor.b * a);
                     }
                 }
             };
@@ -5034,41 +5096,67 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                             const wx = x + cx * CS;
                             const wz = z + cz * CS;
                             const corners = f.corners.map((c) => [wx + c[0], y + c[1], wz + c[2]]);
-                            emitQuad(id, materialKey, f.dir, corners, uvInfo.uv);
+                            emitQuad(id, materialKey, f.dir, corners, uvInfo.uv, !isTorch);
                         }
                     }
                 }
             }
-            // Generate meshes for all accumulated materials
-            for (const key in geometryData) {
+            // Generate / update chunk VBO meshes for all accumulated materials.
+            const activeKeys = new Set(Object.keys(geometryData));
+            for (const key of activeKeys) {
                 const gd = geometryData[key];
-                if (gd.pos.length === 0) continue;
-                
+                if (!gd || gd.pos.length === 0) continue;
+
                 const geom = new THREE.BufferGeometry();
-                geom.setAttribute('position', new THREE.Float32BufferAttribute(gd.pos, 3));
-                geom.getAttribute('position').setUsage(THREE.StaticDrawUsage);
-                geom.setAttribute('normal', new THREE.Float32BufferAttribute(gd.norm, 3));
+                const posAttr = new THREE.Float32BufferAttribute(gd.pos, 3);
+                const normAttr = new THREE.Float32BufferAttribute(gd.norm, 3);
+                posAttr.setUsage(THREE.StaticDrawUsage);
+                normAttr.setUsage(THREE.StaticDrawUsage);
+                geom.setAttribute('position', posAttr);
+                geom.setAttribute('normal', normAttr);
 
                 let currentMaterial = materials[key];
 
                 // Set UVs if material is textured (i.e., it has a map)
                 if (currentMaterial && currentMaterial.map && gd.uv.length > 0) {
-                    geom.setAttribute('uv', new THREE.Float32BufferAttribute(gd.uv, 2));
+                    const uvAttr = new THREE.Float32BufferAttribute(gd.uv, 2);
+                    uvAttr.setUsage(THREE.StaticDrawUsage);
+                    geom.setAttribute('uv', uvAttr);
                 }
 
-                // Set vertex colors if data was accumulated (means texture failed or block is color-only)
+                // Set vertex colors for AO tint / color fallback.
                 if (gd.col.length > 0) {
-                    geom.setAttribute('color', new THREE.Float32BufferAttribute(gd.col, 3));
+                    const colAttr = new THREE.Float32BufferAttribute(gd.col, 3);
+                    colAttr.setUsage(THREE.StaticDrawUsage);
+                    geom.setAttribute('color', colAttr);
 
-                    // If we have vertex colors AND it's not the transparent WATER material, use COLORED_OPAQUE.
-                    if (key !== 'WATER') {
+                    // For non-textured materials keep vertex-color pipeline.
+                    if (!(currentMaterial && currentMaterial.map) && key !== 'WATER') {
                        currentMaterial = materials.COLORED_OPAQUE;
                     }
                 }
 
-                const mesh = new THREE.Mesh(geom, currentMaterial);
-                mesh.frustumCulled = true;
-                group.add(mesh);
+                const existing = meshesByKey.get(key);
+                if (existing) {
+                    const oldGeom = existing.geometry;
+                    existing.geometry = geom;
+                    existing.material = currentMaterial;
+                    existing.visible = true;
+                    if (oldGeom) oldGeom.dispose();
+                } else {
+                    const mesh = new THREE.Mesh(geom, currentMaterial);
+                    mesh.frustumCulled = true;
+                    meshesByKey.set(key, mesh);
+                    group.add(mesh);
+                }
+            }
+
+            // Remove stale material VBOs no longer needed for this chunk.
+            for (const [key, mesh] of meshesByKey.entries()) {
+                if (activeKeys.has(key)) continue;
+                if (mesh.geometry) mesh.geometry.dispose();
+                group.remove(mesh);
+                meshesByKey.delete(key);
             }
 
             syncTorchLightsForChunk(group, torchPositions);
@@ -5194,6 +5282,9 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                     for (const child of chunkGroup.children) {
                         if (child.geometry) child.geometry.dispose();
                     }
+                }
+                if (chunkGroup.userData?.meshesByKey) {
+                    chunkGroup.userData.meshesByKey.clear();
                 }
                 chunks.delete(chunkKey);
             }
