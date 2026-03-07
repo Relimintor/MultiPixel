@@ -2,6 +2,13 @@
   const P = () => window.WorldgenLayerPrograms;
 
 
+  const enforceBiomePolicy = (biome) => {
+    // Keep 1.17-style biome family names stable and avoid runtime issues from unknown variants.
+    if (!biome || typeof biome !== 'string') return 'Plains';
+    if (biome === 'Snowy Plains') return 'Snowy Tundra';
+    return biome;
+  };
+
   const normalizeForGameplay = (biome) => {
     if (biome.includes('Ocean')) return 'Ocean';
     if (biome === 'Frozen River') return 'Snowy Plains';
