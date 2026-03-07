@@ -318,6 +318,7 @@ window.perlin = perlinInstance;
         const ENTITY_ACTIVATION_RANGE_SQ = ENTITY_ACTIVATION_RANGE * ENTITY_ACTIVATION_RANGE;
         const CHUNK_UPDATE_INTERVAL_MS = isLowEndDevice ? 220 : 90;
         const FRUSTUM_CULL_INTERVAL_MS = isLowEndDevice ? 120 : 60;
+        const ENABLE_ANGULAR_OCCLUSION_CULLING = false;
         const chunkOffsetsByRadius = new Map();
         let lastChunkUpdateMs = -Infinity;
         let lastFrustumCullMs = -Infinity;
@@ -335,6 +336,8 @@ window.perlin = perlinInstance;
         const cameraViewProj = new THREE.Matrix4();
         const frustumTempCenter = new THREE.Vector3();
         const frustumTempSphere = new THREE.Sphere();
+        const frustumTempCamSpace = new THREE.Vector3();
+        const frustumCameraForward = new THREE.Vector3();
         const lastFrustumCameraPos = new THREE.Vector3();
         const lastFrustumCameraQuat = new THREE.Quaternion();
         let hasFrustumCameraState = false;
@@ -2523,22 +2526,31 @@ window.perlin = perlinInstance;
             worldGroup.add(breakingCrackMesh);
         }
 
+        function getRaycastMeshes() {
+            const meshes = [];
+            for (const g of worldGroup.children) {
+                if (!g) continue;
+                if (g === breakingCrackMesh) continue;
+                if (g.isMesh) {
+                    meshes.push(g);
+                    continue;
+                }
+                if (g.visible === false) continue;
+                if (!g.children) continue;
+                for (const m of g.children) {
+                    if (!m || m === breakingCrackMesh) continue;
+                    if (m.visible === false) continue;
+                    meshes.push(m);
+                }
+            }
+            return meshes;
+        }
+
         function getTargetBlockFromCrosshair() {
             if (!raycaster || !camera) return null;
             raycaster.setFromCamera({ x: 0, y: 0 }, camera);
 
-            const meshes = [];
-            worldGroup.children.forEach(g => {
-                if (g === breakingCrackMesh) return;
-                if (g.isMesh) meshes.push(g);
-                else if (g.children) {
-                    g.children.forEach(m => {
-                        if (m !== breakingCrackMesh) meshes.push(m);
-                    });
-                }
-            });
-
-            const intersects = raycaster.intersectObjects(meshes, true);
+            const intersects = raycaster.intersectObjects(getRaycastMeshes(), true);
             if (intersects.length <= 0) return null;
 
             for (const hit of intersects) {
@@ -2628,9 +2640,7 @@ window.perlin = perlinInstance;
         function interactOrPlaceAtCrosshair() {
             if (tryEatSelectedItem()) return;
             raycaster.setFromCamera({ x: 0, y: 0 }, camera);
-            const meshes = [];
-            worldGroup.children.forEach(g => g.children.forEach(m => meshes.push(m)));
-            const intersects = raycaster.intersectObjects(meshes, true);
+            const intersects = raycaster.intersectObjects(getRaycastMeshes(), true);
             if (!intersects.length) return;
 
             const hit = intersects[0];
@@ -2676,9 +2686,7 @@ window.perlin = perlinInstance;
             if (!player.canMove || isInventoryOpen) return;
 
             raycaster.setFromCamera({ x: 0, y: 0 }, camera);
-            const meshes = [];
-            worldGroup.children.forEach(g => g.children.forEach(m => meshes.push(m)));
-            const intersects = raycaster.intersectObjects(meshes, true);
+            const intersects = raycaster.intersectObjects(getRaycastMeshes(), true);
             if (!intersects.length) return;
 
             if (event.button === 0) {
@@ -4717,7 +4725,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             const group = new THREE.Group();
             group.userData = { chunkData: data, heightmap, cx, cz, meshHash: null, frustumRadius: Math.sqrt((CHUNK_SIZE*CHUNK_SIZE)*0.5 + (CHUNK_HEIGHT*CHUNK_HEIGHT)*0.25) };
             chunks.set(chunkKey, group);
-            requestChunkRemesh(cx, cz, 'load');
+            requestChunkAndNeighborsRemesh(cx, cz, 'load');
             worldGroup.add(group);
             if (generated.spawnedGnomes && generated.spawnedGnomes.length) {
                 for (const g of generated.spawnedGnomes) spawnGnomeAt(g.wx, g.wy, g.wz);
@@ -4790,18 +4798,29 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 group.visible = inView;
                 if (!inView) continue;
 
-                const camSpace = frustumTempCenter.clone().applyMatrix4(camera.matrixWorldInverse);
-                if (camSpace.z >= 0) {
-                    group.visible = false;
-                    continue;
-                }
-
-                const dist = Math.sqrt(camSpace.x * camSpace.x + camSpace.y * camSpace.y + camSpace.z * camSpace.z);
-                candidates.push({ group, camSpace, dist });
+                frustumTempCamSpace.copy(frustumTempCenter).applyMatrix4(camera.matrixWorldInverse);
+                const camX = frustumTempCamSpace.x;
+                const camY = frustumTempCamSpace.y;
+                const camZ = frustumTempCamSpace.z;
+                const dist = Math.sqrt(camX * camX + camY * camY + camZ * camZ);
+                candidates.push({ group, camX, camY, camZ, dist });
             }
 
             // Stage 2: lightweight chunk occlusion culling.
             // Keep nearest chunk depth per angular cell; farther chunks in the same cell are treated as hidden.
+            if (!ENABLE_ANGULAR_OCCLUSION_CULLING) {
+                for (const c of candidates) c.group.visible = true;
+                return;
+            }
+
+            // Disable this approximation at steep pitch angles to avoid false positives while looking down/up.
+            frustumCameraForward.set(0, 0, -1).applyQuaternion(camera.quaternion);
+            const useAngularOcclusion = Math.abs(frustumCameraForward.y) < 0.45;
+            if (!useAngularOcclusion) {
+                for (const c of candidates) c.group.visible = true;
+                return;
+            }
+
             const AZ_BINS = 24;
             const EL_BINS = 14;
             const nearestDepth = new Float32Array(AZ_BINS * EL_BINS);
@@ -4812,8 +4831,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
             for (const c of candidates) {
                 if (c.dist > MAX_OCCLUSION_DIST) continue;
-                const az = Math.atan2(c.camSpace.x, -c.camSpace.z);
-                const el = Math.atan2(c.camSpace.y, Math.max(0.0001, Math.hypot(c.camSpace.x, c.camSpace.z)));
+                const az = Math.atan2(c.camX, -c.camZ);
+                const el = Math.atan2(c.camY, Math.max(0.0001, Math.hypot(c.camX, c.camZ)));
                 const azN = (az + Math.PI) / (Math.PI * 2);
                 const elN = (el + Math.PI * 0.5) / Math.PI;
                 const ai = Math.max(0, Math.min(AZ_BINS - 1, Math.floor(azN * AZ_BINS)));
@@ -4822,15 +4841,21 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 if (c.dist < nearestDepth[idx]) nearestDepth[idx] = c.dist;
             }
 
+            const playerChunkX = yawObject ? Math.floor(yawObject.position.x / CHUNK_SIZE) : 0;
+            const playerChunkZ = yawObject ? Math.floor(yawObject.position.z / CHUNK_SIZE) : 0;
+
             for (const c of candidates) {
-                // Never occlusion-cull near chunks to avoid visible popping around player.
-                if (c.dist <= CHUNK_SIZE * 2.5) {
+                // Keep local neighborhood around the player always visible to prevent x-ray holes.
+                const dx = c.group.userData.cx - playerChunkX;
+                const dz = c.group.userData.cz - playerChunkZ;
+                const isLocalNeighborhood = Math.max(Math.abs(dx), Math.abs(dz)) <= 1;
+                if (isLocalNeighborhood || c.dist <= CHUNK_SIZE * 2.5) {
                     c.group.visible = true;
                     continue;
                 }
 
-                const az = Math.atan2(c.camSpace.x, -c.camSpace.z);
-                const el = Math.atan2(c.camSpace.y, Math.max(0.0001, Math.hypot(c.camSpace.x, c.camSpace.z)));
+                const az = Math.atan2(c.camX, -c.camZ);
+                const el = Math.atan2(c.camY, Math.max(0.0001, Math.hypot(c.camX, c.camZ)));
                 const azN = (az + Math.PI) / (Math.PI * 2);
                 const elN = (el + Math.PI * 0.5) / Math.PI;
                 const ai = Math.max(0, Math.min(AZ_BINS - 1, Math.floor(azN * AZ_BINS)));
@@ -4840,6 +4865,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 const occluded = Number.isFinite(near) && (c.dist > near + DEPTH_MARGIN);
                 c.group.visible = !occluded;
             }
+        }
 
         function updateChunkAndNeighbors(centerGroup, lx, lz) {
             const cx = centerGroup.userData.cx;
@@ -4849,31 +4875,6 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             if (blockUpdateBatchDepth > 0) {
                 markBatchedChunkRemeshNeed(cx, cz, needsNeighbors);
                 return;
-            }
-
-            requestChunkRemesh(cx, cz, 'block');
-            if (needsNeighbors) {
-                requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
-            }
-
-            requestChunkRemesh(cx, cz, 'block');
-            if (needsNeighbors) {
-                requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
-            }
-
-        function updateChunkAndNeighbors(centerGroup, lx, lz) {
-            const cx = centerGroup.userData.cx;
-            const cz = centerGroup.userData.cz;
-            const needsNeighbors = (lx === 0 || lx === CHUNK_SIZE - 1 || lz === 0 || lz === CHUNK_SIZE - 1);
-
-            if (blockUpdateBatchDepth > 0) {
-                markBatchedChunkRemeshNeed(cx, cz, needsNeighbors);
-                return;
-            }
-
-            requestChunkRemesh(cx, cz, 'block');
-            if (needsNeighbors) {
-                requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
             }
 
             requestChunkRemesh(cx, cz, 'block');
@@ -4996,13 +4997,36 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             const CH = CHUNK_HEIGHT;
             const CS = CHUNK_SIZE;
 
+            const westChunk = chunks.get(`${cx - 1},${cz}`);
+            const eastChunk = chunks.get(`${cx + 1},${cz}`);
+            const northChunk = chunks.get(`${cx},${cz - 1}`);
+            const southChunk = chunks.get(`${cx},${cz + 1}`);
+
             const get = (x,y,z) => {
-                if (x < 0 || x >= CS || z < 0 || z >= CS || y < 0 || y >= CH) {
-                    const wx = x + cx * CS;
-                    const wz = z + cz * CS;
-                    return getBlockType(wx, y, wz);
+                if (y < 0 || y >= CH) return 0;
+                if (x >= 0 && x < CS && z >= 0 && z < CS) {
+                    return data[x + y * CS + z * CS * CH];
                 }
-                return data[x + y * CS + z * CS * CH];
+
+                // Cross-chunk face checking at chunk borders:
+                // sample adjacent loaded chunk data directly; if adjacent chunk is missing,
+                // treat as air so border faces remain visible until that chunk loads.
+                if (x < 0 && z >= 0 && z < CS && westChunk?.userData?.chunkData) {
+                    return westChunk.userData.chunkData[(CS - 1) + y * CS + z * CS * CH];
+                }
+                if (x >= CS && z >= 0 && z < CS && eastChunk?.userData?.chunkData) {
+                    return eastChunk.userData.chunkData[0 + y * CS + z * CS * CH];
+                }
+                if (z < 0 && x >= 0 && x < CS && northChunk?.userData?.chunkData) {
+                    return northChunk.userData.chunkData[x + y * CS + (CS - 1) * CS * CH];
+                }
+                if (z >= CS && x >= 0 && x < CS && southChunk?.userData?.chunkData) {
+                    return southChunk.userData.chunkData[x + y * CS + 0 * CS * CH];
+                }
+
+                // Corners and unloaded neighbors: do not use terrain fallback here,
+                // otherwise chunk-edge faces can be incorrectly culled.
+                return 0;
             };
 
             const isTransparentBlock = (id) => {
@@ -5138,155 +5162,158 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 { name: 'negZ', dir: [0, 0, -1], axis: 'z', sign: -1 },
             ];
 
-            for (const face of greedyFaces) {
+            const ctz32 = (v) => 31 - Math.clz32(v & -v);
+            const rectWidthFromBit = (mask, startBit, maxBits) => {
+                let w = 0;
+                while ((startBit + w) < maxBits && (mask & (1 << (startBit + w)))) w++;
+                return w;
+            };
+
+            const emitBinaryGreedyFaceRect = (face, slice, u, v, uExtent, vExtent, id, materialKey, uvInfo) => {
+                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, uExtent, vExtent) : uvInfo.uv;
+
                 if (face.axis === 'y') {
-                    for (let y = 0; y < CH; y++) {
-                        const visited = Array(CS * CS).fill(false);
-                        for (let z = 0; z < CS; z++) {
-                            for (let x = 0; x < CS; x++) {
-                                const mi = x + z * CS;
-                                if (visited[mi]) continue;
-                                const id = get(x, y, z);
-                                if (id === 0 || id === 22) continue;
-                                const mat = blockMaterials[id];
-                                if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES')) continue;
-                                const nid = get(x, y + face.sign, z);
-                                if (!shouldDrawFace(id, nid)) continue;
-                                const materialKey = getMaterialKey(id, face.dir);
-                                const uvInfo = getFaceUvInfo(id, face.name, [0,1, 0,0, 1,0, 1,1]);
-                                let w = 1;
-                                while (x + w < CS) {
-                                    const ni = x + w + z * CS;
-                                    if (visited[ni]) break;
-                                    const id2 = get(x + w, y, z);
-                                    if (id2 !== id) break;
-                                    if (getMaterialKey(id2, face.dir) !== materialKey) break;
-                                    if (!shouldDrawFace(id2, get(x + w, y + face.sign, z))) break;
-                                    w++;
-                                }
-                                let h = 1;
-                                outerY: while (z + h < CS) {
-                                    for (let k = 0; k < w; k++) {
-                                        const ni = (x + k) + (z + h) * CS;
-                                        if (visited[ni]) break outerY;
-                                        const id2 = get(x + k, y, z + h);
-                                        if (id2 !== id) break outerY;
-                                        if (getMaterialKey(id2, face.dir) !== materialKey) break outerY;
-                                        if (!shouldDrawFace(id2, get(x + k, y + face.sign, z + h))) break outerY;
-                                    }
-                                    h++;
-                                }
-                                for (let dz = 0; dz < h; dz++) for (let dx = 0; dx < w; dx++) visited[(x + dx) + (z + dz) * CS] = true;
-                                const wx = cx * CS + x;
-                                const wz = cz * CS + z;
-                                const py = face.sign > 0 ? y + 1 : y;
-                                const corners = face.sign > 0
-                                    ? [[wx, py, wz + h], [wx + w, py, wz + h], [wx + w, py, wz], [wx, py, wz]]
-                                    : [[wx, py, wz], [wx + w, py, wz], [wx + w, py, wz + h], [wx, py, wz + h]];
-                                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, w, h) : uvInfo.uv;
-                                emitQuad(id, materialKey, face.dir, corners, uv);
-                            }
+                    const x = u;
+                    const z = v;
+                    const wx = cx * CS + x;
+                    const wz = cz * CS + z;
+                    const py = face.sign > 0 ? slice + 1 : slice;
+                    const corners = face.sign > 0
+                        ? [[wx, py, wz + vExtent], [wx + uExtent, py, wz + vExtent], [wx + uExtent, py, wz], [wx, py, wz]]
+                        : [[wx, py, wz], [wx + uExtent, py, wz], [wx + uExtent, py, wz + vExtent], [wx, py, wz + vExtent]];
+                    emitQuad(id, materialKey, face.dir, corners, uv);
+                    return;
+                }
+
+                if (face.axis === 'x') {
+                    const z = u;
+                    const y = v;
+                    const wx = cx * CS + slice;
+                    const wz = cz * CS + z;
+                    const px = face.sign > 0 ? wx + 1 : wx;
+                    const corners = face.sign > 0
+                        ? [[px, y + vExtent, wz + uExtent], [px, y, wz + uExtent], [px, y, wz], [px, y + vExtent, wz]]
+                        : [[px, y + vExtent, wz], [px, y, wz], [px, y, wz + uExtent], [px, y + vExtent, wz + uExtent]];
+                    emitQuad(id, materialKey, face.dir, corners, uv);
+                    return;
+                }
+
+                const x = u;
+                const y = v;
+                const wx = cx * CS + x;
+                const wz = cz * CS + slice;
+                const pz = face.sign > 0 ? wz + 1 : wz;
+                const corners = face.sign > 0
+                    ? [[wx, y + vExtent, pz], [wx, y, pz], [wx + uExtent, y, pz], [wx + uExtent, y + vExtent, pz]]
+                    : [[wx + uExtent, y + vExtent, pz], [wx + uExtent, y, pz], [wx, y, pz], [wx, y + vExtent, pz]];
+                emitQuad(id, materialKey, face.dir, corners, uv);
+            };
+
+            const buildBinaryGreedyMasksForSlice = (face, slice) => {
+                const U = CS;
+                const V = face.axis === 'y' ? CS : CH;
+                const buckets = new Map();
+
+                for (let v = 0; v < V; v++) {
+                    for (let u = 0; u < U; u++) {
+                        let x = 0;
+                        let y = 0;
+                        let z = 0;
+                        let nid = 0;
+
+                        if (face.axis === 'y') {
+                            x = u;
+                            y = slice;
+                            z = v;
+                            nid = get(x, y + face.sign, z);
+                        } else if (face.axis === 'x') {
+                            x = slice;
+                            y = v;
+                            z = u;
+                            nid = get(x + face.sign, y, z);
+                        } else {
+                            x = u;
+                            y = v;
+                            z = slice;
+                            nid = get(x, y, z + face.sign);
                         }
-                    }
-                } else if (face.axis === 'x') {
-                    for (let x = 0; x < CS; x++) {
-                        const visited = Array(CH * CS).fill(false);
-                        for (let z = 0; z < CS; z++) {
-                            for (let y = 0; y < CH; y++) {
-                                const mi = y + z * CH;
-                                if (visited[mi]) continue;
-                                const id = get(x, y, z);
-                                if (id === 0 || id === 22) continue;
-                                const mat = blockMaterials[id];
-                                if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES')) continue;
-                                const nid = get(x + face.sign, y, z);
-                                if (!shouldDrawFace(id, nid)) continue;
-                                const materialKey = getMaterialKey(id, face.dir);
-                                const uvInfo = getFaceUvInfo(id, face.name, [0,1, 0,0, 1,0, 1,1]);
-                                let w = 1;
-                                while (y + w < CH) {
-                                    const ni = (y + w) + z * CH;
-                                    if (visited[ni]) break;
-                                    const id2 = get(x, y + w, z);
-                                    if (id2 !== id) break;
-                                    if (getMaterialKey(id2, face.dir) !== materialKey) break;
-                                    if (!shouldDrawFace(id2, get(x + face.sign, y + w, z))) break;
-                                    w++;
-                                }
-                                let h = 1;
-                                outerX: while (z + h < CS) {
-                                    for (let k = 0; k < w; k++) {
-                                        const ni = (y + k) + (z + h) * CH;
-                                        if (visited[ni]) break outerX;
-                                        const id2 = get(x, y + k, z + h);
-                                        if (id2 !== id) break outerX;
-                                        if (getMaterialKey(id2, face.dir) !== materialKey) break outerX;
-                                        if (!shouldDrawFace(id2, get(x + face.sign, y + k, z + h))) break outerX;
-                                    }
-                                    h++;
-                                }
-                                for (let dz = 0; dz < h; dz++) for (let dy = 0; dy < w; dy++) visited[(y + dy) + (z + dz) * CH] = true;
-                                const wx = cx * CS + x;
-                                const wz = cz * CS + z;
-                                const px = face.sign > 0 ? wx + 1 : wx;
-                                const corners = face.sign > 0
-                                    ? [[px, y + w, wz + h], [px, y, wz + h], [px, y, wz], [px, y + w, wz]]
-                                    : [[px, y + w, wz], [px, y, wz], [px, y, wz + h], [px, y + w, wz + h]];
-                                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, h, w) : uvInfo.uv;
-                                emitQuad(id, materialKey, face.dir, corners, uv);
-                            }
+
+                        const id = get(x, y, z);
+                        if (id === 0 || id === 22) continue;
+                        const mat = blockMaterials[id];
+                        if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES')) continue;
+                        if (!shouldDrawFace(id, nid)) continue;
+
+                        const materialKey = getMaterialKey(id, face.dir);
+                        const key = `${id}|${materialKey}`;
+                        let bucket = buckets.get(key);
+                        if (!bucket) {
+                            bucket = {
+                                id,
+                                materialKey,
+                                uvInfo: getFaceUvInfo(id, face.name, [0,1, 0,0, 1,0, 1,1]),
+                                masks: new Uint32Array(V)
+                            };
+                            buckets.set(key, bucket);
                         }
+                        bucket.masks[v] |= (1 << u);
                     }
-                } else {
-                    for (let z = 0; z < CS; z++) {
-                        const visited = Array(CH * CS).fill(false);
-                        for (let x = 0; x < CS; x++) {
-                            for (let y = 0; y < CH; y++) {
-                                const mi = y + x * CH;
-                                if (visited[mi]) continue;
-                                const id = get(x, y, z);
-                                if (id === 0 || id === 22) continue;
-                                const mat = blockMaterials[id];
-                                if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES')) continue;
-                                const nid = get(x, y, z + face.sign);
-                                if (!shouldDrawFace(id, nid)) continue;
-                                const materialKey = getMaterialKey(id, face.dir);
-                                const uvInfo = getFaceUvInfo(id, face.name, [0,1, 0,0, 1,0, 1,1]);
-                                let w = 1;
-                                while (y + w < CH) {
-                                    const ni = (y + w) + x * CH;
-                                    if (visited[ni]) break;
-                                    const id2 = get(x, y + w, z);
-                                    if (id2 !== id) break;
-                                    if (getMaterialKey(id2, face.dir) !== materialKey) break;
-                                    if (!shouldDrawFace(id2, get(x, y + w, z + face.sign))) break;
-                                    w++;
+                }
+
+                return { U, V, buckets };
+            };
+
+            const runBinaryGreedyFace = (face) => {
+                const sliceCount = face.axis === 'y' ? CH : CS;
+                const useBits = Math.min(32, CS);
+
+                for (let slice = 0; slice < sliceCount; slice++) {
+                    const { U, V, buckets } = buildBinaryGreedyMasksForSlice(face, slice);
+                    const maxBits = Math.min(U, useBits);
+                    const validMask = maxBits >= 32 ? 0xFFFFFFFF : ((1 << maxBits) - 1);
+
+                    for (const bucket of buckets.values()) {
+                        const masks = bucket.masks;
+
+                        for (let v = 0; v < V; v++) {
+                            masks[v] &= validMask;
+                        }
+
+                        for (let v = 0; v < V; v++) {
+                            while (masks[v] !== 0) {
+                                const rowMask = masks[v] >>> 0;
+                                const startBit = ctz32(rowMask);
+                                const uExtent = rectWidthFromBit(rowMask, startBit, maxBits);
+                                const runMask = (((1 << uExtent) - 1) << startBit) >>> 0;
+
+                                let vExtent = 1;
+                                while ((v + vExtent) < V && ((masks[v + vExtent] & runMask) === runMask)) {
+                                    vExtent++;
                                 }
-                                let h = 1;
-                                outerZ: while (x + h < CS) {
-                                    for (let k = 0; k < w; k++) {
-                                        const ni = (y + k) + (x + h) * CH;
-                                        if (visited[ni]) break outerZ;
-                                        const id2 = get(x + h, y + k, z);
-                                        if (id2 !== id) break outerZ;
-                                        if (getMaterialKey(id2, face.dir) !== materialKey) break outerZ;
-                                        if (!shouldDrawFace(id2, get(x + h, y + k, z + face.sign))) break outerZ;
-                                    }
-                                    h++;
+
+                                for (let dv = 0; dv < vExtent; dv++) {
+                                    masks[v + dv] &= (~runMask) >>> 0;
                                 }
-                                for (let dx = 0; dx < h; dx++) for (let dy = 0; dy < w; dy++) visited[(y + dy) + (x + dx) * CH] = true;
-                                const wx = cx * CS + x;
-                                const wz = cz * CS + z;
-                                const pz = face.sign > 0 ? wz + 1 : wz;
-                                const corners = face.sign > 0
-                                    ? [[wx, y + w, pz], [wx, y, pz], [wx + h, y, pz], [wx + h, y + w, pz]]
-                                    : [[wx + h, y + w, pz], [wx + h, y, pz], [wx, y, pz], [wx, y + w, pz]];
-                                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, h, w) : uvInfo.uv;
-                                emitQuad(id, materialKey, face.dir, corners, uv);
+
+                                emitBinaryGreedyFaceRect(
+                                    face,
+                                    slice,
+                                    startBit,
+                                    v,
+                                    uExtent,
+                                    vExtent,
+                                    bucket.id,
+                                    bucket.materialKey,
+                                    bucket.uvInfo
+                                );
                             }
                         }
                     }
                 }
+            };
+
+            for (const face of greedyFaces) {
+                runBinaryGreedyFace(face);
             }
 
             // Keep non-cube/transparent blocks on classic meshing path.
@@ -5365,7 +5392,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                     if (oldGeom) oldGeom.dispose();
                 } else {
                     const mesh = new THREE.Mesh(geom, currentMaterial);
-                    mesh.frustumCulled = true;
+                    // Chunk group visibility controls culling; disable per-mesh frustum to prevent angle artifacts.
+                    mesh.frustumCulled = false;
                     meshesByKey.set(key, mesh);
                     group.add(mesh);
                 }
@@ -5474,16 +5502,41 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             if (budget > 0) {
                 const offsets = getChunkOffsetsForRadius(loadRadius);
                 const loadRadiusSq = loadRadius * loadRadius;
+
+                // Fast chunk scheduling without per-tick sort:
+                // 1) keep 3x3 around player stable, 2) favor forward hemisphere, 3) fill remainder by distance.
+                const yawSin = Math.sin(yawObject.rotation.y);
+                const yawCos = -Math.cos(yawObject.rotation.y);
                 let created = 0;
-                for (let i = 0; i < offsets.length && created < budget; i++) {
-                    const off = offsets[i];
-                    if (off.dist2 > loadRadiusSq) continue;
+
+                const tryCreateOffset = (off) => {
+                    if (created >= budget) return;
+                    if (off.dist2 > loadRadiusSq) return;
                     const cx = playerChunkX + off.dx;
                     const cz = playerChunkZ + off.dz;
                     const chunkKey = `${cx},${cz}`;
-                    if (chunks.has(chunkKey) || sparseAirChunkKeys.has(chunkKey)) continue;
+                    if (chunks.has(chunkKey) || sparseAirChunkKeys.has(chunkKey)) return;
                     createChunk(cx, cz);
                     created++;
+                };
+
+                for (const off of offsets) {
+                    if (Math.max(Math.abs(off.dx), Math.abs(off.dz)) <= 1) tryCreateOffset(off);
+                    if (created >= budget) break;
+                }
+
+                for (const off of offsets) {
+                    if (Math.max(Math.abs(off.dx), Math.abs(off.dz)) <= 1) continue;
+                    const len = Math.hypot(off.dx, off.dz) || 1;
+                    const frontDot = ((off.dx * yawSin) + (off.dz * yawCos)) / len;
+                    if (frontDot > 0.22) tryCreateOffset(off);
+                    if (created >= budget) break;
+                }
+
+                for (const off of offsets) {
+                    if (Math.max(Math.abs(off.dx), Math.abs(off.dz)) <= 1) continue;
+                    tryCreateOffset(off);
+                    if (created >= budget) break;
                 }
             }
 
@@ -5612,8 +5665,12 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 maybeSpawnLavaParticles(delta);
                 updateWorldParticles(delta);
                 applyBlockPhysics(time);
+
+                // Chunk pipeline: load/generate -> mesh/VBO upload -> cull -> render.
                 ensureChunksAroundPlayer(false, time);
+                processMeshUpdateQueue();
                 maybeUpdateChunkFrustumCulling(time);
+
                 updateGnomes(time);
                 updatePigs(time, delta);
                 updateWolves(time, delta);
@@ -5622,7 +5679,6 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 updateEatingAnimation(delta, time);
                 updatePlayerAvatarVisuals(time);
                 updateFirstPersonHand(time);
-                processMeshUpdateQueue();
                 const dtSec = delta / 1000;
                 if (window.FurnaceSystem) {
                     for (const state of furnaceStates.values()) window.FurnaceSystem.updateState(state, dtSec);
