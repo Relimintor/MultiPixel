@@ -334,6 +334,7 @@ window.perlin = perlinInstance;
         const lastFrustumCameraQuat = new THREE.Quaternion();
         let hasFrustumCameraState = false;
         const chunks = new Map();
+        const sparseAirChunkKeys = new Set();
         const worldGroup = new THREE.Group();
         let yawObject, pitchObject; 
         let cameraViewMode = 0; // 0=first, 1=second, 2=third
@@ -2697,6 +2698,10 @@ window.perlin = perlinInstance;
             const lightingSensitive = Boolean(oldMat?.emissive || newMat?.emissive || oldType === 22 || newType === 22 || oldType === 4 || newType === 4 || oldType === 33 || newType === 33);
             if (lightingSensitive) requestChunkAndNeighborsRemesh(cx, cz, 'lighting');
 
+            if (newType === 0 && isChunkAllAir(chunkData)) {
+                convertChunkToSparseAir(group);
+            }
+
             return true;
         }
 
@@ -2812,6 +2817,11 @@ window.perlin = perlinInstance;
             }
 
            
+            if (chunkData[index] === 0 && isChunkAllAir(chunkData)) {
+                convertChunkToSparseAir(group);
+                return true;
+            }
+
             updateChunkAndNeighbors(group, lx, lz);
             return true;
         }
@@ -3350,6 +3360,7 @@ window.perlin = perlinInstance;
                 const lz = wz - group.userData.cz * CHUNK_SIZE;
                 return group.userData.chunkData[lx + wy * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT];
             }
+            if (sparseAirChunkKeys.has(id)) return 0;
             
             // For blocks outside loaded chunks but inside the boundary, use noise (Fallback)
             const biome = getBiome(wx, wz); // Calculate biome for fallback
@@ -4612,9 +4623,17 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
         function createChunk(cx, cz) {
             const generated = generateChunkData(cx, cz);
             const data = generated.data;
+            const chunkKey = `${cx},${cz}`;
+
+            if (isChunkAllAir(data)) {
+                sparseAirChunkKeys.add(chunkKey);
+                return null;
+            }
+
+            sparseAirChunkKeys.delete(chunkKey);
             const group = new THREE.Group();
             group.userData = { chunkData: data, cx, cz, meshHash: null, frustumRadius: Math.sqrt((CHUNK_SIZE*CHUNK_SIZE)*0.5 + (CHUNK_HEIGHT*CHUNK_HEIGHT)*0.25) };
-            chunks.set(`${cx},${cz}`, group);
+            chunks.set(chunkKey, group);
             requestChunkRemesh(cx, cz, 'load');
             worldGroup.add(group);
             if (generated.spawnedGnomes && generated.spawnedGnomes.length) {
@@ -4637,6 +4656,35 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 h = Math.imul(h, 16777619) >>> 0;
             }
             return h >>> 0;
+        }
+
+        function isChunkAllAir(data) {
+            for (let i = 0; i < data.length; i++) {
+                if (data[i] !== 0) return false;
+            }
+            return true;
+        }
+
+        function convertChunkToSparseAir(chunkGroup) {
+            if (!chunkGroup || !chunkGroup.userData) return;
+            const cx = chunkGroup.userData.cx;
+            const cz = chunkGroup.userData.cz;
+            const chunkKey = `${cx},${cz}`;
+
+            removeTorchLightsForChunk(chunkKey);
+            worldGroup.remove(chunkGroup);
+            if (chunkGroup.children) {
+                for (const child of chunkGroup.children) {
+                    if (child.geometry) child.geometry.dispose();
+                }
+            }
+            if (chunkGroup.userData?.meshesByKey) {
+                chunkGroup.userData.meshesByKey.clear();
+            }
+
+            chunks.delete(chunkKey);
+            sparseAirChunkKeys.add(chunkKey);
+            dirtyChunkRemeshReasons.delete(chunkKey);
         }
 
         function updateChunkFrustumCulling() {
@@ -4718,6 +4766,11 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             if (blockUpdateBatchDepth > 0) {
                 markBatchedChunkRemeshNeed(cx, cz, needsNeighbors);
                 return;
+            }
+
+            requestChunkRemesh(cx, cz, 'block');
+            if (needsNeighbors) {
+                requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
             }
 
             requestChunkRemesh(cx, cz, 'block');
@@ -5325,7 +5378,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                     const cx = playerChunkX + off.dx;
                     const cz = playerChunkZ + off.dz;
                     const chunkKey = `${cx},${cz}`;
-                    if (chunks.has(chunkKey)) continue;
+                    if (chunks.has(chunkKey) || sparseAirChunkKeys.has(chunkKey)) continue;
                     createChunk(cx, cz);
                     created++;
                 }
