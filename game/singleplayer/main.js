@@ -230,6 +230,10 @@ window.perlin = perlinInstance;
             return Math.max(0, Math.min(CHUNK_SECTION_COUNT - 1, Math.floor(y / CHUNK_SECTION_HEIGHT)));
         }
 
+        function markChunkBatchDirty() {
+            chunkBatchDirty = true;
+        }
+
         // Mesh caching policy:
         // keep chunk meshes in GPU buffers and only remesh on explicit triggers.
         function requestChunkRemesh(cx, cz, reason = 'block', sectionIndex = null) {
@@ -372,6 +376,8 @@ window.perlin = perlinInstance;
         const CHUNK_SECTION_COUNT = Math.ceil(CHUNK_HEIGHT / CHUNK_SECTION_HEIGHT);
         const CHUNK_RENDER_CULL_RADIUS = effectiveChunkLoadRadius;
         const CHUNK_RENDER_CULL_RADIUS_SQ = CHUNK_RENDER_CULL_RADIUS * CHUNK_RENDER_CULL_RADIUS;
+        const ENABLE_CHUNK_MESH_BATCHING = true;
+        const CHUNK_BATCH_REBUILD_INTERVAL_MS = 220;
         const chunkOffsetsByRadius = new Map();
         let lastChunkUpdateMs = -Infinity;
         let lastFrustumCullMs = -Infinity;
@@ -397,6 +403,10 @@ window.perlin = perlinInstance;
         const chunks = new Map();
         const sparseAirChunkKeys = new Set();
         const worldGroup = new THREE.Group();
+        const chunkBatchGroup = new THREE.Group();
+        const chunkBatchMeshes = new Map();
+        let chunkBatchDirty = true;
+        let lastChunkBatchMs = -Infinity;
         let yawObject, pitchObject; 
         let cameraViewMode = 0; // 0=first, 1=second, 2=third
         let playerAvatar = null;
@@ -600,6 +610,7 @@ window.perlin = perlinInstance;
             dirLight.position.set(50, 100, 50);
             scene.add(dirLight);
             scene.add(worldGroup);
+            worldGroup.add(chunkBatchGroup);
 
     
             await loadPigTexture();
@@ -4826,6 +4837,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             chunks.set(chunkKey, group);
             requestChunkAndNeighborsRemesh(cx, cz, 'load');
             worldGroup.add(group);
+            markChunkBatchDirty();
             if (generated.spawnedGnomes && generated.spawnedGnomes.length) {
                 for (const g of generated.spawnedGnomes) spawnGnomeAt(g.wx, g.wy, g.wz);
             }
@@ -4882,6 +4894,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             chunks.delete(chunkKey);
             sparseAirChunkKeys.add(chunkKey);
             dirtyChunkRemeshReasons.delete(chunkKey);
+            markChunkBatchDirty();
         }
 
         function updateChunkFrustumCulling() {
@@ -4894,11 +4907,13 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             // Stage 1: frustum culling candidates.
             const candidates = [];
             for (const group of chunks.values()) {
+                const prevVisible = group.visible;
                 const dxChunks = group.userData.cx - playerChunkX;
                 const dzChunks = group.userData.cz - playerChunkZ;
                 const chunkDistSq = dxChunks * dxChunks + dzChunks * dzChunks;
                 if (chunkDistSq > CHUNK_RENDER_CULL_RADIUS_SQ) {
                     group.visible = false;
+                    if (prevVisible !== group.visible) markChunkBatchDirty();
                     continue;
                 }
 
@@ -4912,6 +4927,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 const inView = frustum.intersectsSphere(frustumTempSphere);
                 // Chunk-level frustum culling: skip rendering chunks outside camera view.
                 group.visible = inView;
+                if (prevVisible !== group.visible) markChunkBatchDirty();
                 if (!inView) continue;
 
                 frustumTempCamSpace.copy(frustumTempCenter).applyMatrix4(camera.matrixWorldInverse);
@@ -4926,6 +4942,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             // Keep nearest chunk depth per angular cell; farther chunks in the same cell are treated as hidden.
             if (!ENABLE_ANGULAR_OCCLUSION_CULLING) {
                 for (const c of candidates) c.group.visible = true;
+                if (ENABLE_CHUNK_MESH_BATCHING) markChunkBatchDirty();
                 return;
             }
 
@@ -4934,6 +4951,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             const useAngularOcclusion = Math.abs(frustumCameraForward.y) < 0.45;
             if (!useAngularOcclusion) {
                 for (const c of candidates) c.group.visible = true;
+                if (ENABLE_CHUNK_MESH_BATCHING) markChunkBatchDirty();
                 return;
             }
 
@@ -4978,6 +4996,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 const occluded = Number.isFinite(near) && (c.dist > near + DEPTH_MARGIN);
                 c.group.visible = !occluded;
             }
+
+            if (ENABLE_CHUNK_MESH_BATCHING) markChunkBatchDirty();
         }
 
         function updateChunkAndNeighbors(centerGroup, lx, ly, lz) {
@@ -5069,6 +5089,109 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 }
             }
             return out;
+        }
+
+        function decodeNormalizedAttributeValue(attr, value) {
+            if (!attr?.normalized) return value;
+            const array = attr.array;
+            if (array instanceof Int8Array) return Math.max(-1, value / 127);
+            if (array instanceof Uint8Array) return value / 255;
+            if (array instanceof Int16Array) return Math.max(-1, value / 32767);
+            if (array instanceof Uint16Array) return value / 65535;
+            return value;
+        }
+
+        function rebuildChunkMeshBatches() {
+            if (!ENABLE_CHUNK_MESH_BATCHING) return;
+
+            for (const mesh of chunkBatchMeshes.values()) {
+                if (mesh.geometry) mesh.geometry.dispose();
+                chunkBatchGroup.remove(mesh);
+            }
+            chunkBatchMeshes.clear();
+
+            const grouped = new Map();
+            const tmpPos = new THREE.Vector3();
+            const tmpNorm = new THREE.Vector3();
+            const normalMatrix = new THREE.Matrix3();
+
+            worldGroup.updateMatrixWorld(true);
+
+            for (const chunkGroup of chunks.values()) {
+                if (!chunkGroup.visible || !chunkGroup.children) continue;
+                for (const sourceMesh of chunkGroup.children) {
+                    if (!sourceMesh?.isMesh || sourceMesh.userData?.isChunkBatchMesh !== true) continue;
+                    const geom = sourceMesh.geometry;
+                    const mat = sourceMesh.material;
+                    if (!geom || !mat) continue;
+
+                    const posAttr = geom.getAttribute('position');
+                    const normAttr = geom.getAttribute('normal');
+                    if (!posAttr || !normAttr) continue;
+
+                    sourceMesh.visible = false;
+
+                    const key = mat.uuid;
+                    let bucket = grouped.get(key);
+                    if (!bucket) {
+                        bucket = { material: mat, pos: [], norm: [], uv: [], col: [], hasUv: false, hasCol: false };
+                        grouped.set(key, bucket);
+                    }
+
+                    const uvAttr = geom.getAttribute('uv');
+                    const colAttr = geom.getAttribute('color');
+                    bucket.hasUv = bucket.hasUv || Boolean(uvAttr);
+                    bucket.hasCol = bucket.hasCol || Boolean(colAttr);
+
+                    normalMatrix.getNormalMatrix(sourceMesh.matrixWorld);
+                    const count = posAttr.count;
+                    for (let i = 0; i < count; i++) {
+                        tmpPos.set(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i)).applyMatrix4(sourceMesh.matrixWorld);
+                        bucket.pos.push(tmpPos.x, tmpPos.y, tmpPos.z);
+
+                        const nx = decodeNormalizedAttributeValue(normAttr, normAttr.getX(i));
+                        const ny = decodeNormalizedAttributeValue(normAttr, normAttr.getY(i));
+                        const nz = decodeNormalizedAttributeValue(normAttr, normAttr.getZ(i));
+                        tmpNorm.set(nx, ny, nz).applyMatrix3(normalMatrix).normalize();
+                        bucket.norm.push(tmpNorm.x, tmpNorm.y, tmpNorm.z);
+
+                        if (uvAttr) {
+                            const u = decodeNormalizedAttributeValue(uvAttr, uvAttr.getX(i));
+                            const v = decodeNormalizedAttributeValue(uvAttr, uvAttr.getY(i));
+                            bucket.uv.push(u, v);
+                        }
+                        if (colAttr) {
+                            bucket.col.push(colAttr.getX(i), colAttr.getY(i), colAttr.getZ(i));
+                        }
+                    }
+                }
+            }
+
+            for (const [key, bucket] of grouped.entries()) {
+                if (bucket.pos.length === 0) continue;
+                const geom = new THREE.BufferGeometry();
+                geom.setAttribute('position', new THREE.Float32BufferAttribute(bucket.pos, 3));
+                geom.setAttribute('normal', new THREE.Float32BufferAttribute(bucket.norm, 3));
+                if (bucket.hasUv && bucket.uv.length > 0) geom.setAttribute('uv', new THREE.Float32BufferAttribute(bucket.uv, 2));
+                if (bucket.hasCol && bucket.col.length > 0) geom.setAttribute('color', new THREE.Float32BufferAttribute(bucket.col, 3));
+
+                const batched = new THREE.Mesh(geom, bucket.material);
+                batched.frustumCulled = false;
+                batched.userData.isChunkBatchMesh = true;
+                chunkBatchMeshes.set(key, batched);
+                chunkBatchGroup.add(batched);
+            }
+
+            chunkBatchGroup.visible = true;
+            chunkBatchDirty = false;
+        }
+
+        function maybeUpdateChunkMeshBatching(nowMs) {
+            if (!ENABLE_CHUNK_MESH_BATCHING) return;
+            if (!chunkBatchDirty) return;
+            if ((nowMs - lastChunkBatchMs) < CHUNK_BATCH_REBUILD_INTERVAL_MS) return;
+            lastChunkBatchMs = nowMs;
+            rebuildChunkMeshBatches();
         }
 
         function syncTorchLightsForChunk(group, torchPositions) {
@@ -5557,6 +5680,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                     existing.visible = true;
                     existing.position.set(meshOriginX, meshOriginY, meshOriginZ);
                     existing.scale.setScalar(1 / POSITION_QUANT_SCALE);
+                    existing.userData.isChunkBatchMesh = true;
                     if (oldGeom) oldGeom.dispose();
                 } else {
                     const mesh = new THREE.Mesh(geom, currentMaterial);
@@ -5564,6 +5688,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                     mesh.frustumCulled = false;
                     mesh.position.set(meshOriginX, meshOriginY, meshOriginZ);
                     mesh.scale.setScalar(1 / POSITION_QUANT_SCALE);
+                    mesh.userData.isChunkBatchMesh = true;
                     meshesByKey.set(key, mesh);
                     group.add(mesh);
                 }
@@ -5583,6 +5708,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             }
 
             syncTorchLightsForChunk(group, collectChunkTorchPositions(data, cx, cz));
+            markChunkBatchDirty();
         }
 
         const SPAWN_MIN_LIGHT_LEVEL = 13;
@@ -5740,6 +5866,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                     chunkGroup.userData.meshesByKey.clear();
                 }
                 chunks.delete(chunkKey);
+                markChunkBatchDirty();
             }
         }
 
@@ -5845,6 +5972,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 ensureChunksAroundPlayer(false, time);
                 processMeshUpdateQueue();
                 maybeUpdateChunkFrustumCulling(time);
+                maybeUpdateChunkMeshBatching(time);
 
                 updateGnomes(time);
                 updatePigs(time, delta);
@@ -5869,6 +5997,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 maybeSpawnLavaParticles(delta);
                 updateWorldParticles(delta);
                 processMeshUpdateQueue();
+                maybeUpdateChunkMeshBatching(time);
                 miningState.active = false;
                 updateBreakingOverlay();
             }
