@@ -184,15 +184,13 @@
     }
 
     bambooJungleVariant(biome, wx, wz, scale) {
-      if (biome !== 'Jungle') return biome;
-      const c = this.toCell(wx, wz, scale);
-      return this.random.pick2D(c.x, c.z, this.seed + 1300, 10) === 0 ? 'Bamboo Jungle' : biome;
+      // Explicitly disabled for this worldgen profile.
+      return biome;
     }
 
     sunflowerPlainsVariant(biome, wx, wz, scale) {
-      if (biome !== 'Plains') return biome;
-      const c = this.toCell(wx, wz, scale);
-      return this.random.pick2D(c.x, c.z, this.seed + 1301, 57) === 0 ? 'Sunflower Plains' : biome;
+      // Explicitly disabled for this worldgen profile.
+      return biome;
     }
 
     biomeEdge(biome, wx, wz, scale) {
