@@ -24,6 +24,8 @@
     // Limit new chunk generation per update to avoid frame spikes while moving/jumping.
     chunkCreationBudgetPerTick: 3,
     chunkCreationBudgetOnForceUpdate: 10,
+    // Chunk render distance in chunk units (radius). Example: 12 ~= up to 625 chunks in square mode.
+    chunkRenderDistance: 12,
     biomeMap: {
       // Enable optional micro-variants for fuller biome variety in this profile.
       enableBambooJungleVariant: true,

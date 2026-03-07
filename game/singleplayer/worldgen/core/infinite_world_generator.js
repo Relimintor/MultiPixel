@@ -71,10 +71,8 @@
       if (cached !== undefined) return cached;
 
       const sampleHeightAt = (sx, sz) => {
-        const s = this.sample(sx, sz);
-        const sb = this.sampleBiome(sx, sz, s);
-        const sr = this.sampleRiverMask(sx, sz, s);
-        return this.terrain.heightFromBiome(sx, sz, sb, sr);
+        const sampled = this.sample(sx, sz);
+        return this.terrain.heightFromBiome(sx, sz, sampled.gameplayBiome, sampled.riverMask);
       };
 
       const averageAtDistance = (distance, includeDiagonals = true) => {
@@ -91,29 +89,39 @@
 
       // Multi-scale blending to reduce vertical pillar artifacts:
       // blend coarse -> medium -> fine neighborhoods (4 -> 2 -> 1 block distances).
-      const avg4 = averageAtDistance(4, true);
-      const avg2 = averageAtDistance(2, true);
+      const avg2 = averageAtDistance(2, false);
       const avg1 = averageAtDistance(1, false);
 
       const sample = sampleData || this.sample(wx, wz);
       const oceanInfluence = sample.gameplayBiome === 'Ocean' ? 1 : 0;
       const mountainInfluence = sample.gameplayBiome === 'Mountains' ? 1 : 0;
-      const nearSeaWeight = oceanInfluence ? 0.35 : 0.22;
-      const nearLandWeight = mountainInfluence ? 0.14 : 0.2;
+
+      const coastNoise = (this.perlin.noise2D(wx * 0.0012 + 120, wz * 0.0012 - 120) + 1) * 0.5;
+      const coastBlend = Math.max(0, 1 - Math.abs(coastNoise - 0.42) / 0.2);
+      const lowFreq = this.perlin.noise2D(wx * 0.0008 - 260, wz * 0.0008 + 260);
+      const continentalness = (lowFreq + 1) * 0.5;
+
+      const nearSeaWeight = oceanInfluence ? 0.26 : 0.12 + coastBlend * 0.08;
+      const nearLandWeight = mountainInfluence ? 0.12 : 0.18;
 
       let blended = center;
-      blended = blended * (1 - nearSeaWeight) + avg4 * nearSeaWeight;
-      blended = blended * 0.74 + avg2 * 0.26;
+      blended = blended * (1 - nearSeaWeight) + avg2 * nearSeaWeight;
+      blended = blended * 0.79 + avg1 * 0.21;
       blended = blended * (1 - nearLandWeight) + avg1 * nearLandWeight;
 
       // Extra anti-spike clamp so isolated towers/pits are softened without flattening terrain.
-      const localMean = avg1 * 0.55 + avg2 * 0.45;
+      const localMean = avg1 * 0.7 + avg2 * 0.3;
       const spike = blended - localMean;
-      if (spike > 5.2) blended -= (spike - 5.2) * 0.58;
-      if (spike < -7.2) blended -= (spike + 7.2) * 0.4;
+      if (spike > 5.0) blended -= (spike - 5.0) * 0.6;
+      if (spike < -6.8) blended -= (spike + 6.8) * 0.42;
+
+      // Shape coastlines into gentler shelves while keeping inland relief.
+      const coastTarget = this.seaLevel + (mountainInfluence ? 3.6 : 1.2);
+      blended = blended * (1 - coastBlend * 0.12) + coastTarget * coastBlend * 0.12;
 
       // Final local slope guard to avoid sheer 1-column cliffs while preserving mountains.
-      const maxDeltaFromNear = mountainInfluence ? 6.2 : 4.9;
+      const inlandMask = Math.max(0, Math.min(1, (continentalness - 0.45) / 0.3));
+      const maxDeltaFromNear = mountainInfluence ? 6.4 : 4.2 + inlandMask * 1.4;
       blended = Math.max(avg1 - maxDeltaFromNear, Math.min(avg1 + maxDeltaFromNear, blended));
 
       const h = Math.floor(blended);
