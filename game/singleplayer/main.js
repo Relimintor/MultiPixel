@@ -192,31 +192,40 @@ window.perlin = perlinInstance;
         const particleMaterials = { break: null, lava: null };
         let lavaParticleScanMs = 0;
         let lastPhysicsTickMs = 0;
-        const dirtyChunkKeys = new Set();
+        const dirtyChunkRemeshReasons = new Map();
 
         function chunkKeyFromCoords(cx, cz) {
             return `${cx},${cz}`;
         }
 
-        function markChunkDirty(cx, cz) {
-            dirtyChunkKeys.add(chunkKeyFromCoords(cx, cz));
+        // Mesh caching policy:
+        // keep chunk meshes in GPU buffers and only remesh on explicit triggers.
+        function requestChunkRemesh(cx, cz, reason = 'block') {
+            const key = chunkKeyFromCoords(cx, cz);
+            const rank = { load: 0, neighbor: 1, block: 2, lighting: 3 };
+            const prev = dirtyChunkRemeshReasons.get(key);
+            if (!prev || (rank[reason] ?? 0) >= (rank[prev] ?? 0)) {
+                dirtyChunkRemeshReasons.set(key, reason);
+            }
         }
 
-        function markChunkAndNeighborsDirty(cx, cz) {
-            markChunkDirty(cx, cz);
-            markChunkDirty(cx - 1, cz);
-            markChunkDirty(cx + 1, cz);
-            markChunkDirty(cx, cz - 1);
-            markChunkDirty(cx, cz + 1);
+        function requestChunkAndNeighborsRemesh(cx, cz, reason = 'neighbor') {
+            requestChunkRemesh(cx, cz, reason);
+            requestChunkRemesh(cx - 1, cz, reason);
+            requestChunkRemesh(cx + 1, cz, reason);
+            requestChunkRemesh(cx, cz - 1, reason);
+            requestChunkRemesh(cx, cz + 1, reason);
         }
 
         function rebuildDirtyChunkMeshes() {
-            if (dirtyChunkKeys.size === 0) return;
-            for (const key of dirtyChunkKeys) {
+            if (dirtyChunkRemeshReasons.size === 0) return;
+            for (const [key, reason] of dirtyChunkRemeshReasons.entries()) {
                 const g = chunks.get(key);
-                if (g) updateChunkGeometry(g, g.userData.chunkData);
+                if (!g) continue;
+                const forceRemesh = reason === 'lighting';
+                updateChunkGeometry(g, g.userData.chunkData, forceRemesh);
             }
-            dirtyChunkKeys.clear();
+            dirtyChunkRemeshReasons.clear();
         }
         let physicsCursorY = 1;
 
@@ -273,6 +282,9 @@ window.perlin = perlinInstance;
         const cameraViewProj = new THREE.Matrix4();
         const frustumTempCenter = new THREE.Vector3();
         const frustumTempSphere = new THREE.Sphere();
+        const lastFrustumCameraPos = new THREE.Vector3();
+        const lastFrustumCameraQuat = new THREE.Quaternion();
+        let hasFrustumCameraState = false;
         const chunks = new Map();
         const worldGroup = new THREE.Group();
         let yawObject, pitchObject; 
@@ -2625,16 +2637,16 @@ window.perlin = perlinInstance;
             // - block changes
             // - neighbor chunk changes (edge edits)
             // - lighting-affecting changes (deferred through same dirty queue)
-            markChunkDirty(cx, cz);
-            if (lx <= 0) markChunkDirty(cx - 1, cz);
-            if (lx >= CHUNK_SIZE - 1) markChunkDirty(cx + 1, cz);
-            if (lz <= 0) markChunkDirty(cx, cz - 1);
-            if (lz >= CHUNK_SIZE - 1) markChunkDirty(cx, cz + 1);
+            requestChunkRemesh(cx, cz, 'block');
+            if (lx <= 0) requestChunkRemesh(cx - 1, cz, 'neighbor');
+            if (lx >= CHUNK_SIZE - 1) requestChunkRemesh(cx + 1, cz, 'neighbor');
+            if (lz <= 0) requestChunkRemesh(cx, cz - 1, 'neighbor');
+            if (lz >= CHUNK_SIZE - 1) requestChunkRemesh(cx, cz + 1, 'neighbor');
 
             const oldMat = blockMaterials[oldType];
             const newMat = blockMaterials[newType];
             const lightingSensitive = Boolean(oldMat?.emissive || newMat?.emissive || oldType === 22 || newType === 22 || oldType === 4 || newType === 4 || oldType === 33 || newType === 33);
-            if (lightingSensitive) markChunkAndNeighborsDirty(cx, cz);
+            if (lightingSensitive) requestChunkAndNeighborsRemesh(cx, cz, 'lighting');
 
             if (!deferGeometryUpdate) rebuildDirtyChunkMeshes();
             return true;
@@ -4543,7 +4555,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             const group = new THREE.Group();
             group.userData = { chunkData: data, cx, cz, meshHash: null, frustumRadius: Math.sqrt((CHUNK_SIZE*CHUNK_SIZE)*0.5 + (CHUNK_HEIGHT*CHUNK_HEIGHT)*0.25) };
             chunks.set(`${cx},${cz}`, group);
-            markChunkDirty(cx, cz);
+            requestChunkRemesh(cx, cz, 'load');
             rebuildDirtyChunkMeshes();
             worldGroup.add(group);
             if (generated.spawnedGnomes && generated.spawnedGnomes.length) {
@@ -4580,16 +4592,18 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 );
                 frustumTempSphere.center.copy(frustumTempCenter);
                 frustumTempSphere.radius = group.userData.frustumRadius || 40;
-                group.visible = frustum.intersectsSphere(frustumTempSphere);
+                const inView = frustum.intersectsSphere(frustumTempSphere);
+                // Chunk-level frustum culling: skip rendering chunks outside camera view.
+                group.visible = inView;
             }
         }
 
         function updateChunkAndNeighbors(centerGroup, lx, lz) {
             const cx = centerGroup.userData.cx;
             const cz = centerGroup.userData.cz;
-            markChunkDirty(cx, cz);
+            requestChunkRemesh(cx, cz, 'block');
             if (lx === 0 || lx === CHUNK_SIZE - 1 || lz === 0 || lz === CHUNK_SIZE - 1) {
-                markChunkAndNeighborsDirty(cx, cz);
+                requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
             }
             rebuildDirtyChunkMeshes();
         }
@@ -4670,11 +4684,11 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             if (created.length) torchLightsByChunk.set(chunkKey, created);
         }
 
-        function updateChunkGeometry(group, data) {
+        function updateChunkGeometry(group, data, forceRemesh = false) {
 
             // Chunk meshing pipeline: blocks -> greedy mesh -> vertex buffer -> GPU.
             const nextHash = computeChunkHash(data);
-            if (group.userData.meshHash === nextHash && group.children.length > 0) return;
+            if (!forceRemesh && group.userData.meshHash === nextHash && group.children.length > 0) return;
             group.userData.meshHash = nextHash;
 
             while(group.children.length) group.remove(group.children[0]);
@@ -5136,8 +5150,18 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
         }
 
         function maybeUpdateChunkFrustumCulling(nowMs) {
-            if ((nowMs - lastFrustumCullMs) < FRUSTUM_CULL_INTERVAL_MS) return;
+            const intervalElapsed = (nowMs - lastFrustumCullMs) >= FRUSTUM_CULL_INTERVAL_MS;
+
+            const movedSq = hasFrustumCameraState ? camera.position.distanceToSquared(lastFrustumCameraPos) : Infinity;
+            const rotatedDelta = hasFrustumCameraState ? (1 - Math.abs(camera.quaternion.dot(lastFrustumCameraQuat))) : Infinity;
+            const cameraChanged = movedSq > 0.04 || rotatedDelta > 0.00008;
+
+            if (!intervalElapsed && !cameraChanged) return;
+
             lastFrustumCullMs = nowMs;
+            lastFrustumCameraPos.copy(camera.position);
+            lastFrustumCameraQuat.copy(camera.quaternion);
+            hasFrustumCameraState = true;
             updateChunkFrustumCulling();
         }
 
