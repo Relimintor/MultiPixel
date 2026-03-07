@@ -10,6 +10,12 @@
   const WORLD_GEN_SETTINGS = {
     version: '1.17-inspired-v1',
     seedStorageKey: 'singleplayer.worldSeed',
+    terrainCarving: {
+      // Keep the surface mostly intact: caves/ravines start carving a few blocks below ground.
+      caveSurfaceSafetyDepth: 7,
+      ravineSurfaceSafetyDepth: 8,
+      ravineActivationThreshold: 0.9,
+    },
     biomeMap: {
       // Enable optional micro-variants for fuller biome variety in this profile.
       enableBambooJungleVariant: true,

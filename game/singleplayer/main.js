@@ -38,6 +38,10 @@
         const TerrainModules = {};
 
         const worldGenSettings = WORLD_GEN_SETTINGS || {};
+        const terrainCarvingSettings = worldGenSettings.terrainCarving || {};
+        const CAVE_SURFACE_SAFETY_DEPTH = Math.max(2, Number(terrainCarvingSettings.caveSurfaceSafetyDepth) || 7);
+        const RAVINE_SURFACE_SAFETY_DEPTH = Math.max(3, Number(terrainCarvingSettings.ravineSurfaceSafetyDepth) || 8);
+        const RAVINE_ACTIVATION_THRESHOLD = Math.max(0.75, Math.min(0.98, Number(terrainCarvingSettings.ravineActivationThreshold) || 0.9));
 
         function normalizeWorldSeed(seedValue) {
             const parsed = Number(seedValue);
@@ -4044,9 +4048,6 @@ function buildPartFaceRects(x, y, w, h, d) {
                      const isFrozenRiver = !!worldSample && (worldSample.biome === 'Frozen River' || worldSample.tempBand === (window.WorldgenLayers?.Constants?.FREEZING ?? 13));
                      const RIVER_WIDTH_THRESHOLD = 0.1;
                      const isRiver = !worldSample?.noRiver && riverInfluence > RIVER_WIDTH_THRESHOLD;
-                     
-                     let surfaceBlockType = 0; // Used for tree placement logic
-
                      for (let y = 0; y < CHUNK_HEIGHT; y++) {
                          let t = 0; // Block type
 
@@ -4057,63 +4058,30 @@ function buildPartFaceRects(x, y, w, h, d) {
                          }
 
                          if (y < h) {
-                            
-                             const distFromSurface = h - 1 - y;
+                            const distFromSurface = h - 1 - y;
 
-                             if (biome === 'Desert') {
-                                 if (distFromSurface === 0) {
-                                     t = 7;
-                                     surfaceBlockType = 7;
-                                 } else if (distFromSurface < 5) {
-                                     t = 7;
-                                 } else {
-                                     t = 13;
-                                 }
-                             } else if (biome === 'Snowy Plains') {
-                                 if (distFromSurface === 0) {
-                                     t = 15;
-                                     surfaceBlockType = 15;
-                                 } else {
-                                     t = 59;
-                                 }
-                             } else if (biome === 'Mountains') {
-                                 const isSnowCap = h > SEA_LEVEL + 26;
+                            if (worldGenerator?.terrain?.surfaceBlockForBiome) {
+                                t = worldGenerator.terrain.surfaceBlockForBiome(biome, y, h, SEA_LEVEL);
+                            } else if (biome === 'Desert') {
+                                t = distFromSurface < 5 ? 7 : 13;
+                            } else if (biome === 'Snowy Plains') {
+                                t = distFromSurface === 0 ? 15 : 59;
+                            } else if (biome === 'Mountains') {
+                                t = distFromSurface === 0 && h > SEA_LEVEL + 20 ? 15 : 3;
+                            } else {
+                                const isBeachZone = h >= SEA_LEVEL - 1 && h <= SEA_LEVEL + 2;
+                                if (distFromSurface === 0) t = isBeachZone ? 7 : 1;
+                                else if (distFromSurface < 4) t = isBeachZone ? 7 : 2;
+                                else t = 3;
+                            }
 
-                                 // Keep mountain tops rugged, but avoid aggressive floating pillars.
-                                 const ridgeRough = Math.abs(perlin.noise3D(wx * 0.017 + 310, y * 0.024, wz * 0.017 - 145));
-                                 const microBreak = Math.abs(perlin.noise3D(wx * 0.035 - 980, y * 0.045, wz * 0.035 + 410));
-                                 const shouldCarve = distFromSurface <= 8 && ridgeRough > 0.87 && microBreak > 0.82;
-
-                                 if (shouldCarve) {
-                                     t = 0;
-                                 } else if (distFromSurface === 0) {
-                                     t = isSnowCap ? 15 : 3;
-                                     surfaceBlockType = t;
-                                 } else {
-                                     t = 3;
-                                 }
-                             } else { // Plains/Forest/Ocean Biome logic
-                                 
-                                 const isBeachZone = h >= SEA_LEVEL - 1 && h <= SEA_LEVEL + 2;
-
-                                 if (distFromSurface === 0) {
-                                     if (isBeachZone) {
-                                         t = 7; // Sand for beaches
-                                         surfaceBlockType = 7;
-                                     } else {
-                                         t = 1; // Grass for Plains and Forest
-                                         surfaceBlockType = 1;
-                                     }
-                                 } else if (distFromSurface < 4) {
-                                     if (isBeachZone) {
-                                         t = 7; // Sand below beach
-                                     } else {
-                                         t = 2; // Dirt below grass
-                                     }
-                                 } else {
-                                     t = 3; // Stone deep down
-                                 }
-                             }
+                            if (biome === 'Mountains' && t !== 0) {
+                                // Keep mountain tops rugged, but avoid aggressive floating pillars.
+                                const ridgeRough = Math.abs(perlin.noise3D(wx * 0.017 + 310, y * 0.024, wz * 0.017 - 145));
+                                const microBreak = Math.abs(perlin.noise3D(wx * 0.035 - 980, y * 0.045, wz * 0.035 + 410));
+                                const shouldCarve = distFromSurface <= 8 && ridgeRough > 0.87 && microBreak > 0.82;
+                                if (shouldCarve) t = 0;
+                            }
                              
                             // --- RIVER BED OVERRIDE ---
                             if (isRiver && y < SEA_LEVEL - 1) { 
@@ -4138,8 +4106,8 @@ function buildPartFaceRects(x, y, w, h, d) {
                          }
                          
                         // --- Cave Generation Pass (layered Perlin for bigger cave systems) ---
-                        if (y > CAVE_MIN_Y && y < h - CAVE_MAX_Y_OFFSET) {
-                            if (t === 3 || t === 2 || t === 7 || t === 13) {
+                        if (y > CAVE_MIN_Y && y < h - CAVE_MAX_Y_OFFSET && (h - y) >= CAVE_SURFACE_SAFETY_DEPTH) {
+                            if (t === 3 || t === 2 || t === 7 || t === 13 || t === 28 || t === 59) {
                                 const n1 = perlin.noise3D(wx * CAVE_SCALE, y * CAVE_SCALE * 1.7, wz * CAVE_SCALE);
                                 const n2 = perlin.noise3D(wx * CAVE_SCALE * 2.2 + 100, y * CAVE_SCALE * 1.1, wz * CAVE_SCALE * 2.2 + 100);
                                 const caveShape = n1 * 0.7 + n2 * 0.3;
@@ -4157,12 +4125,13 @@ function buildPartFaceRects(x, y, w, h, d) {
                          
 // 🔹 Optimized Ravine Generation
 const ravineMask = getRavineMask(wx, wz);
+const ravineTopCap = Math.max(3, h - RAVINE_SURFACE_SAFETY_DEPTH);
 
-if (ravineMask > 0.86) {
-    const strength = (ravineMask - 0.86) / 0.14;
+if (ravineMask > RAVINE_ACTIVATION_THRESHOLD && ravineTopCap > 3) {
+    const strength = (ravineMask - RAVINE_ACTIVATION_THRESHOLD) / (1 - RAVINE_ACTIVATION_THRESHOLD);
 
     // Limit top slightly above terrain
-    const ravineTop = Math.min(h + 3, CHUNK_HEIGHT - 1);
+    const ravineTop = Math.min(ravineTopCap, CHUNK_HEIGHT - 1);
 
     // Reduce max depth for smaller chunks
     const maxDepth = 12 + Math.floor(strength * 8); // 12–20 blocks deep

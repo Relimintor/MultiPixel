@@ -155,7 +155,7 @@
 
       if (warmSpecial) return 'Badlands Plateau';
       if (temperateSpecial) return 'Jungle';
-      if (coldSpecial) return 'Giant Taiga';
+      if (coldSpecial) return 'Giant Tree Taiga';
 
       if (temp === C.WARM) {
         if (r < 0.32) return 'Desert';
