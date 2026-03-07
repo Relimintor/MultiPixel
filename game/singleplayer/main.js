@@ -335,6 +335,7 @@ window.perlin = perlinInstance;
         const cameraViewProj = new THREE.Matrix4();
         const frustumTempCenter = new THREE.Vector3();
         const frustumTempSphere = new THREE.Sphere();
+        const frustumCameraForward = new THREE.Vector3();
         const lastFrustumCameraPos = new THREE.Vector3();
         const lastFrustumCameraQuat = new THREE.Quaternion();
         let hasFrustumCameraState = false;
@@ -4802,6 +4803,14 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
             // Stage 2: lightweight chunk occlusion culling.
             // Keep nearest chunk depth per angular cell; farther chunks in the same cell are treated as hidden.
+            // Disable this approximation at steep pitch angles to avoid false positives while looking down/up.
+            frustumCameraForward.set(0, 0, -1).applyQuaternion(camera.quaternion);
+            const useAngularOcclusion = Math.abs(frustumCameraForward.y) < 0.45;
+            if (!useAngularOcclusion) {
+                for (const c of candidates) c.group.visible = true;
+                return;
+            }
+
             const AZ_BINS = 24;
             const EL_BINS = 14;
             const nearestDepth = new Float32Array(AZ_BINS * EL_BINS);
@@ -4822,9 +4831,15 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 if (c.dist < nearestDepth[idx]) nearestDepth[idx] = c.dist;
             }
 
+            const playerChunkX = yawObject ? Math.floor(yawObject.position.x / CHUNK_SIZE) : 0;
+            const playerChunkZ = yawObject ? Math.floor(yawObject.position.z / CHUNK_SIZE) : 0;
+
             for (const c of candidates) {
-                // Never occlusion-cull near chunks to avoid visible popping around player.
-                if (c.dist <= CHUNK_SIZE * 2.5) {
+                // Keep local neighborhood around the player always visible to prevent x-ray holes.
+                const dx = c.group.userData.cx - playerChunkX;
+                const dz = c.group.userData.cz - playerChunkZ;
+                const isLocalNeighborhood = Math.max(Math.abs(dx), Math.abs(dz)) <= 1;
+                if (isLocalNeighborhood || c.dist <= CHUNK_SIZE * 2.5) {
                     c.group.visible = true;
                     continue;
                 }
@@ -4840,6 +4855,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 const occluded = Number.isFinite(near) && (c.dist > near + DEPTH_MARGIN);
                 c.group.visible = !occluded;
             }
+        }
 
         function updateChunkAndNeighbors(centerGroup, lx, lz) {
             const cx = centerGroup.userData.cx;
@@ -4849,31 +4865,6 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             if (blockUpdateBatchDepth > 0) {
                 markBatchedChunkRemeshNeed(cx, cz, needsNeighbors);
                 return;
-            }
-
-            requestChunkRemesh(cx, cz, 'block');
-            if (needsNeighbors) {
-                requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
-            }
-
-            requestChunkRemesh(cx, cz, 'block');
-            if (needsNeighbors) {
-                requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
-            }
-
-        function updateChunkAndNeighbors(centerGroup, lx, lz) {
-            const cx = centerGroup.userData.cx;
-            const cz = centerGroup.userData.cz;
-            const needsNeighbors = (lx === 0 || lx === CHUNK_SIZE - 1 || lz === 0 || lz === CHUNK_SIZE - 1);
-
-            if (blockUpdateBatchDepth > 0) {
-                markBatchedChunkRemeshNeed(cx, cz, needsNeighbors);
-                return;
-            }
-
-            requestChunkRemesh(cx, cz, 'block');
-            if (needsNeighbors) {
-                requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
             }
 
             requestChunkRemesh(cx, cz, 'block');
@@ -5474,9 +5465,24 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             if (budget > 0) {
                 const offsets = getChunkOffsetsForRadius(loadRadius);
                 const loadRadiusSq = loadRadius * loadRadius;
+
+                // Always prioritize the 3x3 ring around the player chunk, then bias creation forward.
+                const prioritizedOffsets = offsets.slice().sort((a, b) => {
+                    const aRing = Math.max(Math.abs(a.dx), Math.abs(a.dz)) <= 1 ? 0 : 1;
+                    const bRing = Math.max(Math.abs(b.dx), Math.abs(b.dz)) <= 1 ? 0 : 1;
+                    if (aRing !== bRing) return aRing - bRing;
+                    if (a.dist2 !== b.dist2) return a.dist2 - b.dist2;
+
+                    const aLen = Math.hypot(a.dx, a.dz) || 1;
+                    const bLen = Math.hypot(b.dx, b.dz) || 1;
+                    const aFront = ((a.dx * Math.sin(yawObject.rotation.y)) + (a.dz * -Math.cos(yawObject.rotation.y))) / aLen;
+                    const bFront = ((b.dx * Math.sin(yawObject.rotation.y)) + (b.dz * -Math.cos(yawObject.rotation.y))) / bLen;
+                    return bFront - aFront;
+                });
+
                 let created = 0;
-                for (let i = 0; i < offsets.length && created < budget; i++) {
-                    const off = offsets[i];
+                for (let i = 0; i < prioritizedOffsets.length && created < budget; i++) {
+                    const off = prioritizedOffsets[i];
                     if (off.dist2 > loadRadiusSq) continue;
                     const cx = playerChunkX + off.dx;
                     const cz = playerChunkZ + off.dz;
@@ -5612,8 +5618,12 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 maybeSpawnLavaParticles(delta);
                 updateWorldParticles(delta);
                 applyBlockPhysics(time);
+
+                // Chunk pipeline: load/generate -> mesh/VBO upload -> cull -> render.
                 ensureChunksAroundPlayer(false, time);
+                processMeshUpdateQueue();
                 maybeUpdateChunkFrustumCulling(time);
+
                 updateGnomes(time);
                 updatePigs(time, delta);
                 updateWolves(time, delta);
@@ -5622,7 +5632,6 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 updateEatingAnimation(delta, time);
                 updatePlayerAvatarVisuals(time);
                 updateFirstPersonHand(time);
-                processMeshUpdateQueue();
                 const dtSec = delta / 1000;
                 if (window.FurnaceSystem) {
                     for (const state of furnaceStates.values()) window.FurnaceSystem.updateState(state, dtSec);
