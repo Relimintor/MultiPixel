@@ -71,10 +71,8 @@
       if (cached !== undefined) return cached;
 
       const sampleHeightAt = (sx, sz) => {
-        const s = this.sample(sx, sz);
-        const sb = this.sampleBiome(sx, sz, s);
-        const sr = this.sampleRiverMask(sx, sz, s);
-        return this.terrain.heightFromBiome(sx, sz, sb, sr);
+        const sampled = this.sample(sx, sz);
+        return this.terrain.heightFromBiome(sx, sz, sampled.gameplayBiome, sampled.riverMask);
       };
 
       const averageAtDistance = (distance, includeDiagonals = true) => {
@@ -91,8 +89,8 @@
 
       // Multi-scale blending to reduce vertical pillar artifacts:
       // blend coarse -> medium -> fine neighborhoods (4 -> 2 -> 1 block distances).
-      const avg4 = averageAtDistance(4, true);
-      const avg2 = averageAtDistance(2, true);
+      const avg4 = averageAtDistance(4, false);
+      const avg2 = averageAtDistance(2, false);
       const avg1 = averageAtDistance(1, false);
 
       const sample = sampleData || this.sample(wx, wz);
@@ -104,12 +102,12 @@
       const lowFreq = this.perlin.noise2D(wx * 0.0008 - 260, wz * 0.0008 + 260);
       const continentalness = (lowFreq + 1) * 0.5;
 
-      const nearSeaWeight = oceanInfluence ? 0.39 : 0.2 + coastBlend * 0.11;
+      const nearSeaWeight = oceanInfluence ? 0.35 : 0.18 + coastBlend * 0.1;
       const nearLandWeight = mountainInfluence ? 0.12 : 0.18;
 
       let blended = center;
       blended = blended * (1 - nearSeaWeight) + avg4 * nearSeaWeight;
-      blended = blended * 0.72 + avg2 * 0.28;
+      blended = blended * 0.75 + avg2 * 0.25;
       blended = blended * (1 - nearLandWeight) + avg1 * nearLandWeight;
 
       // Extra anti-spike clamp so isolated towers/pits are softened without flattening terrain.

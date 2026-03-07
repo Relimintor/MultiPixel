@@ -32,17 +32,40 @@
       return this.biomeProfiles[String(biome || 'Plains')] || this.biomeProfiles.Plains;
     }
 
-    sampleCellDensityForProfile(wx, y, wz, profile) {
+    buildColumnContext(wx, wz, profile) {
       const noise = this.worldgenNoise;
       const continentalness = (this.perlin.noise2D(wx * 0.00135 - 190, wz * 0.00135 + 190) + 1) * 0.5;
       const erosion = (noise.fbm2D(this.perlin, wx * 0.0019 + 64, wz * 0.0019 - 64, 3, 0.55, 2.0) + 1) * 0.5;
       const valleyBias = clamp((erosion - 0.36) / 0.5, 0, 1);
+      const coastalFade = clamp((continentalness - 0.28) / 0.42, 0, 1);
+      const mountainMask = clamp((profile.depth - 0.35) / 0.85, 0, 1);
+      const erosionBlend = lerp(0.82, 1.05, erosion);
+      const detailStrength = (0.86 + profile.scale * 0.58) * (1 - mountainMask * 0.22 * (1 - coastalFade)) * erosionBlend;
+      const shelfBand = 1 - Math.abs(continentalness - 0.27) / 0.17;
+      const shelfMask = clamp(shelfBand, 0, 1);
+      const coastalShelf = lerp(-1.25, 1.8, coastalFade) * shelfMask;
+      const depthNoise = noise.fbm2D(this.perlin, wx * 0.011 + 13, wz * 0.011 - 13, 2, 0.5, 2.0) * 0.22;
+      const ridge = noise.ridge2D(this.perlin, wx * 0.0041 + 90, wz * 0.0041 - 90, 3) * 0.18;
+
+      return {
+        continentalness,
+        detailStrength,
+        depthNoise,
+        ridge,
+        coastalShelf,
+        valleyBias,
+      };
+    }
+
+    sampleCellDensityForProfile(wx, y, wz, profile, column = null) {
+      const noise = this.worldgenNoise;
+      const col = column || this.buildColumnContext(wx, wz, profile);
 
       // Biome map modulates the vertical target band through depth/scale.
       const biomeBase = this.baseLandY + profile.floor + (profile.depth * 12);
       const biomeVariation = profile.ceiling * (0.55 + profile.scale * 0.45);
-      const continentalLift = lerp(-8.2, 11.5, continentalness);
-      const targetY = biomeBase + biomeVariation + continentalLift - valleyBias * 2.3;
+      const continentalLift = lerp(-8.2, 11.5, col.continentalness);
+      const targetY = biomeBase + biomeVariation + continentalLift - col.valleyBias * 2.3;
       const gradient = (targetY - y) / Math.max(4, (18 + profile.ceiling));
 
       // Three FBM fields (low/main/high) blended by a 3rd mixer map.
@@ -53,19 +76,7 @@
       const detail = lerp(low, high, blendMask);
 
       // Subtle depth-noise compensation to restore detail lost by cell interpolation.
-      const depthNoise = noise.fbm2D(this.perlin, wx * 0.011 + 13, wz * 0.011 - 13, 2, 0.5, 2.0) * 0.22;
-      const ridge = noise.ridge2D(this.perlin, wx * 0.0041 + 90, wz * 0.0041 - 90, 3) * 0.18;
-      const coastalFade = clamp((continentalness - 0.28) / 0.42, 0, 1);
-      const mountainMask = clamp((profile.depth - 0.35) / 0.85, 0, 1);
-      const erosionBlend = lerp(0.82, 1.05, erosion);
-      const detailStrength = (0.86 + profile.scale * 0.58) * (1 - mountainMask * 0.22 * (1 - coastalFade)) * erosionBlend;
-
-      // Coastal shelves reduce abrupt ocean-to-land transitions.
-      const shelfBand = 1 - Math.abs(continentalness - 0.27) / 0.17;
-      const shelfMask = clamp(shelfBand, 0, 1);
-      const coastalShelf = lerp(-1.25, 1.8, coastalFade) * shelfMask;
-
-      return gradient + detail * detailStrength + depthNoise + ridge + coastalShelf;
+      return gradient + detail * col.detailStrength + col.depthNoise + col.ridge + col.coastalShelf;
     }
 
     sampleCellDensity(wx, y, wz, biome) {
@@ -74,7 +85,8 @@
 
     heightFromBiome(wx, wz, biome, riverMask) {
       const profile = this.getBiomeProfile(biome);
-      const sampleForProfile = (y) => this.sampleCellDensityForProfile(wx, y, wz, profile);
+      const column = this.buildColumnContext(wx, wz, profile);
+      const sampleForProfile = (y) => this.sampleCellDensityForProfile(wx, y, wz, profile, column);
       let h = 2;
 
       // Scan top-down in 8-block cells, then refine in 1-block steps.
@@ -123,7 +135,7 @@
         h -= riverDepth;
       }
 
-      const continentalness = (this.perlin.noise2D(wx * 0.00135 - 190, wz * 0.00135 + 190) + 1) * 0.5;
+      const continentalness = column.continentalness;
       const seaBlend = clamp((h - this.seaLevel) / 14, -1, 1);
       const coastalTarget = this.seaLevel + (profile.depth > 0.55 ? 5.5 : 2.2);
       const coastMask = clamp((continentalness - 0.19) / 0.25, 0, 1) * clamp((0.58 - continentalness) / 0.22, 0, 1);
