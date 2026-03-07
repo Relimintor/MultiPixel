@@ -5117,6 +5117,15 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
             worldGroup.updateMatrixWorld(true);
 
+            // Reset source chunk mesh visibility before deciding what gets batched this pass.
+            for (const chunkGroup of chunks.values()) {
+                if (!chunkGroup.children) continue;
+                for (const sourceMesh of chunkGroup.children) {
+                    if (!sourceMesh?.isMesh || sourceMesh.userData?.isChunkBatchMesh !== true) continue;
+                    sourceMesh.visible = true;
+                }
+            }
+
             for (const chunkGroup of chunks.values()) {
                 if (!chunkGroup.visible || !chunkGroup.children) continue;
                 for (const sourceMesh of chunkGroup.children) {
@@ -5124,6 +5133,10 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                     const geom = sourceMesh.geometry;
                     const mat = sourceMesh.material;
                     if (!geom || !mat) continue;
+
+                    // Preserve textured block rendering quality on source meshes.
+                    // The merge path currently focuses on non-textured chunk geometry.
+                    if (mat.map) continue;
 
                     const posAttr = geom.getAttribute('position');
                     const normAttr = geom.getAttribute('normal');
