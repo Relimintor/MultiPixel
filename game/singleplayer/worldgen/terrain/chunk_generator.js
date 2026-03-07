@@ -16,6 +16,7 @@
       this.chunkHeight = chunkHeight;
       this.cellSize = { x: 4, y: 8, z: 4 };
       this.startScanY = Math.min(this.chunkHeight - 2, 96);
+      this.worldgenNoise = window.WorldgenNoise;
       this.biomeProfiles = {
         Ocean: { depth: -1.18, scale: 0.18, floor: -20, ceiling: 6 },
         'Deep Ocean': { depth: -1.45, scale: 0.14, floor: -30, ceiling: 3 },
@@ -31,8 +32,8 @@
       return this.biomeProfiles[String(biome || 'Plains')] || this.biomeProfiles.Plains;
     }
 
-    sampleCellDensity(wx, y, wz, biome) {
-      const profile = this.getBiomeProfile(biome);
+    sampleCellDensityForProfile(wx, y, wz, profile) {
+      const noise = this.worldgenNoise;
 
       // Biome map modulates the vertical target band through depth/scale.
       const biomeBase = this.baseLandY + profile.floor + (profile.depth * 12);
@@ -41,27 +42,32 @@
       const gradient = (targetY - y) / Math.max(4, (18 + profile.ceiling));
 
       // Three FBM fields (low/main/high) blended by a 3rd mixer map.
-      const low = window.WorldgenNoise.fbm3D(this.perlin, wx * 0.0032 + 210, y * 0.0052 - 80, wz * 0.0032 - 210, 3, 0.55, 2.0);
-      const high = window.WorldgenNoise.fbm3D(this.perlin, wx * 0.0105 - 480, y * 0.012 + 35, wz * 0.0105 + 480, 5, 0.5, 2.0);
-      const main = window.WorldgenNoise.fbm3D(this.perlin, wx * 0.0058 + 330, y * 0.0078 - 150, wz * 0.0058 + 95, 4, 0.52, 2.0);
+      const low = noise.fbm3D(this.perlin, wx * 0.0032 + 210, y * 0.0052 - 80, wz * 0.0032 - 210, 3, 0.55, 2.0);
+      const high = noise.fbm3D(this.perlin, wx * 0.0105 - 480, y * 0.012 + 35, wz * 0.0105 + 480, 5, 0.5, 2.0);
+      const main = noise.fbm3D(this.perlin, wx * 0.0058 + 330, y * 0.0078 - 150, wz * 0.0058 + 95, 4, 0.52, 2.0);
       const blendMask = clamp((main + 1) * 0.5, 0, 1);
       const detail = lerp(low, high, blendMask);
 
       // Subtle depth-noise compensation to restore detail lost by cell interpolation.
-      const depthNoise = window.WorldgenNoise.fbm2D(this.perlin, wx * 0.011 + 13, wz * 0.011 - 13, 2, 0.5, 2.0) * 0.22;
-      const ridge = window.WorldgenNoise.ridge2D(this.perlin, wx * 0.0041 + 90, wz * 0.0041 - 90, 3) * 0.18;
+      const depthNoise = noise.fbm2D(this.perlin, wx * 0.011 + 13, wz * 0.011 - 13, 2, 0.5, 2.0) * 0.22;
+      const ridge = noise.ridge2D(this.perlin, wx * 0.0041 + 90, wz * 0.0041 - 90, 3) * 0.18;
 
       return gradient + detail * (0.9 + profile.scale) + depthNoise + ridge;
     }
 
+    sampleCellDensity(wx, y, wz, biome) {
+      return this.sampleCellDensityForProfile(wx, y, wz, this.getBiomeProfile(biome));
+    }
+
     heightFromBiome(wx, wz, biome, riverMask) {
       const profile = this.getBiomeProfile(biome);
+      const sampleForProfile = (y) => this.sampleCellDensityForProfile(wx, y, wz, profile);
       let h = 2;
 
       // Scan top-down in 8-block cells, then refine in 1-block steps.
       let firstSolidCellY = -1;
       for (let y = this.startScanY; y >= 0; y -= this.cellSize.y) {
-        const d = this.sampleCellDensity(wx, y, wz, biome);
+        const d = sampleForProfile(y);
         if (d >= 0) {
           firstSolidCellY = y;
           break;
@@ -73,7 +79,7 @@
         // Run a one-block fallback scan so ocean columns keep their natural depth variation.
         let foundSolidY = -1;
         for (let y = this.startScanY; y >= 1; y--) {
-          if (this.sampleCellDensity(wx, y, wz, biome) >= 0) {
+          if (sampleForProfile(y) >= 0) {
             foundSolidY = y;
             break;
           }
@@ -91,7 +97,7 @@
         const refineTop = Math.min(this.chunkHeight - 2, firstSolidCellY + this.cellSize.y - 1);
         const refineBottom = Math.max(1, firstSolidCellY - this.cellSize.y);
         for (let y = refineTop; y >= refineBottom; y--) {
-          if (this.sampleCellDensity(wx, y, wz, biome) >= 0) {
+          if (sampleForProfile(y) >= 0) {
             h = y;
             break;
           }
