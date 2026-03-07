@@ -364,7 +364,7 @@ window.perlin = perlinInstance;
             (cpuThreads !== null && cpuThreads <= 4)
         );
         const targetRenderPixelRatio = Math.min(window.devicePixelRatio || 1, isLowEndDevice ? 1 : 1.5);
-        const configuredChunkRenderDistance = Math.floor(Number(worldGenSettings.chunkRenderDistance) || 12);
+        const configuredChunkRenderDistance = Math.floor(Number(worldGenSettings.chunkRenderDistance) || 8);
         const baseChunkRenderDistance = Math.max(4, Math.min(WORLD_RADIUS, configuredChunkRenderDistance));
         const effectiveChunkLoadRadius = Math.max(4, Math.min(WORLD_RADIUS, isLowEndDevice ? Math.max(4, baseChunkRenderDistance - 2) : baseChunkRenderDistance));
         const ENTITY_ACTIVATION_RANGE = Math.max(24, Number(worldGenSettings.entityActivationRange) || 72);
