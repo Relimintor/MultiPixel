@@ -195,6 +195,8 @@ window.perlin = perlinInstance;
         let lavaParticleScanMs = 0;
         let lastPhysicsTickMs = 0;
         const dirtyChunkRemeshReasons = new Map();
+        let blockUpdateBatchDepth = 0;
+        const batchedChunkRemeshNeeds = new Map();
 
         function chunkKeyFromCoords(cx, cz) {
             return `${cx},${cz}`;
@@ -235,6 +237,41 @@ window.perlin = perlinInstance;
                 processed++;
             }
             return processed;
+        }
+
+        function markBatchedChunkRemeshNeed(cx, cz, includeNeighbors = false) {
+            const key = chunkKeyFromCoords(cx, cz);
+            const prev = batchedChunkRemeshNeeds.get(key);
+            batchedChunkRemeshNeeds.set(key, Boolean(prev || includeNeighbors));
+        }
+
+        function beginBlockUpdateBatch() {
+            blockUpdateBatchDepth++;
+        }
+
+        function endBlockUpdateBatch() {
+            if (blockUpdateBatchDepth <= 0) return;
+            blockUpdateBatchDepth--;
+            if (blockUpdateBatchDepth > 0) return;
+
+            for (const [key, includeNeighbors] of batchedChunkRemeshNeeds.entries()) {
+                const [cxs, czs] = key.split(',');
+                const cx = Number(cxs);
+                const cz = Number(czs);
+                if (!Number.isFinite(cx) || !Number.isFinite(cz)) continue;
+                requestChunkRemesh(cx, cz, 'block');
+                if (includeNeighbors) requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
+            }
+            batchedChunkRemeshNeeds.clear();
+        }
+
+        function applyBlockUpdateBatch(cb) {
+            beginBlockUpdateBatch();
+            try {
+                return cb();
+            } finally {
+                endBlockUpdateBatch();
+            }
         }
         let physicsCursorY = 1;
 
@@ -2779,6 +2816,19 @@ window.perlin = perlinInstance;
             return true;
         }
 
+        // Bulk block update path (e.g. explosions): collect updates and enqueue remesh once.
+        function modifyWorldBatch(positions, newType, options = {}) {
+            if (!Array.isArray(positions) || positions.length === 0) return 0;
+            let changed = 0;
+            applyBlockUpdateBatch(() => {
+                for (const pos of positions) {
+                    if (!pos) continue;
+                    if (modifyWorld(pos, newType, options)) changed++;
+                }
+            });
+            return changed;
+        }
+
     
         function getRiverMask(wx, wz) {
             if (worldGenerator) return worldGenerator.sampleRiverMask(wx, wz);
@@ -4659,13 +4709,19 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 const occluded = Number.isFinite(near) && (c.dist > near + DEPTH_MARGIN);
                 c.group.visible = !occluded;
             }
-        }
 
         function updateChunkAndNeighbors(centerGroup, lx, lz) {
             const cx = centerGroup.userData.cx;
             const cz = centerGroup.userData.cz;
+            const needsNeighbors = (lx === 0 || lx === CHUNK_SIZE - 1 || lz === 0 || lz === CHUNK_SIZE - 1);
+
+            if (blockUpdateBatchDepth > 0) {
+                markBatchedChunkRemeshNeed(cx, cz, needsNeighbors);
+                return;
+            }
+
             requestChunkRemesh(cx, cz, 'block');
-            if (lx === 0 || lx === CHUNK_SIZE - 1 || lz === 0 || lz === CHUNK_SIZE - 1) {
+            if (needsNeighbors) {
                 requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
             }
             rebuildDirtyChunkMeshes();
