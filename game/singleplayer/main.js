@@ -4757,7 +4757,6 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 const occluded = Number.isFinite(near) && (c.dist > near + DEPTH_MARGIN);
                 c.group.visible = !occluded;
             }
-        }
 
         function updateChunkAndNeighbors(centerGroup, lx, lz) {
             const cx = centerGroup.userData.cx;
@@ -4773,6 +4772,12 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             if (needsNeighbors) {
                 requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
             }
+
+            requestChunkRemesh(cx, cz, 'block');
+            if (needsNeighbors) {
+                requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
+            }
+            rebuildDirtyChunkMeshes();
         }
         
         // Maps block ID to the THREE.js material key/fallback key
