@@ -4746,9 +4746,10 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             if (!forceRemesh && group.userData.meshHash === nextHash && group.children.length > 0) return;
             group.userData.meshHash = nextHash;
 
-            while(group.children.length) group.remove(group.children[0]);
-            
-            // Map to hold position/normal/uv data arrays for each material key
+            const meshesByKey = group.userData.meshesByKey || new Map();
+            group.userData.meshesByKey = meshesByKey;
+
+            // Map to hold CPU-side staging arrays before single VBO upload per chunk material.
             const geometryData = {}; 
             
             const cx = group.userData.cx;
@@ -5100,26 +5101,34 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                     }
                 }
             }
-            // Generate meshes for all accumulated materials
-            for (const key in geometryData) {
+            // Generate / update chunk VBO meshes for all accumulated materials.
+            const activeKeys = new Set(Object.keys(geometryData));
+            for (const key of activeKeys) {
                 const gd = geometryData[key];
-                if (gd.pos.length === 0) continue;
-                
+                if (!gd || gd.pos.length === 0) continue;
+
                 const geom = new THREE.BufferGeometry();
-                geom.setAttribute('position', new THREE.Float32BufferAttribute(gd.pos, 3));
-                geom.getAttribute('position').setUsage(THREE.StaticDrawUsage);
-                geom.setAttribute('normal', new THREE.Float32BufferAttribute(gd.norm, 3));
+                const posAttr = new THREE.Float32BufferAttribute(gd.pos, 3);
+                const normAttr = new THREE.Float32BufferAttribute(gd.norm, 3);
+                posAttr.setUsage(THREE.StaticDrawUsage);
+                normAttr.setUsage(THREE.StaticDrawUsage);
+                geom.setAttribute('position', posAttr);
+                geom.setAttribute('normal', normAttr);
 
                 let currentMaterial = materials[key];
 
                 // Set UVs if material is textured (i.e., it has a map)
                 if (currentMaterial && currentMaterial.map && gd.uv.length > 0) {
-                    geom.setAttribute('uv', new THREE.Float32BufferAttribute(gd.uv, 2));
+                    const uvAttr = new THREE.Float32BufferAttribute(gd.uv, 2);
+                    uvAttr.setUsage(THREE.StaticDrawUsage);
+                    geom.setAttribute('uv', uvAttr);
                 }
 
                 // Set vertex colors for AO tint / color fallback.
                 if (gd.col.length > 0) {
-                    geom.setAttribute('color', new THREE.Float32BufferAttribute(gd.col, 3));
+                    const colAttr = new THREE.Float32BufferAttribute(gd.col, 3);
+                    colAttr.setUsage(THREE.StaticDrawUsage);
+                    geom.setAttribute('color', colAttr);
 
                     // For non-textured materials keep vertex-color pipeline.
                     if (!(currentMaterial && currentMaterial.map) && key !== 'WATER') {
@@ -5127,9 +5136,27 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                     }
                 }
 
-                const mesh = new THREE.Mesh(geom, currentMaterial);
-                mesh.frustumCulled = true;
-                group.add(mesh);
+                const existing = meshesByKey.get(key);
+                if (existing) {
+                    const oldGeom = existing.geometry;
+                    existing.geometry = geom;
+                    existing.material = currentMaterial;
+                    existing.visible = true;
+                    if (oldGeom) oldGeom.dispose();
+                } else {
+                    const mesh = new THREE.Mesh(geom, currentMaterial);
+                    mesh.frustumCulled = true;
+                    meshesByKey.set(key, mesh);
+                    group.add(mesh);
+                }
+            }
+
+            // Remove stale material VBOs no longer needed for this chunk.
+            for (const [key, mesh] of meshesByKey.entries()) {
+                if (activeKeys.has(key)) continue;
+                if (mesh.geometry) mesh.geometry.dispose();
+                group.remove(mesh);
+                meshesByKey.delete(key);
             }
 
             syncTorchLightsForChunk(group, torchPositions);
@@ -5255,6 +5282,9 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                     for (const child of chunkGroup.children) {
                         if (child.geometry) child.geometry.dispose();
                     }
+                }
+                if (chunkGroup.userData?.meshesByKey) {
+                    chunkGroup.userData.meshesByKey.clear();
                 }
                 chunks.delete(chunkKey);
             }
