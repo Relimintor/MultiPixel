@@ -335,6 +335,7 @@ window.perlin = perlinInstance;
         const cameraViewProj = new THREE.Matrix4();
         const frustumTempCenter = new THREE.Vector3();
         const frustumTempSphere = new THREE.Sphere();
+        const frustumCameraForward = new THREE.Vector3();
         const lastFrustumCameraPos = new THREE.Vector3();
         const lastFrustumCameraQuat = new THREE.Quaternion();
         let hasFrustumCameraState = false;
@@ -4802,6 +4803,14 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
             // Stage 2: lightweight chunk occlusion culling.
             // Keep nearest chunk depth per angular cell; farther chunks in the same cell are treated as hidden.
+            // Disable this approximation at steep pitch angles to avoid false positives while looking down/up.
+            frustumCameraForward.set(0, 0, -1).applyQuaternion(camera.quaternion);
+            const useAngularOcclusion = Math.abs(frustumCameraForward.y) < 0.45;
+            if (!useAngularOcclusion) {
+                for (const c of candidates) c.group.visible = true;
+                return;
+            }
+
             const AZ_BINS = 24;
             const EL_BINS = 14;
             const nearestDepth = new Float32Array(AZ_BINS * EL_BINS);
@@ -4840,6 +4849,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 const occluded = Number.isFinite(near) && (c.dist > near + DEPTH_MARGIN);
                 c.group.visible = !occluded;
             }
+        }
 
         function updateChunkAndNeighbors(centerGroup, lx, lz) {
             const cx = centerGroup.userData.cx;
@@ -4849,31 +4859,6 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             if (blockUpdateBatchDepth > 0) {
                 markBatchedChunkRemeshNeed(cx, cz, needsNeighbors);
                 return;
-            }
-
-            requestChunkRemesh(cx, cz, 'block');
-            if (needsNeighbors) {
-                requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
-            }
-
-            requestChunkRemesh(cx, cz, 'block');
-            if (needsNeighbors) {
-                requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
-            }
-
-        function updateChunkAndNeighbors(centerGroup, lx, lz) {
-            const cx = centerGroup.userData.cx;
-            const cz = centerGroup.userData.cz;
-            const needsNeighbors = (lx === 0 || lx === CHUNK_SIZE - 1 || lz === 0 || lz === CHUNK_SIZE - 1);
-
-            if (blockUpdateBatchDepth > 0) {
-                markBatchedChunkRemeshNeed(cx, cz, needsNeighbors);
-                return;
-            }
-
-            requestChunkRemesh(cx, cz, 'block');
-            if (needsNeighbors) {
-                requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
             }
 
             requestChunkRemesh(cx, cz, 'block');
@@ -5612,8 +5597,12 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 maybeSpawnLavaParticles(delta);
                 updateWorldParticles(delta);
                 applyBlockPhysics(time);
+
+                // Chunk pipeline: load/generate -> mesh/VBO upload -> cull -> render.
                 ensureChunksAroundPlayer(false, time);
+                processMeshUpdateQueue();
                 maybeUpdateChunkFrustumCulling(time);
+
                 updateGnomes(time);
                 updatePigs(time, delta);
                 updateWolves(time, delta);
@@ -5622,7 +5611,6 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 updateEatingAnimation(delta, time);
                 updatePlayerAvatarVisuals(time);
                 updateFirstPersonHand(time);
-                processMeshUpdateQueue();
                 const dtSec = delta / 1000;
                 if (window.FurnaceSystem) {
                     for (const state of furnaceStates.values()) window.FurnaceSystem.updateState(state, dtSec);
