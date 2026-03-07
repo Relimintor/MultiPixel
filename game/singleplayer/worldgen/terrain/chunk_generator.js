@@ -34,11 +34,15 @@
 
     sampleCellDensityForProfile(wx, y, wz, profile) {
       const noise = this.worldgenNoise;
+      const continentalness = (this.perlin.noise2D(wx * 0.00135 - 190, wz * 0.00135 + 190) + 1) * 0.5;
+      const erosion = (noise.fbm2D(this.perlin, wx * 0.0019 + 64, wz * 0.0019 - 64, 3, 0.55, 2.0) + 1) * 0.5;
+      const valleyBias = clamp((erosion - 0.36) / 0.5, 0, 1);
 
       // Biome map modulates the vertical target band through depth/scale.
       const biomeBase = this.baseLandY + profile.floor + (profile.depth * 12);
       const biomeVariation = profile.ceiling * (0.55 + profile.scale * 0.45);
-      const targetY = biomeBase + biomeVariation;
+      const continentalLift = lerp(-8.2, 11.5, continentalness);
+      const targetY = biomeBase + biomeVariation + continentalLift - valleyBias * 2.3;
       const gradient = (targetY - y) / Math.max(4, (18 + profile.ceiling));
 
       // Three FBM fields (low/main/high) blended by a 3rd mixer map.
@@ -51,16 +55,17 @@
       // Subtle depth-noise compensation to restore detail lost by cell interpolation.
       const depthNoise = noise.fbm2D(this.perlin, wx * 0.011 + 13, wz * 0.011 - 13, 2, 0.5, 2.0) * 0.22;
       const ridge = noise.ridge2D(this.perlin, wx * 0.0041 + 90, wz * 0.0041 - 90, 3) * 0.18;
-      const continentalness = (this.perlin.noise2D(wx * 0.00135 - 190, wz * 0.00135 + 190) + 1) * 0.5;
       const coastalFade = clamp((continentalness - 0.28) / 0.42, 0, 1);
       const mountainMask = clamp((profile.depth - 0.35) / 0.85, 0, 1);
-      const detailStrength = (0.86 + profile.scale * 0.58) * (1 - mountainMask * 0.22 * (1 - coastalFade));
+      const erosionBlend = lerp(0.82, 1.05, erosion);
+      const detailStrength = (0.86 + profile.scale * 0.58) * (1 - mountainMask * 0.22 * (1 - coastalFade)) * erosionBlend;
 
-      return gradient + detail * detailStrength + depthNoise + ridge;
-    }
+      // Coastal shelves reduce abrupt ocean-to-land transitions.
+      const shelfBand = 1 - Math.abs(continentalness - 0.27) / 0.17;
+      const shelfMask = clamp(shelfBand, 0, 1);
+      const coastalShelf = lerp(-1.25, 1.8, coastalFade) * shelfMask;
 
-    sampleCellDensity(wx, y, wz, biome) {
-      return this.sampleCellDensityForProfile(wx, y, wz, this.getBiomeProfile(biome));
+      return gradient + detail * detailStrength + depthNoise + ridge + coastalShelf;
     }
 
     sampleCellDensity(wx, y, wz, biome) {
@@ -118,9 +123,18 @@
         h -= riverDepth;
       }
 
+      const continentalness = (this.perlin.noise2D(wx * 0.00135 - 190, wz * 0.00135 + 190) + 1) * 0.5;
       const seaBlend = clamp((h - this.seaLevel) / 14, -1, 1);
       const coastalTarget = this.seaLevel + (profile.depth > 0.55 ? 5.5 : 2.2);
-      h = lerp(h, coastalTarget, (1 - Math.max(0, seaBlend)) * 0.06);
+      const coastMask = clamp((continentalness - 0.19) / 0.25, 0, 1) * clamp((0.58 - continentalness) / 0.22, 0, 1);
+      h = lerp(h, coastalTarget, (1 - Math.max(0, seaBlend)) * (0.06 + coastMask * 0.14));
+
+      // Add broad basins/trenches so oceans are less uniformly shallow.
+      if (profile.depth < -0.8) {
+        const abyss = this.worldgenNoise.fbm2D(this.perlin, wx * 0.0022 + 900, wz * 0.0022 - 900, 3, 0.55, 2.0);
+        const trenchMask = clamp((0.18 - continentalness) / 0.18, 0, 1);
+        h -= Math.max(0, abyss) * 7.5 * trenchMask;
+      }
 
       // Biome clamping avoids absurd values and keeps profiles coherent.
       const biomeMin = this.baseLandY + profile.floor - 6;
