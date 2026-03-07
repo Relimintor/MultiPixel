@@ -158,21 +158,28 @@
       if (coldSpecial) return 'Giant Taiga';
 
       if (temp === C.WARM) {
-        if (r < 0.50) return 'Desert';
-        if (r < 0.83) return 'Savanna';
-        return 'Plains';
+        if (r < 0.42) return 'Desert';
+        if (r < 0.62) return 'Savanna';
+        if (r < 0.79) return 'Plains';
+        return 'Badlands Plateau';
       }
       if (temp === C.TEMPERATE) {
-        if (r < 0.56) return 'Forest';
-        if (r < 0.78) return 'Plains';
+        if (r < 0.26) return 'Forest';
+        if (r < 0.40) return 'Birch Forest';
+        if (r < 0.52) return 'Dark Forest';
+        if (r < 0.66) return 'Plains';
+        if (r < 0.76) return 'Swamp';
+        if (r < 0.88) return 'Taiga';
         return 'Mountains';
       }
       if (temp === C.COLD) {
-        if (r < 0.52) return 'Forest';
+        if (r < 0.22) return 'Forest';
+        if (r < 0.44) return 'Taiga';
+        if (r < 0.62) return 'Giant Taiga';
         if (r < 0.82) return 'Mountains';
         return 'Snowy Plains';
       }
-      if (temp === C.FREEZING) return 'Snowy Plains';
+      if (temp === C.FREEZING) return r < 0.35 ? 'Snowy Taiga' : 'Snowy Plains';
       return 'Ocean';
     }
 

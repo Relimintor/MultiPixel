@@ -1,6 +1,7 @@
 (function () {
   const P = () => window.WorldgenLayerPrograms;
 
+
   const normalizeForGameplay = (biome) => {
     if (biome === 'Savanna') return 'Plains';
     if (biome === 'Badlands Plateau') return 'Desert';
@@ -10,6 +11,10 @@
     if (biome === 'Desert Hills') return 'Desert';
     if (biome === 'Wooded Hills') return 'Forest';
     if (biome === 'Windswept Hills') return 'Mountains';
+    if (biome === 'Birch Forest' || biome === 'Flower Forest' || biome === 'Dark Forest') return 'Forest';
+    if (biome === 'Taiga' || biome === 'Snowy Taiga' || biome === 'Giant Taiga') return 'Forest';
+    if (biome === 'Swamp') return 'Plains';
+    if (biome === 'Snowy Mountains' || biome === 'Gravelly Mountains') return 'Mountains';
     if (biome === 'Mushroom Fields') return 'Forest';
     if (biome === 'Deep Ocean' || biome.includes('Ocean')) return 'Ocean';
     return biome;
