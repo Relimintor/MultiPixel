@@ -1024,7 +1024,7 @@ window.perlin = perlinInstance;
                 const dist = 3 + Math.random() * 6;
                 const wx = yawObject.position.x + Math.cos(angle) * dist;
                 const wz = yawObject.position.z + Math.sin(angle) * dist;
-                const ok = id === 1 ? spawnPigAt(wx, wz) : (id === 2 ? spawnZombieAt(wx, wz) : (id === 3 ? spawnWolfAt(wx, wz) : false));
+                const ok = id === 1 ? spawnPigAt(wx, wz) : (id === 2 ? spawnZombieAt(wx, wz) : (id === 3 ? spawnWolfForCommand(wx, wz) : false));
                 if (ok) spawned++;
             }
             return spawned;
@@ -1127,6 +1127,15 @@ window.perlin = perlinInstance;
                 combatTargetType: null,
             });
             return true;
+        }
+
+        function spawnWolfForCommand(wx, wz) {
+            if (spawnWolfAt(wx, wz)) return true;
+            const y = getSurfaceYForEntity(wx, wz);
+            if (y < SEA_LEVEL || y > SEA_LEVEL + 36) return false;
+            const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
+            if (under !== 1 && under !== 2 && under !== 3 && under !== 7 && under !== 15) return false;
+            return spawnWolfAtExact(wx, y, wz);
         }
 
         function getWolfHitFromCrosshair() {

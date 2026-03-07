@@ -1,16 +1,6 @@
 (function () {
   const P = () => window.WorldgenLayerPrograms;
 
-  const enforceBiomePolicy = (biome) => {
-    // Biomes explicitly excluded by project direction.
-    if (biome === 'Savanna' || biome === 'Shattered Savanna' || biome === 'Shattered Savanna Plateau') return 'Plains';
-    if (biome === 'Bamboo Jungle' || biome === 'Bamboo Jungle Hills') return 'Jungle';
-    if (biome === 'Sunflower Plains') return 'Plains';
-    if (biome === 'Flower Forest') return 'Forest';
-    if (biome === 'Swamp') return 'Forest';
-    if (biome === 'Ice Spikes') return 'Snowy Plains';
-    return biome;
-  };
 
   const normalizeForGameplay = (biome) => {
     if (biome === 'Savanna') return 'Plains';
@@ -21,6 +11,10 @@
     if (biome === 'Desert Hills') return 'Desert';
     if (biome === 'Wooded Hills') return 'Forest';
     if (biome === 'Windswept Hills') return 'Mountains';
+    if (biome === 'Birch Forest' || biome === 'Flower Forest' || biome === 'Dark Forest') return 'Forest';
+    if (biome === 'Taiga' || biome === 'Snowy Taiga' || biome === 'Giant Taiga') return 'Forest';
+    if (biome === 'Swamp') return 'Plains';
+    if (biome === 'Snowy Mountains' || biome === 'Gravelly Mountains') return 'Mountains';
     if (biome === 'Mushroom Fields') return 'Forest';
     if (biome === 'Deep Ocean' || biome.includes('Ocean')) return 'Ocean';
     return biome;
