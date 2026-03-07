@@ -612,6 +612,13 @@ window.perlin = perlinInstance;
             renderer = new THREE.WebGLRenderer({ antialias: !isLowEndDevice });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(targetRenderPixelRatio);
+            // GPU backface culling: skip rendering triangles facing away from camera.
+            // This cuts fragment/triangle workload for closed meshes while keeping
+            // explicitly double-sided materials (e.g. leaves/water) working as-is.
+            const gl = renderer.getContext();
+            gl.enable(gl.CULL_FACE);
+            gl.cullFace(gl.BACK);
+            gl.frontFace(gl.CCW);
             document.body.appendChild(renderer.domElement);
             setupFirstPersonHandOverlay();
             setupInventorySkinRig();
