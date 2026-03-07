@@ -358,6 +358,9 @@ window.perlin = perlinInstance;
         let skinSystem = null;
         let iglooStructureDef = null;
         const gnomeEntities = [];
+        const GNOME_INSTANCE_CAPACITY = 512;
+        const gnomeInstancedParts = {};
+        const gnomePartDummy = new THREE.Object3D();
         const pigEntities = [];
         const zombieEntities = [];
         const wolfEntities = [];
@@ -828,32 +831,42 @@ window.perlin = perlinInstance;
             return sprite;
         }
 
+        function ensureGnomeInstancing() {
+            if (gnomeInstancedParts.body) return;
+
+            const bodyGeom = new THREE.BoxGeometry(0.7, 0.7, 0.7);
+            const headGeom = new THREE.BoxGeometry(0.52, 0.52, 0.52);
+            const legGeom = new THREE.BoxGeometry(0.2, 0.55, 0.2);
+
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0x3d70ff, roughness: 0.7 });
+            const headMat = new THREE.MeshStandardMaterial({ color: 0x7ea2ff, roughness: 0.65 });
+            const legMat = new THREE.MeshStandardMaterial({ color: 0x2a4bc0, roughness: 0.8 });
+
+            gnomeInstancedParts.body = new THREE.InstancedMesh(bodyGeom, bodyMat, GNOME_INSTANCE_CAPACITY);
+            gnomeInstancedParts.head = new THREE.InstancedMesh(headGeom, headMat, GNOME_INSTANCE_CAPACITY);
+            gnomeInstancedParts.leftLeg = new THREE.InstancedMesh(legGeom, legMat, GNOME_INSTANCE_CAPACITY);
+            gnomeInstancedParts.rightLeg = new THREE.InstancedMesh(legGeom, legMat, GNOME_INSTANCE_CAPACITY);
+
+            for (const key of ['body', 'head', 'leftLeg', 'rightLeg']) {
+                const mesh = gnomeInstancedParts[key];
+                mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+                mesh.frustumCulled = false;
+                scene.add(mesh);
+            }
+        }
+
         function spawnGnomeAt(wx, wy, wz) {
-            const gnome = new THREE.Group();
-            gnome.position.set(wx + 0.5, wy, wz + 0.5);
-
-            const body = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), new THREE.MeshStandardMaterial({ color: 0x3d70ff, roughness: 0.7 }));
-            body.position.y = 0.95;
-            gnome.add(body);
-
-            const head = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.52, 0.52), new THREE.MeshStandardMaterial({ color: 0x7ea2ff, roughness: 0.65 }));
-            head.position.y = 1.55;
-            gnome.add(head);
-
-            const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.55, 0.2), new THREE.MeshStandardMaterial({ color: 0x2a4bc0, roughness: 0.8 }));
-            leftLeg.position.set(-0.18, 0.28, 0);
-            gnome.add(leftLeg);
-
-            const rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.55, 0.2), new THREE.MeshStandardMaterial({ color: 0x2a4bc0, roughness: 0.8 }));
-            rightLeg.position.set(0.18, 0.28, 0);
-            gnome.add(rightLeg);
+            if (gnomeEntities.length >= GNOME_INSTANCE_CAPACITY) return;
+            ensureGnomeInstancing();
+            const anchor = new THREE.Group();
+            anchor.position.set(wx + 0.5, wy, wz + 0.5);
 
             const tag = createNameTagSprite('gnomes');
             tag.position.y = 2.15;
-            gnome.add(tag);
+            anchor.add(tag);
 
-            gnomeEntities.push({ root: gnome, head, leftLeg, rightLeg, phase: Math.random() * Math.PI * 2 });
-            scene.add(gnome);
+            gnomeEntities.push({ root: anchor, phase: Math.random() * Math.PI * 2 });
+            scene.add(anchor);
         }
 
         function isEntityActiveAt(position, rangeSq = ENTITY_ACTIVATION_RANGE_SQ) {
@@ -866,13 +879,38 @@ window.perlin = perlinInstance;
         function updateGnomes(time) {
             if (!gnomeEntities.length) return;
             const lookTarget = new THREE.Vector3(yawObject.position.x, 0, yawObject.position.z);
-            for (const g of gnomeEntities) {
-                if (!isEntityActiveAt(g.root.position)) continue;
-                const swing = Math.sin(time * 0.007 + g.phase) * 0.16;
-                g.leftLeg.position.z = swing;
-                g.rightLeg.position.z = -swing;
+            for (let i = 0; i < gnomeEntities.length; i++) {
+                const g = gnomeEntities[i];
+                const active = isEntityActiveAt(g.root.position);
+                const swing = active ? Math.sin(time * 0.007 + g.phase) * 0.16 : 0;
+
                 lookTarget.y = g.root.position.y + 1.55;
-                g.head.lookAt(lookTarget);
+                const headYaw = Math.atan2(lookTarget.x - g.root.position.x, lookTarget.z - g.root.position.z);
+
+                gnomePartDummy.position.set(g.root.position.x, g.root.position.y + 0.95, g.root.position.z);
+                gnomePartDummy.rotation.set(0, 0, 0);
+                gnomePartDummy.updateMatrix();
+                gnomeInstancedParts.body.setMatrixAt(i, gnomePartDummy.matrix);
+
+                gnomePartDummy.position.set(g.root.position.x, g.root.position.y + 1.55, g.root.position.z);
+                gnomePartDummy.rotation.set(0, headYaw, 0);
+                gnomePartDummy.updateMatrix();
+                gnomeInstancedParts.head.setMatrixAt(i, gnomePartDummy.matrix);
+
+                gnomePartDummy.position.set(g.root.position.x - 0.18, g.root.position.y + 0.28, g.root.position.z + swing);
+                gnomePartDummy.rotation.set(0, 0, 0);
+                gnomePartDummy.updateMatrix();
+                gnomeInstancedParts.leftLeg.setMatrixAt(i, gnomePartDummy.matrix);
+
+                gnomePartDummy.position.set(g.root.position.x + 0.18, g.root.position.y + 0.28, g.root.position.z - swing);
+                gnomePartDummy.rotation.set(0, 0, 0);
+                gnomePartDummy.updateMatrix();
+                gnomeInstancedParts.rightLeg.setMatrixAt(i, gnomePartDummy.matrix);
+            }
+
+            for (const key of ['body', 'head', 'leftLeg', 'rightLeg']) {
+                gnomeInstancedParts[key].count = gnomeEntities.length;
+                gnomeInstancedParts[key].instanceMatrix.needsUpdate = true;
             }
         }
 
@@ -1282,7 +1320,7 @@ window.perlin = perlinInstance;
             const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
             if (under !== 1 && under !== 2) return false;
             const biome = getBiome(Math.floor(wx), Math.floor(wz));
-            if (biome !== 'Forest') return false;
+            if (biome !== 'Forest' && biome !== 'Snowy Plains') return false;
             return spawnWolfAtExact(wx, y, wz);
         }
 
@@ -4271,7 +4309,7 @@ function buildPartFaceRects(x, y, w, h, d) {
         }
         
         function generateChunkData(cx, cz) {
-             const data = new Array(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
+             const data = new Array(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE).fill(0);
              const spawnedGnomes = [];
              
              for (let x = 0; x < CHUNK_SIZE; x++) {
@@ -4685,7 +4723,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             const centerZ = Math.floor(CHUNK_SIZE / 2);
             const worldX = cx * CHUNK_SIZE + centerX;
             const worldZ = cz * CHUNK_SIZE + centerZ;
-            if (getBiome(worldX, worldZ) !== 'Forest') return;
+            const packBiome = getBiome(worldX, worldZ);
+            if (packBiome !== 'Forest' && packBiome !== 'Snowy Plains') return;
             if (hashRand2D(cx, cz, 7701) > 0.12) return;
 
             const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
