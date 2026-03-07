@@ -16,7 +16,8 @@
     const removeOcean1024 = (x, z) => stack.removeTooMuchOcean(addIsland1024c, x, z);
     const temp1024 = (x, z) => stack.addTemperatures(removeOcean1024, x, z);
     const addIslandPostTemp1024 = (x, z) => stack.addIsland(removeOcean1024, x, z, 7);
-    const warmTemp1024 = (x, z) => stack.warmToTemperate(temp1024, x, z);
+    const tempPostIsland1024 = (x, z) => stack.expandTemperatureToLand(temp1024, addIslandPostTemp1024, x, z, 2213);
+    const warmTemp1024 = (x, z) => stack.warmToTemperate(tempPostIsland1024, x, z);
     const coldTemp1024 = (x, z) => stack.freezingToCold(warmTemp1024, x, z);
     const variantTemp1024 = (x, z) => stack.addBiomeVariants(coldTemp1024, x, z);
     const zoomLand512 = (x, z) => stack.zoom(addIslandPostTemp1024, x, z, 8);
@@ -26,13 +27,14 @@
     const addIsland256 = (x, z) => stack.addIsland(zoomLand256, x, z, 12);
     const mushroom256 = (x, z) => stack.addMushroomIsland(addIsland256, x, z);
     const deepOcean256 = (x, z) => stack.addDeepOcean(mushroom256, x, z);
+    const tempAligned256 = (x, z) => stack.expandTemperatureToLand(zoomTemp256, deepOcean256, x, z, 2214);
 
     return {
       island: island4096(x4096, z4096),
       land: deepOcean256(x256, z256),
-      temp: zoomTemp256(x256, z256),
+      temp: tempAligned256(x256, z256),
       landFn256: deepOcean256,
-      tempFn256: zoomTemp256,
+      tempFn256: tempAligned256,
     };
   };
 })();

@@ -145,6 +145,29 @@
       return this.cached('biome_variant', x, z, () => tempFn(x, z));
     }
 
+
+    expandTemperatureToLand(tempFn, landFn, x, z, salt) {
+      const { C } = S();
+      return this.cached(`temperature_expand_${salt}`, x, z, () => {
+        if (landFn(x, z) !== C().LAND) return C().OCEAN;
+        const center = tempFn(x, z);
+        if (center !== C().OCEAN) return center;
+
+        const neighbors = [
+          tempFn(x, z - 1),
+          tempFn(x, z + 1),
+          tempFn(x - 1, z),
+          tempFn(x + 1, z),
+        ].filter((v) => v !== C().OCEAN);
+        if (neighbors.length > 0) {
+          const pick = Math.floor(this.ops.random.at2D(x, z, this.ops.seed + salt) * neighbors.length);
+          return neighbors[pick];
+        }
+
+        return this.addTemperatures(() => C().LAND, x, z);
+      });
+    }
+
     addMushroomIsland(landFn, x, z) {
       const { isOceanCell } = S();
       return this.cached('mushroom', x, z, () => {
