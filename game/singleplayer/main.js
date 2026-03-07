@@ -4856,10 +4856,6 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             if (needsNeighbors) {
                 requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
             }
-            requestChunkRemesh(cx, cz, 'block');
-            if (needsNeighbors) {
-                requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
-            }
             rebuildDirtyChunkMeshes();
         }
         
@@ -5592,8 +5588,12 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 maybeSpawnLavaParticles(delta);
                 updateWorldParticles(delta);
                 applyBlockPhysics(time);
+
+                // Chunk pipeline: load/generate -> mesh/VBO upload -> cull -> render.
                 ensureChunksAroundPlayer(false, time);
+                processMeshUpdateQueue();
                 maybeUpdateChunkFrustumCulling(time);
+
                 updateGnomes(time);
                 updatePigs(time, delta);
                 updateWolves(time, delta);
@@ -5602,7 +5602,6 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 updateEatingAnimation(delta, time);
                 updatePlayerAvatarVisuals(time);
                 updateFirstPersonHand(time);
-                processMeshUpdateQueue();
                 const dtSec = delta / 1000;
                 if (window.FurnaceSystem) {
                     for (const state of furnaceStates.values()) window.FurnaceSystem.updateState(state, dtSec);
