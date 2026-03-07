@@ -282,6 +282,9 @@ window.perlin = perlinInstance;
         const cameraViewProj = new THREE.Matrix4();
         const frustumTempCenter = new THREE.Vector3();
         const frustumTempSphere = new THREE.Sphere();
+        const lastFrustumCameraPos = new THREE.Vector3();
+        const lastFrustumCameraQuat = new THREE.Quaternion();
+        let hasFrustumCameraState = false;
         const chunks = new Map();
         const worldGroup = new THREE.Group();
         let yawObject, pitchObject; 
@@ -4589,7 +4592,9 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 );
                 frustumTempSphere.center.copy(frustumTempCenter);
                 frustumTempSphere.radius = group.userData.frustumRadius || 40;
-                group.visible = frustum.intersectsSphere(frustumTempSphere);
+                const inView = frustum.intersectsSphere(frustumTempSphere);
+                // Chunk-level frustum culling: skip rendering chunks outside camera view.
+                group.visible = inView;
             }
         }
 
@@ -5145,8 +5150,18 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
         }
 
         function maybeUpdateChunkFrustumCulling(nowMs) {
-            if ((nowMs - lastFrustumCullMs) < FRUSTUM_CULL_INTERVAL_MS) return;
+            const intervalElapsed = (nowMs - lastFrustumCullMs) >= FRUSTUM_CULL_INTERVAL_MS;
+
+            const movedSq = hasFrustumCameraState ? camera.position.distanceToSquared(lastFrustumCameraPos) : Infinity;
+            const rotatedDelta = hasFrustumCameraState ? (1 - Math.abs(camera.quaternion.dot(lastFrustumCameraQuat))) : Infinity;
+            const cameraChanged = movedSq > 0.04 || rotatedDelta > 0.00008;
+
+            if (!intervalElapsed && !cameraChanged) return;
+
             lastFrustumCullMs = nowMs;
+            lastFrustumCameraPos.copy(camera.position);
+            lastFrustumCameraQuat.copy(camera.quaternion);
+            hasFrustumCameraState = true;
             updateChunkFrustumCulling();
         }
 
