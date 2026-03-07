@@ -5654,8 +5654,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 let currentMaterial = materials[logicalKey];
 
                 // Set UVs if material is textured (i.e., it has a map)
-                if (currentMaterial && currentMaterial.map && gd.uv.length > 0) {
-                    const uvAttr = new THREE.Float32BufferAttribute(gd.uv, 2);
+                if (currentMaterial && currentMaterial.map && packedUv && packedUv.length > 0) {
+                    const uvAttr = new THREE.Uint16BufferAttribute(packedUv, 2, true);
                     uvAttr.setUsage(THREE.StaticDrawUsage);
                     geom.setAttribute('uv', uvAttr);
                 }
