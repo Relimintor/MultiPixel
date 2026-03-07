@@ -158,21 +158,45 @@
       if (coldSpecial) return 'Giant Taiga';
 
       if (temp === C.WARM) {
-        if (r < 0.50) return 'Desert';
-        if (r < 0.83) return 'Savanna';
-        return 'Plains';
+        if (r < 0.32) return 'Desert';
+        if (r < 0.48) return 'Desert Hills';
+        if (r < 0.66) return 'Savanna';
+        if (r < 0.74) return 'Savanna Plateau';
+        if (r < 0.80) return 'Shattered Savanna';
+        if (r < 0.85) return 'Shattered Savanna Plateau';
+        if (r < 0.93) return 'Badlands';
+        return 'Wooded Badlands Plateau';
       }
       if (temp === C.TEMPERATE) {
-        if (r < 0.56) return 'Forest';
-        if (r < 0.78) return 'Plains';
-        return 'Mountains';
+        if (r < 0.18) return 'Forest';
+        if (r < 0.29) return 'Flower Forest';
+        if (r < 0.40) return 'Birch Forest';
+        if (r < 0.47) return 'Tall Birch Forest';
+        if (r < 0.58) return 'Dark Forest';
+        if (r < 0.66) return 'Plains';
+        if (r < 0.71) return 'Sunflower Plains';
+        if (r < 0.80) return 'Swamp';
+        if (r < 0.89) return 'Taiga';
+        return 'Taiga Hills';
       }
       if (temp === C.COLD) {
-        if (r < 0.52) return 'Forest';
-        if (r < 0.82) return 'Mountains';
-        return 'Snowy Plains';
+        if (r < 0.14) return 'Forest';
+        if (r < 0.28) return 'Taiga';
+        if (r < 0.40) return 'Taiga Hills';
+        if (r < 0.54) return 'Giant Tree Taiga';
+        if (r < 0.64) return 'Giant Spruce Taiga';
+        if (r < 0.76) return 'Wooded Mountains';
+        if (r < 0.86) return 'Gravelly Mountains';
+        return 'Snowy Mountains';
       }
-      if (temp === C.FREEZING) return 'Snowy Plains';
+      if (temp === C.FREEZING) {
+        if (r < 0.38) return 'Snowy Tundra';
+        if (r < 0.58) return 'Snowy Mountains';
+        if (r < 0.70) return 'Snowy Taiga';
+        if (r < 0.80) return 'Snowy Taiga Hills';
+        if (r < 0.88) return 'Snowy Taiga Mountains';
+        return 'Ice Spikes';
+      }
       return 'Ocean';
     }
 
@@ -202,18 +226,31 @@
       const hillChance = Number(this.settings.regionHillChance) || 0.08;
       if (roll > hillChance) return biome;
       if (biome === 'Desert') return 'Desert Hills';
-      if (biome === 'Forest') return 'Wooded Hills';
-      if (biome === 'Plains') return 'Windswept Hills';
+      if (biome === 'Forest' || biome === 'Birch Forest') return 'Wooded Hills';
+      if (biome === 'Plains' || biome === 'Sunflower Plains') return 'Windswept Hills';
+      if (biome === 'Jungle') return 'Jungle Hills';
+      if (biome === 'Bamboo Jungle') return 'Bamboo Jungle Hills';
+      if (biome === 'Taiga') return 'Taiga Hills';
+      if (biome === 'Snowy Taiga') return 'Snowy Taiga Hills';
+      if (biome === 'Savanna') return 'Savanna Plateau';
+      if (biome === 'Badlands') return 'Eroded Badlands';
+      if (biome === 'Mountains') return hillNoise > 0.56 ? 'Gravelly Mountains' : 'Wooded Mountains';
+      if (biome === 'Snowy Tundra') return 'Snowy Mountains';
       if (biome === 'Ocean' && hillNoise > 0.5) return 'Plains';
       if (biome === 'Deep Ocean' && hillNoise > 0.55) return 'Forest';
       return biome;
     }
 
     shore(biome, wx, wz, scale) {
-      if (biome === 'Mushroom Fields') return biome;
       const c = this.toCell(wx, wz, scale);
       const n = this.perlin.noise2D(c.x * 0.62 + 22, c.z * 0.62 - 22);
-      if (biome === 'Snowy Plains' && n > 0.38 && n < 0.48) return 'Frozen Beach';
+      if (biome === 'Mushroom Fields' && n > 0.42 && n < 0.54) return 'Mushroom Field Shore';
+      if (biome === 'Snowy Tundra' || biome === 'Snowy Plains' || biome === 'Snowy Mountains' || biome === 'Snowy Taiga') {
+        if (n > 0.38 && n < 0.52) return 'Snowy Beach';
+      }
+      if (biome === 'Mountains' || biome === 'Wooded Mountains' || biome === 'Gravelly Mountains') {
+        if (n > 0.40 && n < 0.53) return 'Stone Shore';
+      }
       if (biome !== 'Ocean' && biome !== 'Deep Ocean' && n > 0.38 && n < 0.5) return 'Beach';
       return biome;
     }
