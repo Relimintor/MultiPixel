@@ -95,19 +95,25 @@
       const avg2 = averageAtDistance(2, true);
       const avg1 = averageAtDistance(1, false);
 
+      const sample = sampleData || this.sample(wx, wz);
+      const oceanInfluence = sample.gameplayBiome === 'Ocean' ? 1 : 0;
+      const mountainInfluence = sample.gameplayBiome === 'Mountains' ? 1 : 0;
+      const nearSeaWeight = oceanInfluence ? 0.35 : 0.22;
+      const nearLandWeight = mountainInfluence ? 0.14 : 0.2;
+
       let blended = center;
-      blended = blended * 0.78 + avg4 * 0.22;
-      blended = blended * 0.72 + avg2 * 0.28;
-      blended = blended * 0.82 + avg1 * 0.18;
+      blended = blended * (1 - nearSeaWeight) + avg4 * nearSeaWeight;
+      blended = blended * 0.74 + avg2 * 0.26;
+      blended = blended * (1 - nearLandWeight) + avg1 * nearLandWeight;
 
       // Extra anti-spike clamp so isolated towers/pits are softened without flattening terrain.
       const localMean = avg1 * 0.55 + avg2 * 0.45;
       const spike = blended - localMean;
-      if (spike > 6) blended -= (spike - 6) * 0.52;
-      if (spike < -8) blended -= (spike + 8) * 0.36;
+      if (spike > 5.2) blended -= (spike - 5.2) * 0.58;
+      if (spike < -7.2) blended -= (spike + 7.2) * 0.4;
 
-      // Final local slope guard to avoid sheer 1-column cliffs.
-      const maxDeltaFromNear = 5.5;
+      // Final local slope guard to avoid sheer 1-column cliffs while preserving mountains.
+      const maxDeltaFromNear = mountainInfluence ? 6.2 : 4.9;
       blended = Math.max(avg1 - maxDeltaFromNear, Math.min(avg1 + maxDeltaFromNear, blended));
 
       const h = Math.floor(blended);

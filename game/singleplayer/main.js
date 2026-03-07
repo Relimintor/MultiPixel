@@ -4124,10 +4124,11 @@ function buildPartFaceRects(x, y, w, h, d) {
                             }
 
                             if (biome === 'Mountains' && t !== 0) {
-                                // Keep mountain tops rugged, but avoid aggressive floating pillars.
+                                // Keep mountain silhouettes rugged, but avoid swiss-cheese cliff faces.
                                 const ridgeRough = Math.abs(perlin.noise3D(wx * 0.017 + 310, y * 0.024, wz * 0.017 - 145));
                                 const microBreak = Math.abs(perlin.noise3D(wx * 0.035 - 980, y * 0.045, wz * 0.035 + 410));
-                                const shouldCarve = distFromSurface <= 8 && ridgeRough > 0.87 && microBreak > 0.82;
+                                const carvingBand = distFromSurface >= 3 && distFromSurface <= 9;
+                                const shouldCarve = carvingBand && ridgeRough > 0.92 && microBreak > 0.9;
                                 if (shouldCarve) t = 0;
                             }
                              
@@ -4154,15 +4155,16 @@ function buildPartFaceRects(x, y, w, h, d) {
                          }
                          
                         // --- Cave Generation Pass (layered Perlin for bigger cave systems) ---
-                        if (y > CAVE_MIN_Y && y < h - CAVE_MAX_Y_OFFSET && (h - y) >= CAVE_SURFACE_SAFETY_DEPTH) {
+                        if (y > CAVE_MIN_Y && y < h - CAVE_MAX_Y_OFFSET && (h - y) >= (CAVE_SURFACE_SAFETY_DEPTH + 2)) {
                             if (t === 3 || t === 2 || t === 7 || t === 13 || t === 28 || t === 59) {
                                 const caveShape = sampleCaveShape(wx, y, wz);
 
                                 const depth = Math.max(0, (h - y) / Math.max(1, h));
-                                const dynamicThreshold = CAVE_THRESHOLD - Math.min(0.14, depth * 0.2);
+                                const nearSurfaceGuard = depth < 0.2 ? 0.1 : (depth < 0.35 ? 0.05 : 0);
+                                const dynamicThreshold = CAVE_THRESHOLD + nearSurfaceGuard - Math.min(0.1, depth * 0.14);
                                 const tunnelNoise = Math.abs(perlin.noise3D(wx * CAVE_SCALE * 0.7, y * CAVE_SCALE * 0.45, wz * CAVE_SCALE * 0.7));
 
-                                if (caveShape > dynamicThreshold || (depth > 0.35 && tunnelNoise < 0.06)) {
+                                if (caveShape > dynamicThreshold || (depth > 0.55 && tunnelNoise < 0.05)) {
                                     t = 0;
                                 }
                             }
