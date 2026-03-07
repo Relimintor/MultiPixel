@@ -318,6 +318,7 @@ window.perlin = perlinInstance;
         const ENTITY_ACTIVATION_RANGE_SQ = ENTITY_ACTIVATION_RANGE * ENTITY_ACTIVATION_RANGE;
         const CHUNK_UPDATE_INTERVAL_MS = isLowEndDevice ? 220 : 90;
         const FRUSTUM_CULL_INTERVAL_MS = isLowEndDevice ? 120 : 60;
+        const ENABLE_ANGULAR_OCCLUSION_CULLING = false;
         const chunkOffsetsByRadius = new Map();
         let lastChunkUpdateMs = -Infinity;
         let lastFrustumCullMs = -Infinity;
@@ -4792,17 +4793,17 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 if (!inView) continue;
 
                 const camSpace = frustumTempCenter.clone().applyMatrix4(camera.matrixWorldInverse);
-                if (camSpace.z >= 0) {
-                    group.visible = false;
-                    continue;
-                }
-
                 const dist = Math.sqrt(camSpace.x * camSpace.x + camSpace.y * camSpace.y + camSpace.z * camSpace.z);
                 candidates.push({ group, camSpace, dist });
             }
 
             // Stage 2: lightweight chunk occlusion culling.
             // Keep nearest chunk depth per angular cell; farther chunks in the same cell are treated as hidden.
+            if (!ENABLE_ANGULAR_OCCLUSION_CULLING) {
+                for (const c of candidates) c.group.visible = true;
+                return;
+            }
+
             // Disable this approximation at steep pitch angles to avoid false positives while looking down/up.
             frustumCameraForward.set(0, 0, -1).applyQuaternion(camera.quaternion);
             const useAngularOcclusion = Math.abs(frustumCameraForward.y) < 0.45;
@@ -5356,7 +5357,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                     if (oldGeom) oldGeom.dispose();
                 } else {
                     const mesh = new THREE.Mesh(geom, currentMaterial);
-                    mesh.frustumCulled = true;
+                    // Chunk group visibility controls culling; disable per-mesh frustum to prevent angle artifacts.
+                    mesh.frustumCulled = false;
                     meshesByKey.set(key, mesh);
                     group.add(mesh);
                 }
