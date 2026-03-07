@@ -4078,12 +4078,14 @@ function buildPartFaceRects(x, y, w, h, d) {
                                  }
                              } else if (biome === 'Mountains') {
                                  const isSnowCap = h > SEA_LEVEL + 26;
-                                 const cheese = perlin.noise3D(wx * 0.045, y * 0.062, wz * 0.045);
-                                 const overhang = perlin.noise3D(wx * 0.02 + 700, y * 0.03, wz * 0.02 - 300);
-                                 const density = (h - y) + cheese * 5.5 + overhang * 3.2 - ((CHUNK_HEIGHT - y) / CHUNK_HEIGHT) * 3.5;
 
-                                 if (density <= 0.4 && distFromSurface <= 22) {
-                                     t = 0; // allow cliffs/overhangs
+                                 // Keep mountain tops rugged, but avoid aggressive floating pillars.
+                                 const ridgeRough = Math.abs(perlin.noise3D(wx * 0.017 + 310, y * 0.024, wz * 0.017 - 145));
+                                 const microBreak = Math.abs(perlin.noise3D(wx * 0.035 - 980, y * 0.045, wz * 0.035 + 410));
+                                 const shouldCarve = distFromSurface <= 8 && ridgeRough > 0.87 && microBreak > 0.82;
+
+                                 if (shouldCarve) {
+                                     t = 0;
                                  } else if (distFromSurface === 0) {
                                      t = isSnowCap ? 15 : 3;
                                      surfaceBlockType = t;
@@ -4156,14 +4158,14 @@ function buildPartFaceRects(x, y, w, h, d) {
 // 🔹 Optimized Ravine Generation
 const ravineMask = getRavineMask(wx, wz);
 
-if (ravineMask > 0.78) {
-    const strength = (ravineMask - 0.78) / 0.22;
+if (ravineMask > 0.86) {
+    const strength = (ravineMask - 0.86) / 0.14;
 
     // Limit top slightly above terrain
-    const ravineTop = Math.min(h + 6, CHUNK_HEIGHT - 1);
+    const ravineTop = Math.min(h + 3, CHUNK_HEIGHT - 1);
 
     // Reduce max depth for smaller chunks
-    const maxDepth = 18 + Math.floor(strength * 12); // 18–30 blocks deep
+    const maxDepth = 12 + Math.floor(strength * 8); // 12–20 blocks deep
     const ravineBottom = Math.max(3, ravineTop - maxDepth);
 
     if (y <= ravineTop && y >= ravineBottom) {
@@ -4173,9 +4175,9 @@ if (ravineMask > 0.78) {
 
         // Reduce noise impact
         const widthNoise = octaveNoise2D(wx, wz, 2, 0.5, 2.0, 0.04, 812, -245);
-        const widthFactor = strength * verticalFactor + widthNoise * 0.1;
+        const widthFactor = strength * verticalFactor + widthNoise * 0.06;
 
-        if (widthFactor > 0.25) {
+        if (widthFactor > 0.42) {
             // 🔥 Lava very deep underground (only really deep)
             if (y < 6) {
                 t = 33;
