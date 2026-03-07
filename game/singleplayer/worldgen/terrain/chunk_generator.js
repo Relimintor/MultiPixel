@@ -54,6 +54,7 @@
         ridge,
         coastalShelf,
         valleyBias,
+        targetY: this.baseLandY + profile.floor + (profile.depth * 12) + (profile.ceiling * (0.55 + profile.scale * 0.45)) + lerp(-9.5, 6.5, continentalness) - valleyBias * 2.3,
       };
     }
 
@@ -64,7 +65,7 @@
       // Biome map modulates the vertical target band through depth/scale.
       const biomeBase = this.baseLandY + profile.floor + (profile.depth * 12);
       const biomeVariation = profile.ceiling * (0.55 + profile.scale * 0.45);
-      const continentalLift = lerp(-8.2, 11.5, col.continentalness);
+      const continentalLift = lerp(-9.5, 6.5, col.continentalness);
       const targetY = biomeBase + biomeVariation + continentalLift - col.valleyBias * 2.3;
       const gradient = (targetY - y) / Math.max(4, (18 + profile.ceiling));
 
@@ -89,9 +90,11 @@
       const sampleForProfile = (y) => this.sampleCellDensityForProfile(wx, y, wz, profile, column);
       let h = 2;
 
-      // Scan top-down in 8-block cells, then refine in 1-block steps.
+      // Scan top-down in 8-block cells around an expected terrain band, then refine.
+      const scanTop = Math.max(this.cellSize.y, Math.min(this.startScanY, Math.floor(column.targetY + 26)));
+      const scanBottom = Math.max(0, Math.floor(column.targetY - 48));
       let firstSolidCellY = -1;
-      for (let y = this.startScanY; y >= 0; y -= this.cellSize.y) {
+      for (let y = scanTop; y >= scanBottom; y -= this.cellSize.y) {
         const d = sampleForProfile(y);
         if (d >= 0) {
           firstSolidCellY = y;
@@ -103,7 +106,7 @@
         // Coarse 8-block samples can miss the zero-crossing in low/flat density bands.
         // Run a one-block fallback scan so ocean columns keep their natural depth variation.
         let foundSolidY = -1;
-        for (let y = this.startScanY; y >= 1; y--) {
+        for (let y = scanTop; y >= Math.max(1, scanBottom - 12); y--) {
           if (sampleForProfile(y) >= 0) {
             foundSolidY = y;
             break;
@@ -137,7 +140,7 @@
 
       const continentalness = column.continentalness;
       const seaBlend = clamp((h - this.seaLevel) / 14, -1, 1);
-      const coastalTarget = this.seaLevel + (profile.depth > 0.55 ? 5.5 : 2.2);
+      const coastalTarget = this.seaLevel + (profile.depth > 0.55 ? 4.2 : 1.4);
       const coastMask = clamp((continentalness - 0.19) / 0.25, 0, 1) * clamp((0.58 - continentalness) / 0.22, 0, 1);
       h = lerp(h, coastalTarget, (1 - Math.max(0, seaBlend)) * (0.06 + coastMask * 0.14));
 
@@ -150,7 +153,7 @@
 
       // Biome clamping avoids absurd values and keeps profiles coherent.
       const biomeMin = this.baseLandY + profile.floor - 6;
-      const biomeMax = this.baseLandY + profile.ceiling + 10;
+      const biomeMax = this.baseLandY + profile.ceiling + 7;
       h = clamp(h, biomeMin, biomeMax);
 
       return Math.max(2, Math.min(this.chunkHeight - 2, Math.floor(h)));

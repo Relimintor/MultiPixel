@@ -89,7 +89,6 @@
 
       // Multi-scale blending to reduce vertical pillar artifacts:
       // blend coarse -> medium -> fine neighborhoods (4 -> 2 -> 1 block distances).
-      const avg4 = averageAtDistance(4, false);
       const avg2 = averageAtDistance(2, false);
       const avg1 = averageAtDistance(1, false);
 
@@ -102,22 +101,22 @@
       const lowFreq = this.perlin.noise2D(wx * 0.0008 - 260, wz * 0.0008 + 260);
       const continentalness = (lowFreq + 1) * 0.5;
 
-      const nearSeaWeight = oceanInfluence ? 0.35 : 0.18 + coastBlend * 0.1;
+      const nearSeaWeight = oceanInfluence ? 0.26 : 0.12 + coastBlend * 0.08;
       const nearLandWeight = mountainInfluence ? 0.12 : 0.18;
 
       let blended = center;
-      blended = blended * (1 - nearSeaWeight) + avg4 * nearSeaWeight;
-      blended = blended * 0.75 + avg2 * 0.25;
+      blended = blended * (1 - nearSeaWeight) + avg2 * nearSeaWeight;
+      blended = blended * 0.79 + avg1 * 0.21;
       blended = blended * (1 - nearLandWeight) + avg1 * nearLandWeight;
 
       // Extra anti-spike clamp so isolated towers/pits are softened without flattening terrain.
-      const localMean = avg1 * 0.58 + avg2 * 0.42;
+      const localMean = avg1 * 0.7 + avg2 * 0.3;
       const spike = blended - localMean;
       if (spike > 5.0) blended -= (spike - 5.0) * 0.6;
       if (spike < -6.8) blended -= (spike + 6.8) * 0.42;
 
       // Shape coastlines into gentler shelves while keeping inland relief.
-      const coastTarget = this.seaLevel + (mountainInfluence ? 4.8 : 2.4);
+      const coastTarget = this.seaLevel + (mountainInfluence ? 3.6 : 1.2);
       blended = blended * (1 - coastBlend * 0.12) + coastTarget * coastBlend * 0.12;
 
       // Final local slope guard to avoid sheer 1-column cliffs while preserving mountains.
