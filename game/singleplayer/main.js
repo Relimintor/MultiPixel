@@ -200,6 +200,20 @@ window.perlin = perlinInstance;
         const dirtyChunkRemeshReasons = new Map();
         let blockUpdateBatchDepth = 0;
         const batchedChunkRemeshNeeds = new Map();
+        const meshVertexBucketPool = [];
+
+        function acquireMeshVertexBucket() {
+            return meshVertexBucketPool.pop() || { pos: [], norm: [], col: [], uv: [] };
+        }
+
+        function releaseMeshVertexBucket(bucket) {
+            if (!bucket) return;
+            bucket.pos.length = 0;
+            bucket.norm.length = 0;
+            bucket.col.length = 0;
+            bucket.uv.length = 0;
+            meshVertexBucketPool.push(bucket);
+        }
 
         function chunkKeyFromCoords(cx, cz) {
             return `${cx},${cz}`;
@@ -5080,7 +5094,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             group.userData.meshesByKey = meshesByKey;
 
             // Map to hold CPU-side staging arrays before single VBO upload per chunk material.
-            const geometryData = {}; 
+            const geometryData = {};
+            const usedGeometryBuckets = [];
             
             const cx = group.userData.cx;
             const cz = group.userData.cz;
@@ -5184,7 +5199,10 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
             const ensureGeometryData = (materialKey) => {
                 const sectionKey = `${sectionPrefix}${materialKey}`;
-                if (!geometryData[sectionKey]) geometryData[sectionKey] = { pos: [], norm: [], col: [], uv: [] };
+                if (!geometryData[sectionKey]) {
+                    geometryData[sectionKey] = acquireMeshVertexBucket();
+                    usedGeometryBuckets.push(geometryData[sectionKey]);
+                }
                 return geometryData[sectionKey];
             };
 
@@ -5521,6 +5539,10 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 if (mesh.geometry) mesh.geometry.dispose();
                 group.remove(mesh);
                 meshesByKey.delete(key);
+            }
+
+            for (const bucket of usedGeometryBuckets) {
+                releaseMeshVertexBucket(bucket);
             }
 
             syncTorchLightsForChunk(group, collectChunkTorchPositions(data, cx, cz));
