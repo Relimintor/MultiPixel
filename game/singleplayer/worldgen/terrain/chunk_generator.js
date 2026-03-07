@@ -69,7 +69,24 @@
       }
 
       if (firstSolidCellY < 0) {
-        h = Math.max(2, this.seaLevel - 22);
+        // Coarse 8-block samples can miss the zero-crossing in low/flat density bands.
+        // Run a one-block fallback scan so ocean columns keep their natural depth variation.
+        let foundSolidY = -1;
+        for (let y = this.startScanY; y >= 1; y--) {
+          if (this.sampleCellDensity(wx, y, wz, biome) >= 0) {
+            foundSolidY = y;
+            break;
+          }
+        }
+
+        if (foundSolidY >= 0) {
+          h = foundSolidY;
+        } else {
+          // If a full-column scan still finds no solid voxel, derive a biome-relative
+          // fallback with noise so we never collapse large water biomes to a flat plane.
+          const fallbackNoise = window.WorldgenNoise.fbm2D(this.perlin, wx * 0.014 - 71, wz * 0.014 + 71, 3, 0.5, 2.0);
+          h = this.baseLandY + profile.floor + (profile.depth * 8) + fallbackNoise * (6 + profile.scale * 8);
+        }
       } else {
         const refineTop = Math.min(this.chunkHeight - 2, firstSolidCellY + this.cellSize.y - 1);
         const refineBottom = Math.max(1, firstSolidCellY - this.cellSize.y);
