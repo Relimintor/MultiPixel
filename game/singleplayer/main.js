@@ -45,6 +45,8 @@
         const RAVINE_ACTIVATION_THRESHOLD = Math.max(0.75, Math.min(0.98, Number(terrainCarvingSettings.ravineActivationThreshold) || 0.9));
         const CHUNK_CREATION_BUDGET_PER_TICK = Math.max(1, Math.floor(Number(worldGenSettings.chunkCreationBudgetPerTick) || 3));
         const CHUNK_CREATION_BUDGET_FORCE = Math.max(CHUNK_CREATION_BUDGET_PER_TICK, Math.floor(Number(worldGenSettings.chunkCreationBudgetOnForceUpdate) || 10));
+        const MESH_REBUILD_BUDGET_PER_FRAME = Math.max(1, Math.floor(Number(worldGenSettings.meshRebuildBudgetPerFrame) || 2));
+        const MESH_REBUILD_BUDGET_FORCE = Math.max(MESH_REBUILD_BUDGET_PER_FRAME, Math.floor(Number(worldGenSettings.meshRebuildBudgetOnForceUpdate) || (MESH_REBUILD_BUDGET_PER_FRAME * 4)));
         const USE_WASM_CAVE_SAMPLING = Boolean(wasmSettings.enabled && wasmSettings.preferCaveSampling);
 
         function normalizeWorldSeed(seedValue) {
@@ -217,15 +219,22 @@ window.perlin = perlinInstance;
             requestChunkRemesh(cx, cz + 1, reason);
         }
 
-        function rebuildDirtyChunkMeshes() {
-            if (dirtyChunkRemeshReasons.size === 0) return;
-            for (const [key, reason] of dirtyChunkRemeshReasons.entries()) {
+        function rebuildDirtyChunkMeshes(forceAll = false) {
+            if (dirtyChunkRemeshReasons.size === 0) return 0;
+            const budget = forceAll ? MESH_REBUILD_BUDGET_FORCE : MESH_REBUILD_BUDGET_PER_FRAME;
+            let processed = 0;
+
+            const pending = Array.from(dirtyChunkRemeshReasons.entries());
+            for (const [key, reason] of pending) {
+                if (processed >= budget) break;
+                dirtyChunkRemeshReasons.delete(key);
                 const g = chunks.get(key);
                 if (!g) continue;
                 const forceRemesh = reason === 'lighting';
                 updateChunkGeometry(g, g.userData.chunkData, forceRemesh);
+                processed++;
             }
-            dirtyChunkRemeshReasons.clear();
+            return processed;
         }
         let physicsCursorY = 1;
 
@@ -262,7 +271,9 @@ window.perlin = perlinInstance;
             (cpuThreads !== null && cpuThreads <= 4)
         );
         const targetRenderPixelRatio = Math.min(window.devicePixelRatio || 1, isLowEndDevice ? 1 : 1.5);
-        const effectiveChunkLoadRadius = Math.max(4, Math.min(WORLD_RADIUS, isLowEndDevice ? Math.floor(WORLD_RADIUS * 0.65) : WORLD_RADIUS));
+        const configuredChunkRenderDistance = Math.floor(Number(worldGenSettings.chunkRenderDistance) || 12);
+        const baseChunkRenderDistance = Math.max(4, Math.min(WORLD_RADIUS, configuredChunkRenderDistance));
+        const effectiveChunkLoadRadius = Math.max(4, Math.min(WORLD_RADIUS, isLowEndDevice ? Math.max(4, baseChunkRenderDistance - 2) : baseChunkRenderDistance));
         const CHUNK_UPDATE_INTERVAL_MS = isLowEndDevice ? 220 : 90;
         const FRUSTUM_CULL_INTERVAL_MS = isLowEndDevice ? 120 : 60;
         const chunkOffsetsByRadius = new Map();
@@ -2649,7 +2660,6 @@ window.perlin = perlinInstance;
             const lightingSensitive = Boolean(oldMat?.emissive || newMat?.emissive || oldType === 22 || newType === 22 || oldType === 4 || newType === 4 || oldType === 33 || newType === 33);
             if (lightingSensitive) requestChunkAndNeighborsRemesh(cx, cz, 'lighting');
 
-            if (!deferGeometryUpdate) rebuildDirtyChunkMeshes();
             return true;
         }
 
@@ -2724,7 +2734,6 @@ window.perlin = perlinInstance;
                 }
             }
 
-            rebuildDirtyChunkMeshes();
 
         function modifyWorld(posVector, newType, options = {}) {
             const wx = Math.floor(posVector.x);
@@ -4557,7 +4566,6 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             group.userData = { chunkData: data, cx, cz, meshHash: null, frustumRadius: Math.sqrt((CHUNK_SIZE*CHUNK_SIZE)*0.5 + (CHUNK_HEIGHT*CHUNK_HEIGHT)*0.25) };
             chunks.set(`${cx},${cz}`, group);
             requestChunkRemesh(cx, cz, 'load');
-            rebuildDirtyChunkMeshes();
             worldGroup.add(group);
             if (generated.spawnedGnomes && generated.spawnedGnomes.length) {
                 for (const g of generated.spawnedGnomes) spawnGnomeAt(g.wx, g.wy, g.wz);
@@ -5232,7 +5240,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
 
         function getChunkRetentionRadius() {
-            return effectiveChunkLoadRadius + 2;
+            // Small hysteresis band prevents rapid load/unload thrashing when crossing chunk borders.
+            return effectiveChunkLoadRadius + 1;
         }
 
         function ensureChunksAroundPlayer(forceUpdate = false, nowMs = performance.now()) {
@@ -5252,9 +5261,11 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             const budget = forceUpdate ? CHUNK_CREATION_BUDGET_FORCE : CHUNK_CREATION_BUDGET_PER_TICK;
             if (budget > 0) {
                 const offsets = getChunkOffsetsForRadius(loadRadius);
+                const loadRadiusSq = loadRadius * loadRadius;
                 let created = 0;
                 for (let i = 0; i < offsets.length && created < budget; i++) {
                     const off = offsets[i];
+                    if (off.dist2 > loadRadiusSq) continue;
                     const cx = playerChunkX + off.dx;
                     const cz = playerChunkZ + off.dz;
                     const chunkKey = `${cx},${cz}`;
@@ -5265,10 +5276,12 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             }
 
             const chunkKeysToRemove = [];
+            const keepRadiusSq = keepRadius * keepRadius;
             for (const [chunkKey, chunkGroup] of chunks.entries()) {
                 const dx = chunkGroup.userData.cx - playerChunkX;
                 const dz = chunkGroup.userData.cz - playerChunkZ;
-                if (Math.abs(dx) > keepRadius || Math.abs(dz) > keepRadius) {
+                const dist2 = dx * dx + dz * dz;
+                if (dist2 > keepRadiusSq) {
                     chunkKeysToRemove.push(chunkKey);
                 }
             }
@@ -5292,6 +5305,11 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
         function generateWorld() {
             ensureChunksAroundPlayer(true);
+        }
+
+        function processMeshUpdateQueue() {
+            // Spread chunk mesh rebuilds across frames to avoid spikes.
+            rebuildDirtyChunkMeshes(false);
         }
 
         function maybeUpdateChunkFrustumCulling(nowMs) {
@@ -5392,6 +5410,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 updateEatingAnimation(delta, time);
                 updatePlayerAvatarVisuals(time);
                 updateFirstPersonHand(time);
+                processMeshUpdateQueue();
                 const dtSec = delta / 1000;
                 if (window.FurnaceSystem) {
                     for (const state of furnaceStates.values()) window.FurnaceSystem.updateState(state, dtSec);
@@ -5406,6 +5425,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 updateEatingAnimation(delta, time);
                 maybeSpawnLavaParticles(delta);
                 updateWorldParticles(delta);
+                processMeshUpdateQueue();
                 miningState.active = false;
                 updateBreakingOverlay();
             }
