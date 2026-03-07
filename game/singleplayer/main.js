@@ -38,6 +38,14 @@
         const TerrainModules = {};
 
         const worldGenSettings = WORLD_GEN_SETTINGS || {};
+        const wasmSettings = worldGenSettings.wasm || {};
+        const terrainCarvingSettings = worldGenSettings.terrainCarving || {};
+        const CAVE_SURFACE_SAFETY_DEPTH = Math.max(2, Number(terrainCarvingSettings.caveSurfaceSafetyDepth) || 7);
+        const RAVINE_SURFACE_SAFETY_DEPTH = Math.max(3, Number(terrainCarvingSettings.ravineSurfaceSafetyDepth) || 8);
+        const RAVINE_ACTIVATION_THRESHOLD = Math.max(0.75, Math.min(0.98, Number(terrainCarvingSettings.ravineActivationThreshold) || 0.9));
+        const CHUNK_CREATION_BUDGET_PER_TICK = Math.max(1, Math.floor(Number(worldGenSettings.chunkCreationBudgetPerTick) || 3));
+        const CHUNK_CREATION_BUDGET_FORCE = Math.max(CHUNK_CREATION_BUDGET_PER_TICK, Math.floor(Number(worldGenSettings.chunkCreationBudgetOnForceUpdate) || 10));
+        const USE_WASM_CAVE_SAMPLING = Boolean(wasmSettings.enabled && wasmSettings.preferCaveSampling);
 
         function normalizeWorldSeed(seedValue) {
             const parsed = Number(seedValue);
@@ -232,6 +240,7 @@ window.perlin = perlinInstance;
       
         let scene, camera, renderer, perlin, raycaster;
         let worldGenerator = null;
+        let wasmRuntime = window.WorldgenWasmRuntime || null;
         let lightingSystem = null;
         const torchLightsByChunk = new Map();
         const frustum = new THREE.Frustum();
@@ -381,6 +390,12 @@ window.perlin = perlinInstance;
                     chunkHeight: CHUNK_HEIGHT,
                     worldGenSettings,
                 });
+                if (wasmRuntime?.init) {
+                    wasmRuntime.init({
+                        enabled: Boolean(wasmSettings.enabled),
+                        modulePath: wasmSettings.modulePath || 'worldgen/wasm/worldgen.wasm',
+                    }).catch(() => {});
+                }
                 console.info('[World seed]', worldSeed);
                 lightingSystem = SpawnLighting.create ? SpawnLighting.create({ getBlockType, isLiquid, CHUNK_HEIGHT }) : null;
             } else {
@@ -3129,6 +3144,17 @@ window.perlin = perlinInstance;
             return h / 4294967296;
         }
 
+        function sampleCaveShape(wx, y, wz) {
+            if (USE_WASM_CAVE_SAMPLING && wasmRuntime?.has && wasmRuntime.has('caveShape')) {
+                const out = wasmRuntime.call('caveShape', wx, y, wz, CAVE_SCALE);
+                if (typeof out === 'number' && Number.isFinite(out)) return out;
+            }
+
+            const n1 = perlin.noise3D(wx * CAVE_SCALE, y * CAVE_SCALE * 1.7, wz * CAVE_SCALE);
+            const n2 = perlin.noise3D(wx * CAVE_SCALE * 2.2 + 100, y * CAVE_SCALE * 1.1, wz * CAVE_SCALE * 2.2 + 100);
+            return n1 * 0.7 + n2 * 0.3;
+        }
+
         function sampleTerrainVector(wx, wz) {
             // Multi-noise vector: continentalness/erosion/weirdness/humidity.
             const continentalness = octaveNoise2D(wx, wz, 3, 0.52, 2.0, 0.00145, 200, 200);
@@ -4044,9 +4070,15 @@ function buildPartFaceRects(x, y, w, h, d) {
                      const isFrozenRiver = !!worldSample && (worldSample.biome === 'Frozen River' || worldSample.tempBand === (window.WorldgenLayers?.Constants?.FREEZING ?? 13));
                      const RIVER_WIDTH_THRESHOLD = 0.1;
                      const isRiver = !worldSample?.noRiver && riverInfluence > RIVER_WIDTH_THRESHOLD;
-                     
-                     let surfaceBlockType = 0; // Used for tree placement logic
-
+                     const ravineMask = getRavineMask(wx, wz);
+                     const ravineTopCap = Math.max(3, h - RAVINE_SURFACE_SAFETY_DEPTH);
+                     const canCarveRavine = ravineMask > RAVINE_ACTIVATION_THRESHOLD && ravineTopCap > 3;
+                     const ravineStrength = canCarveRavine
+                        ? ((ravineMask - RAVINE_ACTIVATION_THRESHOLD) / (1 - RAVINE_ACTIVATION_THRESHOLD))
+                        : 0;
+                     const ravineTop = canCarveRavine ? Math.min(ravineTopCap, CHUNK_HEIGHT - 1) : 0;
+                     const ravineMaxDepth = canCarveRavine ? (12 + Math.floor(ravineStrength * 8)) : 0;
+                     const ravineBottom = canCarveRavine ? Math.max(3, ravineTop - ravineMaxDepth) : 0;
                      for (let y = 0; y < CHUNK_HEIGHT; y++) {
                          let t = 0; // Block type
 
@@ -4057,63 +4089,30 @@ function buildPartFaceRects(x, y, w, h, d) {
                          }
 
                          if (y < h) {
-                            
-                             const distFromSurface = h - 1 - y;
+                            const distFromSurface = h - 1 - y;
 
-                             if (biome === 'Desert') {
-                                 if (distFromSurface === 0) {
-                                     t = 7;
-                                     surfaceBlockType = 7;
-                                 } else if (distFromSurface < 5) {
-                                     t = 7;
-                                 } else {
-                                     t = 13;
-                                 }
-                             } else if (biome === 'Snowy Plains') {
-                                 if (distFromSurface === 0) {
-                                     t = 15;
-                                     surfaceBlockType = 15;
-                                 } else {
-                                     t = 59;
-                                 }
-                             } else if (biome === 'Mountains') {
-                                 const isSnowCap = h > SEA_LEVEL + 26;
+                            if (worldGenerator?.terrain?.surfaceBlockForBiome) {
+                                t = worldGenerator.terrain.surfaceBlockForBiome(biome, y, h, SEA_LEVEL);
+                            } else if (biome === 'Desert') {
+                                t = distFromSurface < 5 ? 7 : 13;
+                            } else if (biome === 'Snowy Plains') {
+                                t = distFromSurface === 0 ? 15 : 59;
+                            } else if (biome === 'Mountains') {
+                                t = distFromSurface === 0 && h > SEA_LEVEL + 20 ? 15 : 3;
+                            } else {
+                                const isBeachZone = h >= SEA_LEVEL - 1 && h <= SEA_LEVEL + 2;
+                                if (distFromSurface === 0) t = isBeachZone ? 7 : 1;
+                                else if (distFromSurface < 4) t = isBeachZone ? 7 : 2;
+                                else t = 3;
+                            }
 
-                                 // Keep mountain tops rugged, but avoid aggressive floating pillars.
-                                 const ridgeRough = Math.abs(perlin.noise3D(wx * 0.017 + 310, y * 0.024, wz * 0.017 - 145));
-                                 const microBreak = Math.abs(perlin.noise3D(wx * 0.035 - 980, y * 0.045, wz * 0.035 + 410));
-                                 const shouldCarve = distFromSurface <= 8 && ridgeRough > 0.87 && microBreak > 0.82;
-
-                                 if (shouldCarve) {
-                                     t = 0;
-                                 } else if (distFromSurface === 0) {
-                                     t = isSnowCap ? 15 : 3;
-                                     surfaceBlockType = t;
-                                 } else {
-                                     t = 3;
-                                 }
-                             } else { // Plains/Forest/Ocean Biome logic
-                                 
-                                 const isBeachZone = h >= SEA_LEVEL - 1 && h <= SEA_LEVEL + 2;
-
-                                 if (distFromSurface === 0) {
-                                     if (isBeachZone) {
-                                         t = 7; // Sand for beaches
-                                         surfaceBlockType = 7;
-                                     } else {
-                                         t = 1; // Grass for Plains and Forest
-                                         surfaceBlockType = 1;
-                                     }
-                                 } else if (distFromSurface < 4) {
-                                     if (isBeachZone) {
-                                         t = 7; // Sand below beach
-                                     } else {
-                                         t = 2; // Dirt below grass
-                                     }
-                                 } else {
-                                     t = 3; // Stone deep down
-                                 }
-                             }
+                            if (biome === 'Mountains' && t !== 0) {
+                                // Keep mountain tops rugged, but avoid aggressive floating pillars.
+                                const ridgeRough = Math.abs(perlin.noise3D(wx * 0.017 + 310, y * 0.024, wz * 0.017 - 145));
+                                const microBreak = Math.abs(perlin.noise3D(wx * 0.035 - 980, y * 0.045, wz * 0.035 + 410));
+                                const shouldCarve = distFromSurface <= 8 && ridgeRough > 0.87 && microBreak > 0.82;
+                                if (shouldCarve) t = 0;
+                            }
                              
                             // --- RIVER BED OVERRIDE ---
                             if (isRiver && y < SEA_LEVEL - 1) { 
@@ -4138,11 +4137,9 @@ function buildPartFaceRects(x, y, w, h, d) {
                          }
                          
                         // --- Cave Generation Pass (layered Perlin for bigger cave systems) ---
-                        if (y > CAVE_MIN_Y && y < h - CAVE_MAX_Y_OFFSET) {
-                            if (t === 3 || t === 2 || t === 7 || t === 13) {
-                                const n1 = perlin.noise3D(wx * CAVE_SCALE, y * CAVE_SCALE * 1.7, wz * CAVE_SCALE);
-                                const n2 = perlin.noise3D(wx * CAVE_SCALE * 2.2 + 100, y * CAVE_SCALE * 1.1, wz * CAVE_SCALE * 2.2 + 100);
-                                const caveShape = n1 * 0.7 + n2 * 0.3;
+                        if (y > CAVE_MIN_Y && y < h - CAVE_MAX_Y_OFFSET && (h - y) >= CAVE_SURFACE_SAFETY_DEPTH) {
+                            if (t === 3 || t === 2 || t === 7 || t === 13 || t === 28 || t === 59) {
+                                const caveShape = sampleCaveShape(wx, y, wz);
 
                                 const depth = Math.max(0, (h - y) / Math.max(1, h));
                                 const dynamicThreshold = CAVE_THRESHOLD - Math.min(0.14, depth * 0.2);
@@ -4156,18 +4153,8 @@ function buildPartFaceRects(x, y, w, h, d) {
                          
                          
 // 🔹 Optimized Ravine Generation
-const ravineMask = getRavineMask(wx, wz);
-
-if (ravineMask > 0.86) {
-    const strength = (ravineMask - 0.86) / 0.14;
-
-    // Limit top slightly above terrain
-    const ravineTop = Math.min(h + 3, CHUNK_HEIGHT - 1);
-
-    // Reduce max depth for smaller chunks
-    const maxDepth = 12 + Math.floor(strength * 8); // 12–20 blocks deep
-    const ravineBottom = Math.max(3, ravineTop - maxDepth);
-
+if (canCarveRavine) {
+    const strength = ravineStrength;
     if (y <= ravineTop && y >= ravineBottom) {
         const mid = (ravineTop + ravineBottom) / 2;
         const halfHeight = (ravineTop - ravineBottom) / 2;
@@ -4864,10 +4851,24 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             const loadRadius = effectiveChunkLoadRadius;
             const keepRadius = getChunkRetentionRadius();
 
+            const missing = [];
             for (let cx = playerChunkX - loadRadius; cx <= playerChunkX + loadRadius; cx++) {
                 for (let cz = playerChunkZ - loadRadius; cz <= playerChunkZ + loadRadius; cz++) {
                     const chunkKey = `${cx},${cz}`;
-                    if (!chunks.has(chunkKey)) createChunk(cx, cz);
+                    if (chunks.has(chunkKey)) continue;
+                    const dx = cx - playerChunkX;
+                    const dz = cz - playerChunkZ;
+                    missing.push({ cx, cz, dist2: dx * dx + dz * dz });
+                }
+            }
+
+            if (missing.length) {
+                missing.sort((a, b) => a.dist2 - b.dist2);
+                const budget = forceUpdate ? CHUNK_CREATION_BUDGET_FORCE : CHUNK_CREATION_BUDGET_PER_TICK;
+                const createCount = Math.min(budget, missing.length);
+                for (let i = 0; i < createCount; i++) {
+                    const item = missing[i];
+                    createChunk(item.cx, item.cz);
                 }
             }
 

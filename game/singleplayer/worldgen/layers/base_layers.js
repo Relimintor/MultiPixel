@@ -155,7 +155,7 @@
 
       if (warmSpecial) return 'Badlands Plateau';
       if (temperateSpecial) return 'Jungle';
-      if (coldSpecial) return 'Giant Taiga';
+      if (coldSpecial) return 'Giant Tree Taiga';
 
       if (temp === C.WARM) {
         if (r < 0.32) return 'Desert';
@@ -201,13 +201,21 @@
     }
 
     bambooJungleVariant(biome, wx, wz, scale) {
-      // Explicitly disabled for this worldgen profile.
-      return biome;
+      if (!this.settings.enableBambooJungleVariant) return biome;
+      if (biome !== 'Jungle') return biome;
+      const c = this.toCell(wx, wz, scale);
+      const roll = this.random.pick2D(c.x, c.z, this.seed + 1301, 10);
+      if (roll !== 0) return biome;
+      return 'Bamboo Jungle';
     }
 
     sunflowerPlainsVariant(biome, wx, wz, scale) {
-      // Explicitly disabled for this worldgen profile.
-      return biome;
+      if (!this.settings.enableSunflowerPlainsVariant) return biome;
+      if (biome !== 'Plains') return biome;
+      const c = this.toCell(wx, wz, scale);
+      const roll = this.random.pick2D(c.x, c.z, this.seed + 1302, 57);
+      if (roll !== 0) return biome;
+      return 'Sunflower Plains';
     }
 
     biomeEdge(biome, wx, wz, scale) {
@@ -221,7 +229,8 @@
     regionHills(biome, hillNoise, wx, wz, scale) {
       const c = this.toCell(wx, wz, scale);
       const roll = this.random.at2D(c.x, c.z, this.seed + 1400);
-      const hillChance = Number(this.settings.regionHillChance) || 0.08;
+      const configuredHillChance = Number(this.settings.regionHillChance);
+      const hillChance = Number.isFinite(configuredHillChance) ? Math.max(0, Math.min(1, configuredHillChance)) : 0.08;
       if (roll > hillChance) return biome;
       if (biome === 'Desert') return 'Desert Hills';
       if (biome === 'Forest' || biome === 'Birch Forest') return 'Wooded Hills';
@@ -290,9 +299,12 @@
     }
 
     voronoiBreakup(biome, wx, wz) {
-      const jx = this.perlin.noise2D(wx * 0.09 + 901, wz * 0.09 - 901);
-      const jz = this.perlin.noise2D(wx * 0.09 - 377, wz * 0.09 + 377);
-      if (Math.abs(jx) + Math.abs(jz) > 1.72) return 'Plains';
+      // Keep final biome map continuous at block scale.
+      // The old high-frequency fallback created tiny 2x2/3x3 biome speckles.
+      const coarseX = Math.floor(wx / 16);
+      const coarseZ = Math.floor(wz / 16);
+      const edgeNoise = this.perlin.noise2D(coarseX * 0.12 + 901, coarseZ * 0.12 - 901);
+      if (edgeNoise > 0.995) return 'Plains';
       return biome;
     }
   }
