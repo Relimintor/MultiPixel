@@ -201,6 +201,8 @@ window.perlin = perlinInstance;
         let blockUpdateBatchDepth = 0;
         const batchedChunkRemeshNeeds = new Map();
         const meshVertexBucketPool = [];
+        const POSITION_QUANT_SCALE = 256;
+        const UV_QUANT_MAX = 65535;
 
         function acquireMeshVertexBucket() {
             return meshVertexBucketPool.pop() || { pos: [], norm: [], col: [], uv: [] };
@@ -213,6 +215,11 @@ window.perlin = perlinInstance;
             bucket.col.length = 0;
             bucket.uv.length = 0;
             meshVertexBucketPool.push(bucket);
+        }
+
+        function wrap01(v) {
+            const w = v - Math.floor(v);
+            return w < 0 ? (w + 1) : w;
         }
 
         function chunkKeyFromCoords(cx, cz) {
@@ -5487,8 +5494,34 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 if (!gd || gd.pos.length === 0) continue;
 
                 const geom = new THREE.BufferGeometry();
-                const posAttr = new THREE.Float32BufferAttribute(gd.pos, 3);
-                const normAttr = new THREE.Float32BufferAttribute(gd.norm, 3);
+                const vertCount = Math.floor(gd.pos.length / 3);
+                const packedPos = new Int16Array(vertCount * 3);
+                const packedNorm = new Int8Array(vertCount * 3);
+                const packedUv = gd.uv.length > 0 ? new Uint16Array(Math.floor(gd.uv.length)) : null;
+
+                const meshOriginX = cx * CS;
+                const meshOriginY = sectionStartY;
+                const meshOriginZ = cz * CS;
+
+                for (let i = 0; i < vertCount; i++) {
+                    const pBase = i * 3;
+                    packedPos[pBase] = Math.round((gd.pos[pBase] - meshOriginX) * POSITION_QUANT_SCALE);
+                    packedPos[pBase + 1] = Math.round((gd.pos[pBase + 1] - meshOriginY) * POSITION_QUANT_SCALE);
+                    packedPos[pBase + 2] = Math.round((gd.pos[pBase + 2] - meshOriginZ) * POSITION_QUANT_SCALE);
+
+                    packedNorm[pBase] = Math.max(-127, Math.min(127, Math.round(gd.norm[pBase] * 127)));
+                    packedNorm[pBase + 1] = Math.max(-127, Math.min(127, Math.round(gd.norm[pBase + 1] * 127)));
+                    packedNorm[pBase + 2] = Math.max(-127, Math.min(127, Math.round(gd.norm[pBase + 2] * 127)));
+                }
+
+                if (packedUv) {
+                    for (let i = 0; i < gd.uv.length; i++) {
+                        packedUv[i] = Math.max(0, Math.min(UV_QUANT_MAX, Math.round(wrap01(gd.uv[i]) * UV_QUANT_MAX)));
+                    }
+                }
+
+                const posAttr = new THREE.Int16BufferAttribute(packedPos, 3);
+                const normAttr = new THREE.Int8BufferAttribute(packedNorm, 3, true);
                 posAttr.setUsage(THREE.StaticDrawUsage);
                 normAttr.setUsage(THREE.StaticDrawUsage);
                 geom.setAttribute('position', posAttr);
@@ -5498,8 +5531,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 let currentMaterial = materials[logicalKey];
 
                 // Set UVs if material is textured (i.e., it has a map)
-                if (currentMaterial && currentMaterial.map && gd.uv.length > 0) {
-                    const uvAttr = new THREE.Float32BufferAttribute(gd.uv, 2);
+                if (currentMaterial && currentMaterial.map && packedUv && packedUv.length > 0) {
+                    const uvAttr = new THREE.Uint16BufferAttribute(packedUv, 2, true);
                     uvAttr.setUsage(THREE.StaticDrawUsage);
                     geom.setAttribute('uv', uvAttr);
                 }
@@ -5522,11 +5555,15 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                     existing.geometry = geom;
                     existing.material = currentMaterial;
                     existing.visible = true;
+                    existing.position.set(meshOriginX, meshOriginY, meshOriginZ);
+                    existing.scale.setScalar(1 / POSITION_QUANT_SCALE);
                     if (oldGeom) oldGeom.dispose();
                 } else {
                     const mesh = new THREE.Mesh(geom, currentMaterial);
                     // Chunk group visibility controls culling; disable per-mesh frustum to prevent angle artifacts.
                     mesh.frustumCulled = false;
+                    mesh.position.set(meshOriginX, meshOriginY, meshOriginZ);
+                    mesh.scale.setScalar(1 / POSITION_QUANT_SCALE);
                     meshesByKey.set(key, mesh);
                     group.add(mesh);
                 }
