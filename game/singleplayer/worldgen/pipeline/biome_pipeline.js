@@ -1,6 +1,17 @@
 (function () {
   const P = () => window.WorldgenLayerPrograms;
 
+  const enforceBiomePolicy = (biome) => {
+    // Biomes explicitly excluded by project direction.
+    if (biome === 'Savanna' || biome === 'Shattered Savanna' || biome === 'Shattered Savanna Plateau') return 'Plains';
+    if (biome === 'Bamboo Jungle' || biome === 'Bamboo Jungle Hills') return 'Jungle';
+    if (biome === 'Sunflower Plains') return 'Plains';
+    if (biome === 'Flower Forest') return 'Forest';
+    if (biome === 'Swamp') return 'Forest';
+    if (biome === 'Ice Spikes') return 'Snowy Plains';
+    return biome;
+  };
+
   const normalizeForGameplay = (biome) => {
     if (biome === 'Savanna') return 'Plains';
     if (biome === 'Badlands Plateau') return 'Desert';
@@ -38,6 +49,7 @@
       const mainLegacy = this.main.sampleLegacyMain(wx, wz);
       const hillNoise = this.hills.sample(wx, wz);
       let biome = this.main.sampleBiomeStack(wx, wz, mainLegacy, hillNoise);
+      biome = enforceBiomePolicy(biome);
 
       const riverMask = this.river.sampleMask(wx, wz, hillNoise);
       const isMushroom = mainLegacy.land === 99;
@@ -48,12 +60,15 @@
 
       const freezeBand = mainLegacy.temp === this.constants.FREEZING;
       biome = p.mix_river({ biome, riverMask, freezeBand, isMushroom, isOcean });
+      biome = enforceBiomePolicy(biome);
 
       const oceanTempNoise = this.oceanTemp.sample(wx, wz);
       biome = p.mix_ocean({ ops: this.ops, biome, oceanTempNoise });
+      biome = enforceBiomePolicy(biome);
       const oceanTempClass = this.ops.classifyOceanTemperature(oceanTempNoise);
 
       biome = p.mix_voronoi_4_1({ ops: this.ops, biome, wx, wz });
+      biome = enforceBiomePolicy(biome);
 
       return {
         biome,
