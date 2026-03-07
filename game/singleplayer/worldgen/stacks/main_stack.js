@@ -11,6 +11,19 @@
     constructor(layerOps, settings = {}) {
       this.ops = layerOps;
       this.settings = settings;
+      const configuredRatios = settings.temperatureRatios || {};
+      const warm = Number.isFinite(configuredRatios.warm) ? Number(configuredRatios.warm) : 4;
+      const cold = Number.isFinite(configuredRatios.cold) ? Number(configuredRatios.cold) : 1;
+      const freezing = Number.isFinite(configuredRatios.freezing) ? Number(configuredRatios.freezing) : 1;
+      const total = Math.max(1e-6, warm + cold + freezing);
+      this.temperatureDistribution = {
+        warm: warm / total,
+        cold: cold / total,
+        freezing: freezing / total,
+      };
+      this.specialRegionChance = Number.isFinite(settings.specialRegionChance)
+        ? Math.max(0, Math.min(1, Number(settings.specialRegionChance)))
+        : (1 / 13);
       this.layerCache = new Map();
       this.maxCacheEntries = 180000;
     }
@@ -99,9 +112,11 @@
       return this.cached('temperature', x, z, () => {
         if (landFn(x, z) !== C().LAND) return C().OCEAN;
         const r = this.ops.random.at2D(x, z, this.ops.seed + 303);
-        const special = this.ops.random.at2D(x, z, this.ops.seed + 304) < (1 / 13);
-        if (r < (4 / 6)) return special ? C().WARM_SPECIAL : C().WARM;
-        if (r < (5 / 6)) return special ? C().COLD_SPECIAL : C().COLD;
+        const special = this.ops.random.at2D(x, z, this.ops.seed + 304) < this.specialRegionChance;
+        const warmThreshold = this.temperatureDistribution.warm;
+        const coldThreshold = this.temperatureDistribution.warm + this.temperatureDistribution.cold;
+        if (r < warmThreshold) return special ? C().WARM_SPECIAL : C().WARM;
+        if (r < coldThreshold) return special ? C().COLD_SPECIAL : C().COLD;
         return C().FREEZING;
       });
     }
