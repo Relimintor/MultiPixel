@@ -193,6 +193,31 @@ window.perlin = perlinInstance;
         let lavaParticleScanMs = 0;
         let lastPhysicsTickMs = 0;
         const dirtyChunkKeys = new Set();
+
+        function chunkKeyFromCoords(cx, cz) {
+            return `${cx},${cz}`;
+        }
+
+        function markChunkDirty(cx, cz) {
+            dirtyChunkKeys.add(chunkKeyFromCoords(cx, cz));
+        }
+
+        function markChunkAndNeighborsDirty(cx, cz) {
+            markChunkDirty(cx, cz);
+            markChunkDirty(cx - 1, cz);
+            markChunkDirty(cx + 1, cz);
+            markChunkDirty(cx, cz - 1);
+            markChunkDirty(cx, cz + 1);
+        }
+
+        function rebuildDirtyChunkMeshes() {
+            if (dirtyChunkKeys.size === 0) return;
+            for (const key of dirtyChunkKeys) {
+                const g = chunks.get(key);
+                if (g) updateChunkGeometry(g, g.userData.chunkData);
+            }
+            dirtyChunkKeys.clear();
+        }
         let physicsCursorY = 1;
 
         const MOBILE_ASSET_BASE = `${window.SingleplayerConfig?.REPO_BASE_PREFIX || ''}/game/singleplayer/assets/mobile`;
@@ -2592,18 +2617,26 @@ window.perlin = perlinInstance;
 
             const index = lx + wy * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
             const chunkData = group.userData.chunkData;
-            if (chunkData[index] === newType) return false;
+            const oldType = chunkData[index];
+            if (oldType === newType) return false;
             chunkData[index] = newType;
 
-            if (deferGeometryUpdate) {
-                dirtyChunkKeys.add(chunkId);
-                if (lx <= 0) dirtyChunkKeys.add(`${cx-1},${cz}`);
-                if (lx >= CHUNK_SIZE - 1) dirtyChunkKeys.add(`${cx+1},${cz}`);
-                if (lz <= 0) dirtyChunkKeys.add(`${cx},${cz-1}`);
-                if (lz >= CHUNK_SIZE - 1) dirtyChunkKeys.add(`${cx},${cz+1}`);
-            } else {
-                updateChunkAndNeighbors(group, lx, lz);
-            }
+            // Chunk meshing rebuild triggers:
+            // - block changes
+            // - neighbor chunk changes (edge edits)
+            // - lighting-affecting changes (deferred through same dirty queue)
+            markChunkDirty(cx, cz);
+            if (lx <= 0) markChunkDirty(cx - 1, cz);
+            if (lx >= CHUNK_SIZE - 1) markChunkDirty(cx + 1, cz);
+            if (lz <= 0) markChunkDirty(cx, cz - 1);
+            if (lz >= CHUNK_SIZE - 1) markChunkDirty(cx, cz + 1);
+
+            const oldMat = blockMaterials[oldType];
+            const newMat = blockMaterials[newType];
+            const lightingSensitive = Boolean(oldMat?.emissive || newMat?.emissive || oldType === 22 || newType === 22 || oldType === 4 || newType === 4 || oldType === 33 || newType === 33);
+            if (lightingSensitive) markChunkAndNeighborsDirty(cx, cz);
+
+            if (!deferGeometryUpdate) rebuildDirtyChunkMeshes();
             return true;
         }
 
@@ -2678,13 +2711,7 @@ window.perlin = perlinInstance;
                 }
             }
 
-            if (dirtyChunkKeys.size > 0) {
-                for (const key of dirtyChunkKeys) {
-                    const g = chunks.get(key);
-                    if (g) updateChunkGeometry(g, g.userData.chunkData);
-                }
-                dirtyChunkKeys.clear();
-            }
+            rebuildDirtyChunkMeshes();
 
         function modifyWorld(posVector, newType, options = {}) {
             const wx = Math.floor(posVector.x);
@@ -4515,8 +4542,9 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             const data = generated.data;
             const group = new THREE.Group();
             group.userData = { chunkData: data, cx, cz, meshHash: null, frustumRadius: Math.sqrt((CHUNK_SIZE*CHUNK_SIZE)*0.5 + (CHUNK_HEIGHT*CHUNK_HEIGHT)*0.25) };
-            updateChunkGeometry(group, data);
             chunks.set(`${cx},${cz}`, group);
+            markChunkDirty(cx, cz);
+            rebuildDirtyChunkMeshes();
             worldGroup.add(group);
             if (generated.spawnedGnomes && generated.spawnedGnomes.length) {
                 for (const g of generated.spawnedGnomes) spawnGnomeAt(g.wx, g.wy, g.wz);
@@ -4557,25 +4585,13 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
         }
 
         function updateChunkAndNeighbors(centerGroup, lx, lz) {
-            updateChunkGeometry(centerGroup, centerGroup.userData.chunkData);
-            
-           
+            const cx = centerGroup.userData.cx;
+            const cz = centerGroup.userData.cz;
+            markChunkDirty(cx, cz);
             if (lx === 0 || lx === CHUNK_SIZE - 1 || lz === 0 || lz === CHUNK_SIZE - 1) {
-                const cx = centerGroup.userData.cx;
-                const cz = centerGroup.userData.cz;
-
-                const neighborOffsets = [
-                    [-1, 0], [1, 0], [0, -1], [0, 1]
-                ];
-
-                for (const [dx, dz] of neighborOffsets) {
-                    const neighborId = `${cx + dx},${cz + dz}`;
-                    const neighborGroup = chunks.get(neighborId);
-                    if (neighborGroup) {
-                        updateChunkGeometry(neighborGroup, neighborGroup.userData.chunkData);
-                    }
-                }
+                markChunkAndNeighborsDirty(cx, cz);
             }
+            rebuildDirtyChunkMeshes();
         }
         
         // Maps block ID to the THREE.js material key/fallback key
@@ -4656,6 +4672,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
         function updateChunkGeometry(group, data) {
 
+            // Chunk meshing pipeline: blocks -> greedy mesh -> vertex buffer -> GPU.
             const nextHash = computeChunkHash(data);
             if (group.userData.meshHash === nextHash && group.children.length > 0) return;
             group.userData.meshHash = nextHash;
