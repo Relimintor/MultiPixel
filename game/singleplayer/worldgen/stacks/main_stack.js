@@ -209,7 +209,21 @@
 
       const biome256 = (x, z) => this.cached('biome_256', x, z, () => {
         const landCell = legacyMain.landFn256(x, z);
-        const tempCell = legacyMain.tempFn256(x, z);
+        let tempCell = legacyMain.tempFn256(x, z);
+        if (landCell === C().LAND && tempCell === C().OCEAN) {
+          const neighbors = [
+            legacyMain.tempFn256(x, z - 1),
+            legacyMain.tempFn256(x, z + 1),
+            legacyMain.tempFn256(x - 1, z),
+            legacyMain.tempFn256(x + 1, z),
+          ].filter((t) => t !== C().OCEAN);
+          if (neighbors.length > 0) {
+            const pick = Math.floor(this.ops.random.at2D(x, z, this.ops.seed + 2213) * neighbors.length);
+            tempCell = neighbors[pick];
+          } else {
+            tempCell = this.addTemperatures(() => C().LAND, x, z);
+          }
+        }
         let b = this.ops.temperatureToBiome(tempCell, x * 256, z * 256, 256);
         if (landCell !== C().LAND && landCell !== 99) b = landCell === C().DEEP_OCEAN ? 'Deep Ocean' : 'Ocean';
         if (this.settings.enableBambooJungleVariant) b = this.ops.bambooJungleVariant(b, x * 256, z * 256, 256);
