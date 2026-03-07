@@ -316,6 +316,8 @@ window.perlin = perlinInstance;
                             texture.magFilter = THREE.NearestFilter; // Sharp pixel look
                             texture.minFilter = THREE.NearestMipmapNearestFilter;
                             texture.generateMipmaps = true;
+                            texture.wrapS = THREE.RepeatWrapping;
+                            texture.wrapT = THREE.RepeatWrapping;
                             if (renderer && renderer.capabilities) {
                                 texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
                             }
@@ -4684,70 +4686,274 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 { name: 'negZ', dir: [0,0,-1], corners: [[0.5625,0.8,0.4375],[0.5625,0.05,0.4375],[0.4375,0.05,0.4375],[0.4375,0.8,0.4375]], uv: [0,1,0,0,1,0,1,1] }
             ];
 
+            const CH = CHUNK_HEIGHT;
+            const CS = CHUNK_SIZE;
+
             const get = (x,y,z) => {
-                if(x<0||x>=16||z<0||z>=16||y<0||y>=96) {
-                    const wx = x + cx*16;
-                    const wz = z + cz*16;
-                    return getBlockType(wx, y, wz); 
+                if (x < 0 || x >= CS || z < 0 || z >= CS || y < 0 || y >= CH) {
+                    const wx = x + cx * CS;
+                    const wz = z + cz * CS;
+                    return getBlockType(wx, y, wz);
                 }
-                return data[x + y*16 + z*16*96];
+                return data[x + y * CS + z * CS * CH];
             };
 
-            for(let x=0; x<16; x++){
-                for(let y=0; y<96; y++){
-                    for(let z=0; z<16; z++){
-                        const id = data[x + y*16 + z*16*96];
-                        if(id===0) continue;
-                        
-                        const mat = blockMaterials[id];
-                        const isTorch = id === 22;
-                        if (isTorch) torchPositions.push({ x: x + cx*16, y, z: z + cz*16 });
-                        const isTrans = mat.transparent || (mat.textured && mat.textureKey === 'LEAVES');
-                        const activeFaces = isTorch ? torchFaces : faces;
+            const isTransparentBlock = (id) => {
+                const mat = blockMaterials[id];
+                return Boolean(mat && (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES')));
+            };
 
-                        for(let i=0; i<6; i++){
-                            const f = activeFaces[i];
-                            const nid = get(x+f.dir[0], y+f.dir[1], z+f.dir[2]);
-                            const neighborMat = blockMaterials[nid];
-                            
-                            let draw = false;
-                            if (isTorch) draw = true;
-                            else if (nid === 0) draw = true;
-                            else if (!isTrans && neighborMat?.transparent) draw = true;
-                            else if (isTrans && nid !== id) draw = true;
+            // Face culling core rule:
+            // if neighbor block is not AIR and both sides are opaque, the face is hidden and skipped.
+            const shouldCullFace = (id, nid) => {
+                if (nid === 0) return false;
+                const selfTransparent = isTransparentBlock(id);
+                const neighborTransparent = isTransparentBlock(nid);
+                if (!selfTransparent && !neighborTransparent) return true;
+                if (selfTransparent && nid === id) return true;
+                return false;
+            };
 
-                            if(draw) {
-                                const materialKey = getMaterialKey(id, f.dir);
-                                
-                                if (!geometryData[materialKey]) {
-                                    geometryData[materialKey] = { pos: [], norm: [], col: [], uv: [] };
+            const shouldDrawFace = (id, nid) => !shouldCullFace(id, nid);
+
+            const getFaceUvInfo = (blockId, faceName, fallbackUv) => {
+                const mat = blockMaterials[blockId];
+                const rect = mat?.textureUvByFace?.[faceName];
+                if (!rect) return { uv: fallbackUv, canTile: true };
+                return { uv: getFaceUVs(blockId, faceName, fallbackUv), canTile: false };
+            };
+
+            const scaledUv = (uv, repeatU, repeatV) => {
+                const u0 = Math.min(uv[0], uv[2], uv[4], uv[6]);
+                const u1 = Math.max(uv[0], uv[2], uv[4], uv[6]);
+                const v0 = Math.min(uv[1], uv[3], uv[5], uv[7]);
+                const v1 = Math.max(uv[1], uv[3], uv[5], uv[7]);
+                const du = Math.max(0.000001, u1 - u0);
+                const dv = Math.max(0.000001, v1 - v0);
+                const out = new Array(8);
+                for (let i = 0; i < 4; i++) {
+                    const bu = (uv[i * 2] - u0) / du;
+                    const bv = (uv[i * 2 + 1] - v0) / dv;
+                    out[i * 2] = u0 + du * (bu * repeatU);
+                    out[i * 2 + 1] = v0 + dv * (bv * repeatV);
+                }
+                return out;
+            };
+
+            const ensureGeometryData = (materialKey) => {
+                if (!geometryData[materialKey]) geometryData[materialKey] = { pos: [], norm: [], col: [], uv: [] };
+                return geometryData[materialKey];
+            };
+
+            const emitQuad = (id, materialKey, dir, corners, uvValues) => {
+                const gd = ensureGeometryData(materialKey);
+                const triOrder = [0, 1, 2, 0, 2, 3];
+                for (const ti of triOrder) {
+                    const c = corners[ti];
+                    gd.pos.push(c[0], c[1], c[2]);
+                    gd.norm.push(dir[0], dir[1], dir[2]);
+                    if (materials[materialKey] && materials[materialKey].map) {
+                        gd.uv.push(uvValues[ti * 2], uvValues[ti * 2 + 1]);
+                    } else {
+                        const color = blockMaterials[id].color || 0xd1c17e;
+                        const cc = new THREE.Color(color);
+                        gd.col.push(cc.r, cc.g, cc.b);
+                    }
+                }
+            };
+
+            const greedyFaces = [
+                { name: 'top', dir: [0, 1, 0], axis: 'y', sign: 1 },
+                { name: 'bottom', dir: [0, -1, 0], axis: 'y', sign: -1 },
+                { name: 'posX', dir: [1, 0, 0], axis: 'x', sign: 1 },
+                { name: 'negX', dir: [-1, 0, 0], axis: 'x', sign: -1 },
+                { name: 'posZ', dir: [0, 0, 1], axis: 'z', sign: 1 },
+                { name: 'negZ', dir: [0, 0, -1], axis: 'z', sign: -1 },
+            ];
+
+            for (const face of greedyFaces) {
+                if (face.axis === 'y') {
+                    for (let y = 0; y < CH; y++) {
+                        const visited = Array(CS * CS).fill(false);
+                        for (let z = 0; z < CS; z++) {
+                            for (let x = 0; x < CS; x++) {
+                                const mi = x + z * CS;
+                                if (visited[mi]) continue;
+                                const id = get(x, y, z);
+                                if (id === 0 || id === 22) continue;
+                                const mat = blockMaterials[id];
+                                if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES')) continue;
+                                const nid = get(x, y + face.sign, z);
+                                if (!shouldDrawFace(id, nid)) continue;
+                                const materialKey = getMaterialKey(id, face.dir);
+                                const uvInfo = getFaceUvInfo(id, face.name, [0,1, 0,0, 1,0, 1,1]);
+                                let w = 1;
+                                while (x + w < CS) {
+                                    const ni = x + w + z * CS;
+                                    if (visited[ni]) break;
+                                    const id2 = get(x + w, y, z);
+                                    if (id2 !== id) break;
+                                    if (getMaterialKey(id2, face.dir) !== materialKey) break;
+                                    if (!shouldDrawFace(id2, get(x + w, y + face.sign, z))) break;
+                                    w++;
                                 }
-                                const gd = geometryData[materialKey];
-                                
-                                const wx = x + cx*16;
-                                const wz = z + cz*16;
-                                const faceName = f.name || getFaceName(f.dir);
-                                const uvValues = getFaceUVs(id, faceName, f.uv);
-                                
-                                const triOrder = [0, 1, 2, 0, 2, 3];
-                                for (const ti of triOrder) {
-                                    const c = f.corners[ti];
-                                    gd.pos.push(wx + c[0], y + c[1], wz + c[2]);
-                                    gd.norm.push(f.dir[0], f.dir[1], f.dir[2]);
-                                    if (materials[materialKey] && materials[materialKey].map) {
-                                        gd.uv.push(uvValues[ti * 2], uvValues[ti * 2 + 1]);
-                                    } else {
-                                        const color = blockMaterials[id].color || 0xd1c17e;
-                                        const cc = new THREE.Color(color);
-                                        gd.col.push(cc.r, cc.g, cc.b);
+                                let h = 1;
+                                outerY: while (z + h < CS) {
+                                    for (let k = 0; k < w; k++) {
+                                        const ni = (x + k) + (z + h) * CS;
+                                        if (visited[ni]) break outerY;
+                                        const id2 = get(x + k, y, z + h);
+                                        if (id2 !== id) break outerY;
+                                        if (getMaterialKey(id2, face.dir) !== materialKey) break outerY;
+                                        if (!shouldDrawFace(id2, get(x + k, y + face.sign, z + h))) break outerY;
                                     }
+                                    h++;
                                 }
+                                for (let dz = 0; dz < h; dz++) for (let dx = 0; dx < w; dx++) visited[(x + dx) + (z + dz) * CS] = true;
+                                const wx = cx * CS + x;
+                                const wz = cz * CS + z;
+                                const py = face.sign > 0 ? y + 1 : y;
+                                const corners = face.sign > 0
+                                    ? [[wx, py, wz + h], [wx + w, py, wz + h], [wx + w, py, wz], [wx, py, wz]]
+                                    : [[wx, py, wz], [wx + w, py, wz], [wx + w, py, wz + h], [wx, py, wz + h]];
+                                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, w, h) : uvInfo.uv;
+                                emitQuad(id, materialKey, face.dir, corners, uv);
+                            }
+                        }
+                    }
+                } else if (face.axis === 'x') {
+                    for (let x = 0; x < CS; x++) {
+                        const visited = Array(CH * CS).fill(false);
+                        for (let z = 0; z < CS; z++) {
+                            for (let y = 0; y < CH; y++) {
+                                const mi = y + z * CH;
+                                if (visited[mi]) continue;
+                                const id = get(x, y, z);
+                                if (id === 0 || id === 22) continue;
+                                const mat = blockMaterials[id];
+                                if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES')) continue;
+                                const nid = get(x + face.sign, y, z);
+                                if (!shouldDrawFace(id, nid)) continue;
+                                const materialKey = getMaterialKey(id, face.dir);
+                                const uvInfo = getFaceUvInfo(id, face.name, [0,1, 0,0, 1,0, 1,1]);
+                                let w = 1;
+                                while (y + w < CH) {
+                                    const ni = (y + w) + z * CH;
+                                    if (visited[ni]) break;
+                                    const id2 = get(x, y + w, z);
+                                    if (id2 !== id) break;
+                                    if (getMaterialKey(id2, face.dir) !== materialKey) break;
+                                    if (!shouldDrawFace(id2, get(x + face.sign, y + w, z))) break;
+                                    w++;
+                                }
+                                let h = 1;
+                                outerX: while (z + h < CS) {
+                                    for (let k = 0; k < w; k++) {
+                                        const ni = (y + k) + (z + h) * CH;
+                                        if (visited[ni]) break outerX;
+                                        const id2 = get(x, y + k, z + h);
+                                        if (id2 !== id) break outerX;
+                                        if (getMaterialKey(id2, face.dir) !== materialKey) break outerX;
+                                        if (!shouldDrawFace(id2, get(x + face.sign, y + k, z + h))) break outerX;
+                                    }
+                                    h++;
+                                }
+                                for (let dz = 0; dz < h; dz++) for (let dy = 0; dy < w; dy++) visited[(y + dy) + (z + dz) * CH] = true;
+                                const wx = cx * CS + x;
+                                const wz = cz * CS + z;
+                                const px = face.sign > 0 ? wx + 1 : wx;
+                                const corners = face.sign > 0
+                                    ? [[px, y + w, wz + h], [px, y, wz + h], [px, y, wz], [px, y + w, wz]]
+                                    : [[px, y + w, wz], [px, y, wz], [px, y, wz + h], [px, y + w, wz + h]];
+                                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, h, w) : uvInfo.uv;
+                                emitQuad(id, materialKey, face.dir, corners, uv);
+                            }
+                        }
+                    }
+                } else {
+                    for (let z = 0; z < CS; z++) {
+                        const visited = Array(CH * CS).fill(false);
+                        for (let x = 0; x < CS; x++) {
+                            for (let y = 0; y < CH; y++) {
+                                const mi = y + x * CH;
+                                if (visited[mi]) continue;
+                                const id = get(x, y, z);
+                                if (id === 0 || id === 22) continue;
+                                const mat = blockMaterials[id];
+                                if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES')) continue;
+                                const nid = get(x, y, z + face.sign);
+                                if (!shouldDrawFace(id, nid)) continue;
+                                const materialKey = getMaterialKey(id, face.dir);
+                                const uvInfo = getFaceUvInfo(id, face.name, [0,1, 0,0, 1,0, 1,1]);
+                                let w = 1;
+                                while (y + w < CH) {
+                                    const ni = (y + w) + x * CH;
+                                    if (visited[ni]) break;
+                                    const id2 = get(x, y + w, z);
+                                    if (id2 !== id) break;
+                                    if (getMaterialKey(id2, face.dir) !== materialKey) break;
+                                    if (!shouldDrawFace(id2, get(x, y + w, z + face.sign))) break;
+                                    w++;
+                                }
+                                let h = 1;
+                                outerZ: while (x + h < CS) {
+                                    for (let k = 0; k < w; k++) {
+                                        const ni = (y + k) + (x + h) * CH;
+                                        if (visited[ni]) break outerZ;
+                                        const id2 = get(x + h, y + k, z);
+                                        if (id2 !== id) break outerZ;
+                                        if (getMaterialKey(id2, face.dir) !== materialKey) break outerZ;
+                                        if (!shouldDrawFace(id2, get(x + h, y + k, z + face.sign))) break outerZ;
+                                    }
+                                    h++;
+                                }
+                                for (let dx = 0; dx < h; dx++) for (let dy = 0; dy < w; dy++) visited[(y + dy) + (x + dx) * CH] = true;
+                                const wx = cx * CS + x;
+                                const wz = cz * CS + z;
+                                const pz = face.sign > 0 ? wz + 1 : wz;
+                                const corners = face.sign > 0
+                                    ? [[wx, y + w, pz], [wx, y, pz], [wx + h, y, pz], [wx + h, y + w, pz]]
+                                    : [[wx + h, y + w, pz], [wx + h, y, pz], [wx, y, pz], [wx, y + w, pz]];
+                                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, h, w) : uvInfo.uv;
+                                emitQuad(id, materialKey, face.dir, corners, uv);
                             }
                         }
                     }
                 }
             }
-            
+
+            // Keep non-cube/transparent blocks on classic meshing path.
+            for (let x = 0; x < CS; x++) {
+                for (let z = 0; z < CS; z++) {
+                    for (let y = 0; y < CH; y++) {
+                        const id = get(x, y, z);
+                        if (id === 0) continue;
+                        const mat = blockMaterials[id];
+                        const isTorch = id === 22;
+                        if (isTorch) torchPositions.push({ x: x + cx * CS, y, z: z + cz * CS });
+                        const isTrans = mat.transparent || (mat.textured && mat.textureKey === 'LEAVES');
+                        if (!isTorch && !isTrans) continue;
+                        const activeFaces = isTorch ? torchFaces : faces;
+
+                        for (let i = 0; i < 6; i++) {
+                            const f = activeFaces[i];
+                            const nid = get(x + f.dir[0], y + f.dir[1], z + f.dir[2]);
+                            let draw = false;
+                            if (isTorch) draw = true;
+                            else if (shouldDrawFace(id, nid)) draw = true;
+                            if (!draw) continue;
+
+                            const materialKey = getMaterialKey(id, f.dir);
+                            const faceName = f.name || getFaceName(f.dir);
+                            const uvInfo = getFaceUvInfo(id, faceName, f.uv);
+                            const wx = x + cx * CS;
+                            const wz = z + cz * CS;
+                            const corners = f.corners.map((c) => [wx + c[0], y + c[1], wz + c[2]]);
+                            emitQuad(id, materialKey, f.dir, corners, uvInfo.uv);
+                        }
+                    }
+                }
+            }
             // Generate meshes for all accumulated materials
             for (const key in geometryData) {
                 const gd = geometryData[key];
