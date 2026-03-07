@@ -4719,7 +4719,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             const group = new THREE.Group();
             group.userData = { chunkData: data, heightmap, cx, cz, meshHash: null, frustumRadius: Math.sqrt((CHUNK_SIZE*CHUNK_SIZE)*0.5 + (CHUNK_HEIGHT*CHUNK_HEIGHT)*0.25) };
             chunks.set(chunkKey, group);
-            requestChunkRemesh(cx, cz, 'load');
+            requestChunkAndNeighborsRemesh(cx, cz, 'load');
             worldGroup.add(group);
             if (generated.spawnedGnomes && generated.spawnedGnomes.length) {
                 for (const g of generated.spawnedGnomes) spawnGnomeAt(g.wx, g.wy, g.wz);
@@ -4988,13 +4988,36 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             const CH = CHUNK_HEIGHT;
             const CS = CHUNK_SIZE;
 
+            const westChunk = chunks.get(`${cx - 1},${cz}`);
+            const eastChunk = chunks.get(`${cx + 1},${cz}`);
+            const northChunk = chunks.get(`${cx},${cz - 1}`);
+            const southChunk = chunks.get(`${cx},${cz + 1}`);
+
             const get = (x,y,z) => {
-                if (x < 0 || x >= CS || z < 0 || z >= CS || y < 0 || y >= CH) {
-                    const wx = x + cx * CS;
-                    const wz = z + cz * CS;
-                    return getBlockType(wx, y, wz);
+                if (y < 0 || y >= CH) return 0;
+                if (x >= 0 && x < CS && z >= 0 && z < CS) {
+                    return data[x + y * CS + z * CS * CH];
                 }
-                return data[x + y * CS + z * CS * CH];
+
+                // Cross-chunk face checking at chunk borders:
+                // sample adjacent loaded chunk data directly; if adjacent chunk is missing,
+                // treat as air so border faces remain visible until that chunk loads.
+                if (x < 0 && z >= 0 && z < CS && westChunk?.userData?.chunkData) {
+                    return westChunk.userData.chunkData[(CS - 1) + y * CS + z * CS * CH];
+                }
+                if (x >= CS && z >= 0 && z < CS && eastChunk?.userData?.chunkData) {
+                    return eastChunk.userData.chunkData[0 + y * CS + z * CS * CH];
+                }
+                if (z < 0 && x >= 0 && x < CS && northChunk?.userData?.chunkData) {
+                    return northChunk.userData.chunkData[x + y * CS + (CS - 1) * CS * CH];
+                }
+                if (z >= CS && x >= 0 && x < CS && southChunk?.userData?.chunkData) {
+                    return southChunk.userData.chunkData[x + y * CS + 0 * CS * CH];
+                }
+
+                // Corners and unloaded neighbors: do not use terrain fallback here,
+                // otherwise chunk-edge faces can be incorrectly culled.
+                return 0;
             };
 
             const isTransparentBlock = (id) => {
