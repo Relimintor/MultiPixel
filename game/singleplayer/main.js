@@ -42,6 +42,8 @@
         const CAVE_SURFACE_SAFETY_DEPTH = Math.max(2, Number(terrainCarvingSettings.caveSurfaceSafetyDepth) || 7);
         const RAVINE_SURFACE_SAFETY_DEPTH = Math.max(3, Number(terrainCarvingSettings.ravineSurfaceSafetyDepth) || 8);
         const RAVINE_ACTIVATION_THRESHOLD = Math.max(0.75, Math.min(0.98, Number(terrainCarvingSettings.ravineActivationThreshold) || 0.9));
+        const CHUNK_CREATION_BUDGET_PER_TICK = Math.max(1, Math.floor(Number(worldGenSettings.chunkCreationBudgetPerTick) || 3));
+        const CHUNK_CREATION_BUDGET_FORCE = Math.max(CHUNK_CREATION_BUDGET_PER_TICK, Math.floor(Number(worldGenSettings.chunkCreationBudgetOnForceUpdate) || 10));
 
         function normalizeWorldSeed(seedValue) {
             const parsed = Number(seedValue);
@@ -4048,6 +4050,15 @@ function buildPartFaceRects(x, y, w, h, d) {
                      const isFrozenRiver = !!worldSample && (worldSample.biome === 'Frozen River' || worldSample.tempBand === (window.WorldgenLayers?.Constants?.FREEZING ?? 13));
                      const RIVER_WIDTH_THRESHOLD = 0.1;
                      const isRiver = !worldSample?.noRiver && riverInfluence > RIVER_WIDTH_THRESHOLD;
+                     const ravineMask = getRavineMask(wx, wz);
+                     const ravineTopCap = Math.max(3, h - RAVINE_SURFACE_SAFETY_DEPTH);
+                     const canCarveRavine = ravineMask > RAVINE_ACTIVATION_THRESHOLD && ravineTopCap > 3;
+                     const ravineStrength = canCarveRavine
+                        ? ((ravineMask - RAVINE_ACTIVATION_THRESHOLD) / (1 - RAVINE_ACTIVATION_THRESHOLD))
+                        : 0;
+                     const ravineTop = canCarveRavine ? Math.min(ravineTopCap, CHUNK_HEIGHT - 1) : 0;
+                     const ravineMaxDepth = canCarveRavine ? (12 + Math.floor(ravineStrength * 8)) : 0;
+                     const ravineBottom = canCarveRavine ? Math.max(3, ravineTop - ravineMaxDepth) : 0;
                      for (let y = 0; y < CHUNK_HEIGHT; y++) {
                          let t = 0; // Block type
 
@@ -4124,19 +4135,8 @@ function buildPartFaceRects(x, y, w, h, d) {
                          
                          
 // 🔹 Optimized Ravine Generation
-const ravineMask = getRavineMask(wx, wz);
-const ravineTopCap = Math.max(3, h - RAVINE_SURFACE_SAFETY_DEPTH);
-
-if (ravineMask > RAVINE_ACTIVATION_THRESHOLD && ravineTopCap > 3) {
-    const strength = (ravineMask - RAVINE_ACTIVATION_THRESHOLD) / (1 - RAVINE_ACTIVATION_THRESHOLD);
-
-    // Limit top slightly above terrain
-    const ravineTop = Math.min(ravineTopCap, CHUNK_HEIGHT - 1);
-
-    // Reduce max depth for smaller chunks
-    const maxDepth = 12 + Math.floor(strength * 8); // 12–20 blocks deep
-    const ravineBottom = Math.max(3, ravineTop - maxDepth);
-
+if (canCarveRavine) {
+    const strength = ravineStrength;
     if (y <= ravineTop && y >= ravineBottom) {
         const mid = (ravineTop + ravineBottom) / 2;
         const halfHeight = (ravineTop - ravineBottom) / 2;
@@ -4833,10 +4833,24 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             const loadRadius = effectiveChunkLoadRadius;
             const keepRadius = getChunkRetentionRadius();
 
+            const missing = [];
             for (let cx = playerChunkX - loadRadius; cx <= playerChunkX + loadRadius; cx++) {
                 for (let cz = playerChunkZ - loadRadius; cz <= playerChunkZ + loadRadius; cz++) {
                     const chunkKey = `${cx},${cz}`;
-                    if (!chunks.has(chunkKey)) createChunk(cx, cz);
+                    if (chunks.has(chunkKey)) continue;
+                    const dx = cx - playerChunkX;
+                    const dz = cz - playerChunkZ;
+                    missing.push({ cx, cz, dist2: dx * dx + dz * dz });
+                }
+            }
+
+            if (missing.length) {
+                missing.sort((a, b) => a.dist2 - b.dist2);
+                const budget = forceUpdate ? CHUNK_CREATION_BUDGET_FORCE : CHUNK_CREATION_BUDGET_PER_TICK;
+                const createCount = Math.min(budget, missing.length);
+                for (let i = 0; i < createCount; i++) {
+                    const item = missing[i];
+                    createChunk(item.cx, item.cz);
                 }
             }
 

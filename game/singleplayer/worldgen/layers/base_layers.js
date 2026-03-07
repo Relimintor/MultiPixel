@@ -299,9 +299,12 @@
     }
 
     voronoiBreakup(biome, wx, wz) {
-      const jx = this.perlin.noise2D(wx * 0.09 + 901, wz * 0.09 - 901);
-      const jz = this.perlin.noise2D(wx * 0.09 - 377, wz * 0.09 + 377);
-      if (Math.abs(jx) + Math.abs(jz) > 1.72) return 'Plains';
+      // Keep final biome map continuous at block scale.
+      // The old high-frequency fallback created tiny 2x2/3x3 biome speckles.
+      const coarseX = Math.floor(wx / 16);
+      const coarseZ = Math.floor(wz / 16);
+      const edgeNoise = this.perlin.noise2D(coarseX * 0.12 + 901, coarseZ * 0.12 - 901);
+      if (edgeNoise > 0.995) return 'Plains';
       return biome;
     }
   }

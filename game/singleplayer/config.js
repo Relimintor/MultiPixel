@@ -16,6 +16,9 @@
       ravineSurfaceSafetyDepth: 8,
       ravineActivationThreshold: 0.9,
     },
+    // Limit new chunk generation per update to avoid frame spikes while moving/jumping.
+    chunkCreationBudgetPerTick: 3,
+    chunkCreationBudgetOnForceUpdate: 10,
     biomeMap: {
       // Enable optional micro-variants for fuller biome variety in this profile.
       enableBambooJungleVariant: true,
