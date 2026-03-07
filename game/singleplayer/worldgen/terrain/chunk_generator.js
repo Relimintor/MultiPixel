@@ -63,6 +63,10 @@
       return this.sampleCellDensityForProfile(wx, y, wz, this.getBiomeProfile(biome));
     }
 
+    sampleCellDensity(wx, y, wz, biome) {
+      return this.sampleCellDensityForProfile(wx, y, wz, this.getBiomeProfile(biome));
+    }
+
     heightFromBiome(wx, wz, biome, riverMask) {
       const profile = this.getBiomeProfile(biome);
       const sampleForProfile = (y) => this.sampleCellDensityForProfile(wx, y, wz, profile);
