@@ -5130,155 +5130,158 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 { name: 'negZ', dir: [0, 0, -1], axis: 'z', sign: -1 },
             ];
 
-            for (const face of greedyFaces) {
+            const ctz32 = (v) => 31 - Math.clz32(v & -v);
+            const rectWidthFromBit = (mask, startBit, maxBits) => {
+                let w = 0;
+                while ((startBit + w) < maxBits && (mask & (1 << (startBit + w)))) w++;
+                return w;
+            };
+
+            const emitBinaryGreedyFaceRect = (face, slice, u, v, uExtent, vExtent, id, materialKey, uvInfo) => {
+                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, uExtent, vExtent) : uvInfo.uv;
+
                 if (face.axis === 'y') {
-                    for (let y = 0; y < CH; y++) {
-                        const visited = Array(CS * CS).fill(false);
-                        for (let z = 0; z < CS; z++) {
-                            for (let x = 0; x < CS; x++) {
-                                const mi = x + z * CS;
-                                if (visited[mi]) continue;
-                                const id = get(x, y, z);
-                                if (id === 0 || id === 22) continue;
-                                const mat = blockMaterials[id];
-                                if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES')) continue;
-                                const nid = get(x, y + face.sign, z);
-                                if (!shouldDrawFace(id, nid)) continue;
-                                const materialKey = getMaterialKey(id, face.dir);
-                                const uvInfo = getFaceUvInfo(id, face.name, [0,1, 0,0, 1,0, 1,1]);
-                                let w = 1;
-                                while (x + w < CS) {
-                                    const ni = x + w + z * CS;
-                                    if (visited[ni]) break;
-                                    const id2 = get(x + w, y, z);
-                                    if (id2 !== id) break;
-                                    if (getMaterialKey(id2, face.dir) !== materialKey) break;
-                                    if (!shouldDrawFace(id2, get(x + w, y + face.sign, z))) break;
-                                    w++;
-                                }
-                                let h = 1;
-                                outerY: while (z + h < CS) {
-                                    for (let k = 0; k < w; k++) {
-                                        const ni = (x + k) + (z + h) * CS;
-                                        if (visited[ni]) break outerY;
-                                        const id2 = get(x + k, y, z + h);
-                                        if (id2 !== id) break outerY;
-                                        if (getMaterialKey(id2, face.dir) !== materialKey) break outerY;
-                                        if (!shouldDrawFace(id2, get(x + k, y + face.sign, z + h))) break outerY;
-                                    }
-                                    h++;
-                                }
-                                for (let dz = 0; dz < h; dz++) for (let dx = 0; dx < w; dx++) visited[(x + dx) + (z + dz) * CS] = true;
-                                const wx = cx * CS + x;
-                                const wz = cz * CS + z;
-                                const py = face.sign > 0 ? y + 1 : y;
-                                const corners = face.sign > 0
-                                    ? [[wx, py, wz + h], [wx + w, py, wz + h], [wx + w, py, wz], [wx, py, wz]]
-                                    : [[wx, py, wz], [wx + w, py, wz], [wx + w, py, wz + h], [wx, py, wz + h]];
-                                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, w, h) : uvInfo.uv;
-                                emitQuad(id, materialKey, face.dir, corners, uv);
-                            }
+                    const x = u;
+                    const z = v;
+                    const wx = cx * CS + x;
+                    const wz = cz * CS + z;
+                    const py = face.sign > 0 ? slice + 1 : slice;
+                    const corners = face.sign > 0
+                        ? [[wx, py, wz + vExtent], [wx + uExtent, py, wz + vExtent], [wx + uExtent, py, wz], [wx, py, wz]]
+                        : [[wx, py, wz], [wx + uExtent, py, wz], [wx + uExtent, py, wz + vExtent], [wx, py, wz + vExtent]];
+                    emitQuad(id, materialKey, face.dir, corners, uv);
+                    return;
+                }
+
+                if (face.axis === 'x') {
+                    const z = u;
+                    const y = v;
+                    const wx = cx * CS + slice;
+                    const wz = cz * CS + z;
+                    const px = face.sign > 0 ? wx + 1 : wx;
+                    const corners = face.sign > 0
+                        ? [[px, y + vExtent, wz + uExtent], [px, y, wz + uExtent], [px, y, wz], [px, y + vExtent, wz]]
+                        : [[px, y + vExtent, wz], [px, y, wz], [px, y, wz + uExtent], [px, y + vExtent, wz + uExtent]];
+                    emitQuad(id, materialKey, face.dir, corners, uv);
+                    return;
+                }
+
+                const x = u;
+                const y = v;
+                const wx = cx * CS + x;
+                const wz = cz * CS + slice;
+                const pz = face.sign > 0 ? wz + 1 : wz;
+                const corners = face.sign > 0
+                    ? [[wx, y + vExtent, pz], [wx, y, pz], [wx + uExtent, y, pz], [wx + uExtent, y + vExtent, pz]]
+                    : [[wx + uExtent, y + vExtent, pz], [wx + uExtent, y, pz], [wx, y, pz], [wx, y + vExtent, pz]];
+                emitQuad(id, materialKey, face.dir, corners, uv);
+            };
+
+            const buildBinaryGreedyMasksForSlice = (face, slice) => {
+                const U = CS;
+                const V = face.axis === 'y' ? CS : CH;
+                const buckets = new Map();
+
+                for (let v = 0; v < V; v++) {
+                    for (let u = 0; u < U; u++) {
+                        let x = 0;
+                        let y = 0;
+                        let z = 0;
+                        let nid = 0;
+
+                        if (face.axis === 'y') {
+                            x = u;
+                            y = slice;
+                            z = v;
+                            nid = get(x, y + face.sign, z);
+                        } else if (face.axis === 'x') {
+                            x = slice;
+                            y = v;
+                            z = u;
+                            nid = get(x + face.sign, y, z);
+                        } else {
+                            x = u;
+                            y = v;
+                            z = slice;
+                            nid = get(x, y, z + face.sign);
                         }
-                    }
-                } else if (face.axis === 'x') {
-                    for (let x = 0; x < CS; x++) {
-                        const visited = Array(CH * CS).fill(false);
-                        for (let z = 0; z < CS; z++) {
-                            for (let y = 0; y < CH; y++) {
-                                const mi = y + z * CH;
-                                if (visited[mi]) continue;
-                                const id = get(x, y, z);
-                                if (id === 0 || id === 22) continue;
-                                const mat = blockMaterials[id];
-                                if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES')) continue;
-                                const nid = get(x + face.sign, y, z);
-                                if (!shouldDrawFace(id, nid)) continue;
-                                const materialKey = getMaterialKey(id, face.dir);
-                                const uvInfo = getFaceUvInfo(id, face.name, [0,1, 0,0, 1,0, 1,1]);
-                                let w = 1;
-                                while (y + w < CH) {
-                                    const ni = (y + w) + z * CH;
-                                    if (visited[ni]) break;
-                                    const id2 = get(x, y + w, z);
-                                    if (id2 !== id) break;
-                                    if (getMaterialKey(id2, face.dir) !== materialKey) break;
-                                    if (!shouldDrawFace(id2, get(x + face.sign, y + w, z))) break;
-                                    w++;
-                                }
-                                let h = 1;
-                                outerX: while (z + h < CS) {
-                                    for (let k = 0; k < w; k++) {
-                                        const ni = (y + k) + (z + h) * CH;
-                                        if (visited[ni]) break outerX;
-                                        const id2 = get(x, y + k, z + h);
-                                        if (id2 !== id) break outerX;
-                                        if (getMaterialKey(id2, face.dir) !== materialKey) break outerX;
-                                        if (!shouldDrawFace(id2, get(x + face.sign, y + k, z + h))) break outerX;
-                                    }
-                                    h++;
-                                }
-                                for (let dz = 0; dz < h; dz++) for (let dy = 0; dy < w; dy++) visited[(y + dy) + (z + dz) * CH] = true;
-                                const wx = cx * CS + x;
-                                const wz = cz * CS + z;
-                                const px = face.sign > 0 ? wx + 1 : wx;
-                                const corners = face.sign > 0
-                                    ? [[px, y + w, wz + h], [px, y, wz + h], [px, y, wz], [px, y + w, wz]]
-                                    : [[px, y + w, wz], [px, y, wz], [px, y, wz + h], [px, y + w, wz + h]];
-                                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, h, w) : uvInfo.uv;
-                                emitQuad(id, materialKey, face.dir, corners, uv);
-                            }
+
+                        const id = get(x, y, z);
+                        if (id === 0 || id === 22) continue;
+                        const mat = blockMaterials[id];
+                        if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES')) continue;
+                        if (!shouldDrawFace(id, nid)) continue;
+
+                        const materialKey = getMaterialKey(id, face.dir);
+                        const key = `${id}|${materialKey}`;
+                        let bucket = buckets.get(key);
+                        if (!bucket) {
+                            bucket = {
+                                id,
+                                materialKey,
+                                uvInfo: getFaceUvInfo(id, face.name, [0,1, 0,0, 1,0, 1,1]),
+                                masks: new Uint32Array(V)
+                            };
+                            buckets.set(key, bucket);
                         }
+                        bucket.masks[v] |= (1 << u);
                     }
-                } else {
-                    for (let z = 0; z < CS; z++) {
-                        const visited = Array(CH * CS).fill(false);
-                        for (let x = 0; x < CS; x++) {
-                            for (let y = 0; y < CH; y++) {
-                                const mi = y + x * CH;
-                                if (visited[mi]) continue;
-                                const id = get(x, y, z);
-                                if (id === 0 || id === 22) continue;
-                                const mat = blockMaterials[id];
-                                if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES')) continue;
-                                const nid = get(x, y, z + face.sign);
-                                if (!shouldDrawFace(id, nid)) continue;
-                                const materialKey = getMaterialKey(id, face.dir);
-                                const uvInfo = getFaceUvInfo(id, face.name, [0,1, 0,0, 1,0, 1,1]);
-                                let w = 1;
-                                while (y + w < CH) {
-                                    const ni = (y + w) + x * CH;
-                                    if (visited[ni]) break;
-                                    const id2 = get(x, y + w, z);
-                                    if (id2 !== id) break;
-                                    if (getMaterialKey(id2, face.dir) !== materialKey) break;
-                                    if (!shouldDrawFace(id2, get(x, y + w, z + face.sign))) break;
-                                    w++;
+                }
+
+                return { U, V, buckets };
+            };
+
+            const runBinaryGreedyFace = (face) => {
+                const sliceCount = face.axis === 'y' ? CH : CS;
+                const useBits = Math.min(32, CS);
+
+                for (let slice = 0; slice < sliceCount; slice++) {
+                    const { U, V, buckets } = buildBinaryGreedyMasksForSlice(face, slice);
+                    const maxBits = Math.min(U, useBits);
+                    const validMask = maxBits >= 32 ? 0xFFFFFFFF : ((1 << maxBits) - 1);
+
+                    for (const bucket of buckets.values()) {
+                        const masks = bucket.masks;
+
+                        for (let v = 0; v < V; v++) {
+                            masks[v] &= validMask;
+                        }
+
+                        for (let v = 0; v < V; v++) {
+                            while (masks[v] !== 0) {
+                                const rowMask = masks[v] >>> 0;
+                                const startBit = ctz32(rowMask);
+                                const uExtent = rectWidthFromBit(rowMask, startBit, maxBits);
+                                const runMask = (((1 << uExtent) - 1) << startBit) >>> 0;
+
+                                let vExtent = 1;
+                                while ((v + vExtent) < V && ((masks[v + vExtent] & runMask) === runMask)) {
+                                    vExtent++;
                                 }
-                                let h = 1;
-                                outerZ: while (x + h < CS) {
-                                    for (let k = 0; k < w; k++) {
-                                        const ni = (y + k) + (x + h) * CH;
-                                        if (visited[ni]) break outerZ;
-                                        const id2 = get(x + h, y + k, z);
-                                        if (id2 !== id) break outerZ;
-                                        if (getMaterialKey(id2, face.dir) !== materialKey) break outerZ;
-                                        if (!shouldDrawFace(id2, get(x + h, y + k, z + face.sign))) break outerZ;
-                                    }
-                                    h++;
+
+                                for (let dv = 0; dv < vExtent; dv++) {
+                                    masks[v + dv] &= (~runMask) >>> 0;
                                 }
-                                for (let dx = 0; dx < h; dx++) for (let dy = 0; dy < w; dy++) visited[(y + dy) + (x + dx) * CH] = true;
-                                const wx = cx * CS + x;
-                                const wz = cz * CS + z;
-                                const pz = face.sign > 0 ? wz + 1 : wz;
-                                const corners = face.sign > 0
-                                    ? [[wx, y + w, pz], [wx, y, pz], [wx + h, y, pz], [wx + h, y + w, pz]]
-                                    : [[wx + h, y + w, pz], [wx + h, y, pz], [wx, y, pz], [wx, y + w, pz]];
-                                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, h, w) : uvInfo.uv;
-                                emitQuad(id, materialKey, face.dir, corners, uv);
+
+                                emitBinaryGreedyFaceRect(
+                                    face,
+                                    slice,
+                                    startBit,
+                                    v,
+                                    uExtent,
+                                    vExtent,
+                                    bucket.id,
+                                    bucket.materialKey,
+                                    bucket.uvInfo
+                                );
                             }
                         }
                     }
                 }
+            };
+
+            for (const face of greedyFaces) {
+                runBinaryGreedyFace(face);
             }
 
             // Keep non-cube/transparent blocks on classic meshing path.
