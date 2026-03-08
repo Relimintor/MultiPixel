@@ -161,7 +161,14 @@ window.perlin = perlinInstance;
         let inventory = new Array(TOTAL_INV_SIZE).fill(null);
         let selectedHotbarIndex = 0; // 0-8
         let isInventoryOpen = false;
-        
+        let isCreativeMode = false;
+        let isCreativeMenuOpen = false;
+        const creativeCatalog = [];
+        const playerPrivileges = { fly: false, speed: false, noclip: false };
+        let isFlyActive = false;
+        let lastSpaceTapAt = 0;
+        const FLY_VERTICAL_SPEED = 0.24;
+
         // --- NEW CRAFTING STATE VARIABLES ---
         let isCraftingTableOpen = false;
         let isFurnaceOpen = false;
@@ -523,7 +530,7 @@ window.perlin = perlinInstance;
                     }).catch(() => {});
                 }
                 console.info('[World seed]', worldSeed);
-                lightingSystem = SpawnLighting.create ? SpawnLighting.create({ getBlockType, isLiquid, CHUNK_HEIGHT }) : null;
+                lightingSystem = SpawnLighting.create ? SpawnLighting.create({ getBlockType, isLiquid, CHUNK_HEIGHT, getSkyLightCap: getCurrentSkyLightCap }) : null;
             } else {
                 console.error("PerlinNoise library failed to load.");
                 return;
@@ -592,6 +599,20 @@ window.perlin = perlinInstance;
             if (editSkinIcon) editSkinIcon.src = editSkinIconPath;
             if (furnaceCloseIcon) furnaceCloseIcon.src = closeIconPath;
             if (chestCloseIcon) chestCloseIcon.src = closeIconPath;
+            const creativeCloseIcon = document.getElementById('creative-close-icon');
+            const creativeInventoryIcon = document.getElementById('creative-inventory-icon');
+            if (creativeCloseIcon) creativeCloseIcon.src = closeIconPath;
+            if (creativeInventoryIcon) creativeInventoryIcon.src = ASSET_FILEPATHS.CHEST_NORMAL || `${assetBasePath}/textures/chest/normal.png`;
+            const creativeCloseBtn = document.getElementById('creative-close-btn');
+            const creativeInventoryBtn = document.getElementById('creative-inventory-btn');
+            if (creativeCloseBtn) creativeCloseBtn.addEventListener('click', () => {
+                if (isCreativeMenuOpen) closeCreativeMenu();
+            });
+            if (creativeInventoryBtn) creativeInventoryBtn.addEventListener('click', () => {
+                if (!isCreativeMenuOpen) return;
+                closeCreativeMenu();
+                toggleInventory();
+            });
             if (closeBtn) closeBtn.addEventListener('click', () => {
                 if (isInventoryOpen) toggleInventory();
             });
@@ -691,6 +712,19 @@ window.perlin = perlinInstance;
             return { phase: 'Night', localT: (t - sunsetEnd) / DAY_SEGMENTS.night };
         }
 
+        function getSunFactor() {
+            const phaseInfo = getTimePhaseInfo();
+            if (phaseInfo.phase === 'Day') return 1;
+            if (phaseInfo.phase === 'Night') return -0.85;
+            if (phaseInfo.phase === 'Sunrise') return -0.85 + 1.85 * phaseInfo.localT;
+            return 1 - 1.85 * phaseInfo.localT;
+        }
+
+        function getCurrentSkyLightCap() {
+            const normalized = Math.max(0, Math.min(1, (getSunFactor() + 0.85) / 1.85));
+            return Math.max(0, Math.min(15, Math.floor(normalized * 15)));
+        }
+
         function setTimeByClock(hours, minutes) {
             const hh = Number.parseInt(hours, 10);
             const mm = Number.parseInt(minutes, 10);
@@ -739,13 +773,7 @@ window.perlin = perlinInstance;
         }
 
         function updateSkyAndSun() {
-            const phaseInfo = getTimePhaseInfo();
-            let sunFactor = 0;
-
-            if (phaseInfo.phase === 'Day') sunFactor = 1;
-            else if (phaseInfo.phase === 'Night') sunFactor = -0.85;
-            else if (phaseInfo.phase === 'Sunrise') sunFactor = -0.85 + 1.85 * phaseInfo.localT;
-            else sunFactor = 1 - 1.85 * phaseInfo.localT;
+            const sunFactor = getSunFactor();
 
             const dayColor = new THREE.Color(0x87ceeb);
             const twilightColor = new THREE.Color(0x9a7d90);
@@ -1204,6 +1232,8 @@ window.perlin = perlinInstance;
             if (y < SEA_LEVEL || y > SEA_LEVEL + 24) return false;
             const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
             if (under !== 1 && under !== 2) return false;
+            const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(Math.floor(wx), y, Math.floor(wz)) : 15;
+            if (lightLevel < 7) return false;
             return spawnPigAtExact(wx, y, wz);
         }
 
@@ -1332,6 +1362,8 @@ window.perlin = perlinInstance;
             if (y < SEA_LEVEL || y > SEA_LEVEL + 24) return false;
             const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
             if (under !== 1 && under !== 2) return false;
+            const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(Math.floor(wx), y, Math.floor(wz)) : 15;
+            if (lightLevel < 7) return false;
             const biome = getBiome(Math.floor(wx), Math.floor(wz));
             if (biome !== 'Forest') return false;
             return spawnWolfAtExact(wx, y, wz);
@@ -1364,6 +1396,8 @@ window.perlin = perlinInstance;
             if (y < SEA_LEVEL || y > SEA_LEVEL + 36) return false;
             const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
             if (under !== 1 && under !== 2 && under !== 3 && under !== 7 && under !== 15) return false;
+            const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(Math.floor(wx), y, Math.floor(wz)) : 15;
+            if (lightLevel < 7) return false;
             return spawnWolfAtExact(wx, y, wz);
         }
 
@@ -1533,9 +1567,26 @@ window.perlin = perlinInstance;
             return true;
         }
 
+        function findHostileSpawnY(wx, wz) {
+            const x = Math.floor(wx);
+            const z = Math.floor(wz);
+            for (let y = CHUNK_HEIGHT - 3; y >= 2; y--) {
+                const under = getBlockType(x, y - 1, z);
+                const feet = getBlockType(x, y, z);
+                const head = getBlockType(x, y + 1, z);
+                if (!isSolid(under) || isLiquid(under) || under === 6) continue;
+                if (feet !== 0 || head !== 0) continue;
+                const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(x, y, z) : 0;
+                if (lightLevel > 7) continue;
+                if (lightingSystem && lightingSystem.hasNearbyBlockLightSource(x, y, z, 7)) continue;
+                return y;
+            }
+            return -1;
+        }
+
         function spawnZombieAt(wx, wz) {
-            const y = getSurfaceYForEntity(wx, wz);
-            if (y < SEA_LEVEL || y > SEA_LEVEL + 26) return false;
+            const y = findHostileSpawnY(wx, wz);
+            if (y <= 0) return false;
             const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
             if (under === 0 || isLiquid(under)) return false;
 
@@ -1546,6 +1597,7 @@ window.perlin = perlinInstance;
                 root,
                 hp: 20,
                 attackCooldownMs: 0,
+                attackReach: 1.2 + Math.random() * 0.5,
                 burnTickMs: 0,
                 targetY: y,
                 groundProbeMs: 0,
@@ -1578,13 +1630,15 @@ window.perlin = perlinInstance;
             for (let i = zombieEntities.length - 1; i >= 0; i--) {
                 const z = zombieEntities[i];
                 if (!isEntityActiveAt(z.root.position)) continue;
-                const toPlayer = new THREE.Vector3(playerPos.x - z.root.position.x, 0, playerPos.z - z.root.position.z);
-                const dist = toPlayer.length();
-                if (dist > 0.001) toPlayer.normalize();
+                const toPlayerFlat = new THREE.Vector3(playerPos.x - z.root.position.x, 0, playerPos.z - z.root.position.z);
+                const distFlat = toPlayerFlat.length();
+                if (distFlat > 0.001) toPlayerFlat.normalize();
+                const dy = (playerPos.y + 0.9) - (z.root.position.y + 0.9);
+                const dist3D = Math.hypot(distFlat, dy);
 
                 const speed = 1.18;
-                const nx = z.root.position.x + toPlayer.x * speed * dt;
-                const nz = z.root.position.z + toPlayer.z * speed * dt;
+                const nx = z.root.position.x + toPlayerFlat.x * speed * dt;
+                const nz = z.root.position.z + toPlayerFlat.z * speed * dt;
 
                 z.groundProbeMs -= deltaMs;
                 if (z.groundProbeMs <= 0) {
@@ -1598,7 +1652,7 @@ window.perlin = perlinInstance;
                     z.root.position.y += (z.targetY - z.root.position.y) * Math.min(1, dt * 12);
                 }
 
-                if (dist > 0.1) z.root.rotation.y = Math.atan2(toPlayer.x, toPlayer.z);
+                if (distFlat > 0.1) z.root.rotation.y = Math.atan2(toPlayerFlat.x, toPlayerFlat.z);
 
                 const parts = z.root.userData.zombieParts;
                 if (parts) {
@@ -1613,7 +1667,7 @@ window.perlin = perlinInstance;
                 }
 
                 z.attackCooldownMs = Math.max(0, z.attackCooldownMs - deltaMs);
-                if (dist < 1.35 && z.attackCooldownMs <= 0) {
+                if (dist3D < (z.attackReach || 1.35) && z.attackCooldownMs <= 0) {
                     z.attackCooldownMs = 900;
                     takeDamage(3);
                 }
@@ -1725,6 +1779,11 @@ window.perlin = perlinInstance;
                 getRenderDistance: () => currentChunkLoadRadius,
                 setFov: setCameraFov,
                 getFov: getCameraFov,
+                setGameMode,
+                openCreativeMenu,
+                closeCreativeMenu,
+                grantPrivilege,
+                ungrantPrivilege,
                 openCommandHelp: () => window.SingleplayerChat?.openCommandHelp?.(),
                 mobileAssetBase: MOBILE_ASSET_BASE,
                 onOpen: () => {
@@ -1779,7 +1838,109 @@ window.perlin = perlinInstance;
             }
         }
 
+        function getMaterialIconPath(mat) {
+            if (!mat || !mat.textured) return '';
+            const faceKey = mat.textureByFace?.posX || mat.textureByFace?.posZ;
+            const preferredKey = faceKey || mat.textureKey;
+            return ASSET_FILEPATHS[preferredKey] || ASSET_FILEPATHS[mat.textureKey] || '';
+        }
+
+        function buildCreativeCatalog() {
+            creativeCatalog.length = 0;
+            const seen = new Set();
+            const entries = Object.values(blockMaterials || {})
+                .filter((mat) => mat && Number.isFinite(mat.id) && mat.id !== 0)
+                .sort((a, b) => a.id - b.id);
+            entries.forEach((mat) => {
+                if (seen.has(mat.id)) return;
+                seen.add(mat.id);
+                creativeCatalog.push(mat.id);
+            });
+        }
+
+        function setGameMode(mode) {
+            const normalized = String(mode || '').toLowerCase();
+            if (normalized !== 'creative' && normalized !== 'survival') return false;
+            isCreativeMode = normalized === 'creative';
+            return true;
+        }
+
+        function openCreativeMenu() {
+            const creativeScreen = document.getElementById('creative-screen');
+            const hud = document.getElementById('hud');
+            if (!creativeScreen) return false;
+            isInventoryOpen = true;
+            isCreativeMenuOpen = true;
+            isCraftingTableOpen = false;
+            isFurnaceOpen = false;
+            activeFurnaceKey = null;
+            activeChestKey = null;
+            buildCreativeCatalog();
+            renderInventoryScreen();
+            creativeScreen.classList.remove('hidden');
+            document.getElementById('inventory-screen')?.classList.add('hidden');
+            document.getElementById('furnace-screen')?.classList.add('hidden');
+            document.getElementById('chest-screen')?.classList.add('hidden');
+            hud?.classList.add('opacity-0');
+            if (!mobileControls.enabled) document.exitPointerLock();
+            player.keys = {};
+            return true;
+        }
+
+        function closeCreativeMenu() {
+            const creativeScreen = document.getElementById('creative-screen');
+            const hud = document.getElementById('hud');
+            if (!isCreativeMenuOpen) return false;
+            isCreativeMenuOpen = false;
+            isInventoryOpen = false;
+            creativeScreen?.classList.add('hidden');
+            hud?.classList.remove('opacity-0');
+            if (!mobileControls.enabled) document.body.requestPointerLock();
+            if (heldItem && !addToInventory(heldItem.id, heldItem.count)) {
+                showGameMessage('Inventory Full!');
+            }
+            heldItem = null;
+            heldItemSourceIndex = -1;
+            heldItemSourceType = null;
+            renderHeldItem();
+            updateHotbarUI();
+            return true;
+        }
+
+        function grantPrivilege(name) {
+            const key = String(name || '').toLowerCase();
+            if (key !== 'fly' && key !== 'speed' && key !== 'noclip') return false;
+            if (key === 'noclip' && !playerPrivileges.fly) {
+                showGameMessage('Grant fly first before noclip.');
+                return false;
+            }
+            playerPrivileges[key] = true;
+            if (key === 'fly') {
+                showGameMessage('Fly privilege granted. Double-space to start flying.');
+            } else if (key === 'speed') {
+                showGameMessage('Speed enabled. Hold E to boost movement.');
+            } else if (key === 'noclip') {
+                showGameMessage('Noclip enabled while flying.');
+            }
+            return true;
+        }
+
+        function ungrantPrivilege(name) {
+            const key = String(name || '').toLowerCase();
+            if (key !== 'fly' && key !== 'speed' && key !== 'noclip') return false;
+            playerPrivileges[key] = false;
+            if (key === 'fly') {
+                isFlyActive = false;
+                player.velocity.y = 0;
+                player.isJumping = false;
+                playerPrivileges.noclip = false;
+            }
+            showGameMessage(`${key} privilege removed.`);
+            return true;
+        }
+
         function updateHotbarUI() {
+
             const hotbar = document.getElementById('hotbar');
             hotbar.innerHTML = '';
             
@@ -1796,7 +1957,7 @@ window.perlin = perlinInstance;
 
                     if (mat.textured) {
                         // --- USING DIRECT PATH FOR HOTBAR ICON ---
-                        imgPath = ASSET_FILEPATHS[mat.textureKey];
+                        imgPath = getMaterialIconPath(mat);
                     } else {
                         const colorHex = mat.color ? mat.color.toString(16).padStart(6, '0') : '7F8C8D';
                         colorStyle = `background-color: #${colorHex};`;
@@ -1866,7 +2027,7 @@ window.perlin = perlinInstance;
             let slotArray;
             let finalIndex = slotIndex;
 
-            if (slotType === 'hotbar') {
+            if (slotType === 'hotbar' || slotType === 'creative-hotbar') {
                 slotArray = inventory;
             } else if (slotType === 'main-inv') {
                 finalIndex = HOTBAR_SLOTS + slotIndex;
@@ -1888,6 +2049,17 @@ window.perlin = perlinInstance;
 
         function handleInventoryRightClick(slotIndex, slotType = 'inv') {
             if (!isInventoryOpen || slotType === 'output') return;
+
+            if (slotType === 'creative-item') {
+                const itemId = creativeCatalog[slotIndex];
+                if (!Number.isFinite(itemId) || !blockMaterials[itemId]) return;
+                heldItem = { id: itemId, count: 1 };
+                heldItemSourceIndex = -1;
+                heldItemSourceType = 'creative-item';
+                renderHeldItem();
+                updateHotbarUI();
+                return;
+            }
 
             const { slotArray, finalIndex } = resolveInventorySlotTarget(slotIndex, slotType);
             if (!slotArray) return;
@@ -1996,6 +2168,17 @@ window.perlin = perlinInstance;
 
         function handleInventoryClick(slotIndex, slotType = 'inv') {
             if (!isInventoryOpen) return;
+
+            if (slotType === 'creative-item') {
+                const itemId = creativeCatalog[slotIndex];
+                if (!Number.isFinite(itemId) || !blockMaterials[itemId]) return;
+                heldItem = { id: itemId, count: 64 };
+                heldItemSourceIndex = -1;
+                heldItemSourceType = 'creative-item';
+                renderHeldItem();
+                updateHotbarUI();
+                return;
+            }
             
             let { slotArray, finalIndex } = resolveInventorySlotTarget(slotIndex, slotType);
             
@@ -2110,6 +2293,8 @@ window.perlin = perlinInstance;
             const furnaceFuelSlot = document.getElementById('furnace-fuel-slot');
             const furnaceOutputSlot = document.getElementById('furnace-output-slot');
             const chestGrid = document.getElementById('chest-grid');
+            const creativeGrid = document.getElementById('creative-item-grid');
+            const creativeHotbarGrid = document.getElementById('creative-hotbar-grid');
 
             if (!mainGrid || !hotbarGrid) return;
 
@@ -2123,6 +2308,8 @@ window.perlin = perlinInstance;
             if (furnaceFuelSlot) furnaceFuelSlot.innerHTML = '';
             if (furnaceOutputSlot) furnaceOutputSlot.innerHTML = '';
             if (chestGrid) chestGrid.innerHTML = '';
+            if (creativeGrid) creativeGrid.innerHTML = '';
+            if (creativeHotbarGrid) creativeHotbarGrid.innerHTML = '';
 
             const mainStart = HOTBAR_SLOTS;
 
@@ -2142,7 +2329,7 @@ window.perlin = perlinInstance;
                     let imgPath = '';
                     let colorStyle = '';
 
-                    if (mat.textured) imgPath = ASSET_FILEPATHS[mat.textureKey];
+                    if (mat.textured) imgPath = getMaterialIconPath(mat);
                     else {
                         const colorHex = mat.color ? mat.color.toString(16).padStart(6, '0') : '7F8C8D';
                         colorStyle = `background-color: #${colorHex};`;
@@ -2169,6 +2356,19 @@ window.perlin = perlinInstance;
                     const displayIndex = r * INV_COLS + c;
                     mainGrid.appendChild(createSlot(inventory[invIndex], displayIndex, 'main-inv'));
                 }
+            }
+
+
+            if (isCreativeMenuOpen) {
+                for (let i = 0; i < creativeCatalog.length; i++) {
+                    const id = creativeCatalog[i];
+                    creativeGrid?.appendChild(createSlot({ id, count: 64 }, i, 'creative-item'));
+                }
+                for (let i = 0; i < HOTBAR_SLOTS; i++) {
+                    creativeHotbarGrid?.appendChild(createSlot(inventory[i], i, 'creative-hotbar'));
+                }
+                renderHeldItem();
+                return;
             }
 
             if (usingFurnaceScreen && activeFurnaceKey) {
@@ -2228,7 +2428,7 @@ window.perlin = perlinInstance;
                 let colorStyle = '';
 
                 if (mat.textured) {
-                    imgPath = ASSET_FILEPATHS[mat.textureKey]; // Direct path
+                    imgPath = getMaterialIconPath(mat);
                 } else {
                     const colorHex = mat.color ? mat.color.toString(16).padStart(6, '0') : '7F8C8D';
                     colorStyle = `background-color: #${colorHex};`;
@@ -2263,6 +2463,11 @@ window.perlin = perlinInstance;
             const container2x2 = document.getElementById('crafting-2x2-container');
             const container3x3 = document.getElementById('crafting-3x3-container');
             const inventoryPanel = document.getElementById('inventory-panel');
+
+            if (isCreativeMenuOpen) {
+                closeCreativeMenu();
+                return;
+            }
 
             if (isInventoryOpen) {
                 isInventoryOpen = false;
@@ -3122,12 +3327,31 @@ window.perlin = perlinInstance;
             player.isMoving = isMoving;
 
             const isSprinting = isMoving && (player.keys['e'] || mobileControls.sprint);
-            if (window.HungerSystem) {
+            const speedBoostMultiplier = (isSprinting && playerPrivileges.speed) ? 1.85 : 1;
+            const isFlying = playerPrivileges.fly && isFlyActive;
+            if (window.HungerSystem && !isFlying) {
                 window.HungerSystem.update(performance.now(), { isMoving, isSprinting, isJumping: player.isJumping });
             }
-            const hungerMultiplier = window.HungerSystem ? window.HungerSystem.getSpeedMultiplier() : 1;
+            const hungerMultiplier = isFlying ? 1 : (window.HungerSystem ? window.HungerSystem.getSpeedMultiplier() : 1);
 
-            if (isSwimming) {
+            if (isFlying) {
+                const flySprintMultiplier = isSprinting ? (1.55 * speedBoostMultiplier) : speedBoostMultiplier;
+                const flyBaseSpeed = player.baseMoveSpeed * 1.12 * flySprintMultiplier;
+                player.moveSpeed = flyBaseSpeed;
+                player.velocity.x = player.direction.x * player.moveSpeed;
+                player.velocity.z = player.direction.z * player.moveSpeed;
+
+                const flyUp = !!(player.keys[' '] || mobileControls.jump);
+                const flyDown = !!player.keys['shift'];
+                if (flyUp && !flyDown) {
+                    player.velocity.y = FLY_VERTICAL_SPEED * (isSprinting ? flySprintMultiplier : 1);
+                } else if (flyDown && !flyUp) {
+                    player.velocity.y = -FLY_VERTICAL_SPEED * (isSprinting ? flySprintMultiplier : 1);
+                } else {
+                    player.velocity.y = 0;
+                }
+                player.isJumping = false;
+            } else if (isSwimming) {
                 const swimSprintMultiplier = isSprinting ? SWIM_SPRINT_MULTIPLIER : 1;
                 player.moveSpeed = player.baseMoveSpeed * SWIM_SPEED_FACTOR * swimSprintMultiplier * hungerMultiplier;
                 player.velocity.x = player.direction.x * player.moveSpeed;
@@ -3144,7 +3368,7 @@ window.perlin = perlinInstance;
                 }
                 player.isJumping = false;
             } else {
-                const sprintMultiplier = isSprinting ? player.sprintMultiplier : 1;
+                const sprintMultiplier = isSprinting ? player.sprintMultiplier * speedBoostMultiplier : 1;
                 player.moveSpeed = player.baseMoveSpeed * sprintMultiplier * hungerMultiplier;
                 player.velocity.x = player.direction.x * player.moveSpeed;
                 player.velocity.z = player.direction.z * player.moveSpeed;
@@ -3257,7 +3481,8 @@ window.perlin = perlinInstance;
         }
 
         function isColliding() {
-          
+            if (playerPrivileges.noclip && playerPrivileges.fly && isFlyActive) return false;
+
             const px = yawObject.position.x;
             const py = yawObject.position.y;
             const pz = yawObject.position.z;
@@ -4140,12 +4365,19 @@ function buildPartFaceRects(x, y, w, h, d) {
         function updatePlayerAvatarVisuals(time) {
             if (!playerAvatarParts) return;
 
+            const isFlyingPose = playerPrivileges.fly && isFlyActive;
+
             if (playerAvatar) {
-                playerAvatar.rotation.x = player.isSwimming ? -Math.PI / 2 : 0;
+                playerAvatar.rotation.x = (player.isSwimming || isFlyingPose) ? -Math.PI / 2 : 0;
                 playerAvatar.rotation.z = 0;
             }
 
-            if (player.isSwimming) {
+            if (isFlyingPose) {
+                playerAvatarParts.leftLegPivot.rotation.x = 0;
+                playerAvatarParts.rightLegPivot.rotation.x = 0;
+                playerAvatarParts.leftArmPivot.rotation.x = 1.25;
+                playerAvatarParts.rightArmPivot.rotation.x = -1.45;
+            } else if (player.isSwimming) {
                 const stroke = time * 0.02;
                 const legKick = Math.sin(time * 0.028) * 0.25;
                 playerAvatarParts.leftLegPivot.rotation.x = legKick;
@@ -4209,11 +4441,16 @@ function buildPartFaceRects(x, y, w, h, d) {
             document.addEventListener('keydown', e => {
                 const k = e.key.toLowerCase();
                 if (k === 'y' || k === 'i') {
-                    toggleInventory();
+                    if (isCreativeMenuOpen) {
+                        closeCreativeMenu();
+                    } else {
+                        toggleInventory();
+                    }
                     return;
                 }
                 if (k === 'escape' && isInventoryOpen) {
-                    toggleInventory();
+                    if (isCreativeMenuOpen) closeCreativeMenu();
+                    else toggleInventory();
                     return;
                 }
                 if (k === 'c') {
@@ -4224,6 +4461,18 @@ function buildPartFaceRects(x, y, w, h, d) {
                     e.preventDefault();
                     window.SingleplayerChat?.toggle?.();
                     return;
+                }
+                if (k === ' ' && playerPrivileges.fly && !isInventoryOpen && !window.SingleplayerChat?.isOpen?.() && !e.repeat) {
+                    const now = Date.now();
+                    if (now - lastSpaceTapAt <= 280) {
+                        isFlyActive = !isFlyActive;
+                        player.velocity.y = 0;
+                        player.isJumping = false;
+                        showGameMessage(isFlyActive ? 'Flying enabled.' : 'Flying disabled.');
+                        lastSpaceTapAt = 0;
+                    } else {
+                        lastSpaceTapAt = now;
+                    }
                 }
                 if (window.SingleplayerChat?.isOpen?.()) {
                     return;
@@ -5043,12 +5292,9 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 const rect = mat?.textureUvByFace?.[faceName];
                 if (!rect) return { uv: fallbackUv, canTile: true };
 
-                // Greedy quads should tile textures by merged size.
-                // Sub-rect atlas faces cannot safely tile with standard UV wrapping,
-                // so only enable repeat when the face rect covers the full texture.
-                const atlas = Math.max(1, Number(mat?.uvAtlasSize) || 64);
-                const canTile = rect[2] >= atlas && rect[3] >= atlas;
-                return { uv: getFaceUVs(blockId, faceName, fallbackUv), canTile };
+                // Greedy quads should always tile by merged block size so textures
+                // render in rows/columns based on quad length instead of stretching.
+                return { uv: getFaceUVs(blockId, faceName, fallbackUv), canTile: true };
             };
 
             const scaledUv = (uv, repeatU, repeatV) => {
@@ -5403,7 +5649,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             syncTorchLightsForChunk(group, torchPositions);
         }
 
-        const SPAWN_MIN_LIGHT_LEVEL = 13;
+        const SPAWN_MIN_LIGHT_LEVEL = 7;
 
         function isSafeSpawnSpot(x, z) {
             const wx = Math.floor(x);
