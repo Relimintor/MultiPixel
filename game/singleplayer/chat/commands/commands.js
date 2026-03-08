@@ -21,6 +21,10 @@
       return window.SingleplayerChatCommandHelp.execute(parts, ctx);
     }
 
+    if (command === '/set' && window.SingleplayerChatCommandSet?.execute) {
+      return window.SingleplayerChatCommandSet.execute(parts, ctx);
+    }
+
     return { handled: true, ok: false, message: `Unknown command: ${command}` };
   }
 

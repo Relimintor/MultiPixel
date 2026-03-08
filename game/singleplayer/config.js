@@ -32,7 +32,7 @@
     redstoneUpdatesPerTickMax: 100,
     // Chunk render distance in chunk units (radius). Lower default keeps performance stable.
     // Players can still raise it in-game with the render-distance command.
-    chunkRenderDistance: 8,
+    chunkRenderDistance: 4,
     // Entities farther than this many blocks are frozen (AI/pathfinding/physics skipped).
     entityActivationRange: 72,
     biomeMap: {

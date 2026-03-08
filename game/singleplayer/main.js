@@ -322,9 +322,9 @@ window.perlin = perlinInstance;
         }
 
         let targetRenderPixelRatio = computeRenderPixelRatio();
-        const configuredChunkRenderDistance = Math.floor(Number(worldGenSettings.chunkRenderDistance) || 8);
+        const configuredChunkRenderDistance = Math.floor(Number(worldGenSettings.chunkRenderDistance) || 4);
         const baseChunkRenderDistance = Math.max(4, Math.min(WORLD_RADIUS, configuredChunkRenderDistance));
-        const effectiveChunkLoadRadius = Math.max(4, Math.min(WORLD_RADIUS, isLowEndDevice ? Math.max(4, baseChunkRenderDistance - 2) : baseChunkRenderDistance));
+        let currentChunkLoadRadius = baseChunkRenderDistance;
         const ENTITY_ACTIVATION_RANGE = Math.max(24, Number(worldGenSettings.entityActivationRange) || 72);
         const ENTITY_ACTIVATION_RANGE_SQ = ENTITY_ACTIVATION_RANGE * ENTITY_ACTIVATION_RANGE;
         const CHUNK_UPDATE_INTERVAL_MS = isLowEndDevice ? 220 : 90;
@@ -528,7 +528,7 @@ window.perlin = perlinInstance;
             }
             
             raycaster = new THREE.Raycaster();
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.1, 1000);
             
             yawObject = new THREE.Object3D();
             pitchObject = new THREE.Object3D();
@@ -701,6 +701,40 @@ window.perlin = perlinInstance;
             return true;
         }
 
+        function getFogDistances(renderDistance) {
+            const radius = Math.max(4, Math.min(WORLD_RADIUS, Number(renderDistance) || 4));
+            return {
+                nearBase: Math.max(10, radius * CHUNK_SIZE * 0.12),
+                nearDayBoost: Math.max(3, radius * CHUNK_SIZE * 0.04),
+                farBase: Math.max(42, radius * CHUNK_SIZE * 0.52),
+                farDayBoost: Math.max(10, radius * CHUNK_SIZE * 0.16),
+            };
+        }
+
+        function setRenderDistance(amount) {
+            const parsed = Number.parseInt(amount, 10);
+            if (!Number.isFinite(parsed)) return false;
+            const clamped = Math.max(4, Math.min(WORLD_RADIUS, parsed));
+            if (clamped === currentChunkLoadRadius) return true;
+            currentChunkLoadRadius = clamped;
+            lastChunkUpdateMs = -Infinity;
+            ensureChunksAroundPlayer(true);
+            return true;
+        }
+
+        function setCameraFov(amount) {
+            const parsed = Number.parseFloat(amount);
+            if (!Number.isFinite(parsed)) return false;
+            const clamped = Math.max(50, Math.min(120, parsed));
+            camera.fov = clamped;
+            camera.updateProjectionMatrix();
+            return true;
+        }
+
+        function getCameraFov() {
+            return Number(camera?.fov || 90);
+        }
+
         function updateSkyAndSun() {
             const phaseInfo = getTimePhaseInfo();
             let sunFactor = 0;
@@ -742,8 +776,9 @@ window.perlin = perlinInstance;
 
             ambientLight.intensity = 0.26 + daylight * 0.45;
             hemiLight.intensity = 0.18 + daylight * 0.55;
-            scene.fog.near = FOG_BASE_NEAR + daylight * FOG_DAY_NEAR_BOOST;
-            scene.fog.far = FOG_BASE_FAR + daylight * FOG_DAY_FAR_BOOST;
+            const fog = getFogDistances(currentChunkLoadRadius);
+            scene.fog.near = fog.nearBase + daylight * fog.nearDayBoost;
+            scene.fog.far = fog.farBase + daylight * fog.farDayBoost;
         }
 
 
@@ -1683,6 +1718,10 @@ window.perlin = perlinInstance;
                 getMobById: (id) => window.SingleplayerMobConfig?.byId?.[id] || null,
                 spawnMobById,
                 setTimeByClock,
+                setRenderDistance,
+                getRenderDistance: () => currentChunkLoadRadius,
+                setFov: setCameraFov,
+                getFov: getCameraFov,
                 openCommandHelp: () => window.SingleplayerChat?.openCommandHelp?.(),
                 mobileAssetBase: MOBILE_ASSET_BASE,
                 onOpen: () => {
@@ -5391,7 +5430,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
         function getChunkRetentionRadius() {
             // Small hysteresis band prevents rapid load/unload thrashing when crossing chunk borders.
-            return effectiveChunkLoadRadius + 1;
+            return currentChunkLoadRadius + 1;
         }
 
         function ensureChunksAroundPlayer(forceUpdate = false, nowMs = performance.now()) {
@@ -5405,7 +5444,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             lastChunkCoordZ = playerChunkZ;
             lastChunkUpdateMs = nowMs;
 
-            const loadRadius = effectiveChunkLoadRadius;
+            const loadRadius = currentChunkLoadRadius;
             const keepRadius = getChunkRetentionRadius();
 
             const budget = forceUpdate ? CHUNK_CREATION_BUDGET_FORCE : CHUNK_CREATION_BUDGET_PER_TICK;
