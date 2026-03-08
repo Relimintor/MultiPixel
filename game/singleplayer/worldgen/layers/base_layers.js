@@ -127,11 +127,15 @@
     }
 
     addBiomeVariants(temp, wx, wz, scale) {
-      // keeps climate type, marks via noise for diversified biome pick downstream.
+      // Layer 13: mark some climates as special biome candidates.
+      // warm -> badlands, temperate -> jungle, cold -> giant taiga.
+      if (temp !== C.WARM && temp !== C.TEMPERATE && temp !== C.COLD) return temp;
       const c = this.toCell(wx, wz, scale);
-      const n = this.perlin.noise2D(c.x * 0.53 + 6, c.z * 0.53 - 6);
-      if (temp === C.TEMPERATE && n > 0.62) return C.TEMPERATE;
-      return temp;
+      const makeSpecial = this.random.pick2D(c.x, c.z, this.seed + 401, 13) === 0;
+      if (!makeSpecial) return temp;
+      if (temp === C.WARM) return C.WARM_SPECIAL;
+      if (temp === C.COLD) return C.COLD_SPECIAL;
+      return C.TEMPERATE_SPECIAL;
     }
 
     mushroomIsland(oceanMask, wx, wz, scale) {
