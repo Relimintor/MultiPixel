@@ -5042,7 +5042,13 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 const mat = blockMaterials[blockId];
                 const rect = mat?.textureUvByFace?.[faceName];
                 if (!rect) return { uv: fallbackUv, canTile: true };
-                return { uv: getFaceUVs(blockId, faceName, fallbackUv), canTile: false };
+
+                // Greedy quads should tile textures by merged size.
+                // Sub-rect atlas faces cannot safely tile with standard UV wrapping,
+                // so only enable repeat when the face rect covers the full texture.
+                const atlas = Math.max(1, Number(mat?.uvAtlasSize) || 64);
+                const canTile = rect[2] >= atlas && rect[3] >= atlas;
+                return { uv: getFaceUVs(blockId, faceName, fallbackUv), canTile };
             };
 
             const scaledUv = (uv, repeatU, repeatV) => {
