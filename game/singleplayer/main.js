@@ -530,7 +530,7 @@ window.perlin = perlinInstance;
                     }).catch(() => {});
                 }
                 console.info('[World seed]', worldSeed);
-                lightingSystem = SpawnLighting.create ? SpawnLighting.create({ getBlockType, isLiquid, CHUNK_HEIGHT }) : null;
+                lightingSystem = SpawnLighting.create ? SpawnLighting.create({ getBlockType, isLiquid, CHUNK_HEIGHT, getSkyLightCap: getCurrentSkyLightCap }) : null;
             } else {
                 console.error("PerlinNoise library failed to load.");
                 return;
@@ -712,6 +712,19 @@ window.perlin = perlinInstance;
             return { phase: 'Night', localT: (t - sunsetEnd) / DAY_SEGMENTS.night };
         }
 
+        function getSunFactor() {
+            const phaseInfo = getTimePhaseInfo();
+            if (phaseInfo.phase === 'Day') return 1;
+            if (phaseInfo.phase === 'Night') return -0.85;
+            if (phaseInfo.phase === 'Sunrise') return -0.85 + 1.85 * phaseInfo.localT;
+            return 1 - 1.85 * phaseInfo.localT;
+        }
+
+        function getCurrentSkyLightCap() {
+            const normalized = Math.max(0, Math.min(1, (getSunFactor() + 0.85) / 1.85));
+            return Math.max(0, Math.min(7, Math.floor(normalized * 7)));
+        }
+
         function setTimeByClock(hours, minutes) {
             const hh = Number.parseInt(hours, 10);
             const mm = Number.parseInt(minutes, 10);
@@ -760,13 +773,7 @@ window.perlin = perlinInstance;
         }
 
         function updateSkyAndSun() {
-            const phaseInfo = getTimePhaseInfo();
-            let sunFactor = 0;
-
-            if (phaseInfo.phase === 'Day') sunFactor = 1;
-            else if (phaseInfo.phase === 'Night') sunFactor = -0.85;
-            else if (phaseInfo.phase === 'Sunrise') sunFactor = -0.85 + 1.85 * phaseInfo.localT;
-            else sunFactor = 1 - 1.85 * phaseInfo.localT;
+            const sunFactor = getSunFactor();
 
             const dayColor = new THREE.Color(0x87ceeb);
             const twilightColor = new THREE.Color(0x9a7d90);
@@ -1225,6 +1232,8 @@ window.perlin = perlinInstance;
             if (y < SEA_LEVEL || y > SEA_LEVEL + 24) return false;
             const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
             if (under !== 1 && under !== 2) return false;
+            const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(Math.floor(wx), y, Math.floor(wz)) : 15;
+            if (lightLevel < 7) return false;
             return spawnPigAtExact(wx, y, wz);
         }
 
@@ -1554,9 +1563,26 @@ window.perlin = perlinInstance;
             return true;
         }
 
+        function findHostileSpawnY(wx, wz) {
+            const x = Math.floor(wx);
+            const z = Math.floor(wz);
+            for (let y = CHUNK_HEIGHT - 3; y >= 2; y--) {
+                const under = getBlockType(x, y - 1, z);
+                const feet = getBlockType(x, y, z);
+                const head = getBlockType(x, y + 1, z);
+                if (!isSolid(under) || isLiquid(under) || under === 6) continue;
+                if (feet !== 0 || head !== 0) continue;
+                const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(x, y, z) : 0;
+                if (lightLevel > 6) continue;
+                if (lightingSystem && lightingSystem.hasNearbyBlockLightSource(x, y, z, 7)) continue;
+                return y;
+            }
+            return -1;
+        }
+
         function spawnZombieAt(wx, wz) {
-            const y = getSurfaceYForEntity(wx, wz);
-            if (y < SEA_LEVEL || y > SEA_LEVEL + 26) return false;
+            const y = findHostileSpawnY(wx, wz);
+            if (y <= 0) return false;
             const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
             if (under === 0 || isLiquid(under)) return false;
 
@@ -5622,7 +5648,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             syncTorchLightsForChunk(group, torchPositions);
         }
 
-        const SPAWN_MIN_LIGHT_LEVEL = 13;
+        const SPAWN_MIN_LIGHT_LEVEL = 7;
 
         function isSafeSpawnSpot(x, z) {
             const wx = Math.floor(x);
