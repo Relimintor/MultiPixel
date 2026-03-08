@@ -24,17 +24,17 @@
     // Layer 9: Add Temperatures (4:1:1 warm/cold/freezing over land).
     const temp1024_l9 = (x, z) => stack.addTemperatures(removeOcean1024, x, z);
 
-    // Layer 10: Add Island again, now after climate seeding.
-    // New offshore land uses the same AddIsland rule, then immediately receives climate by
-    // inheriting nearby temperature classes from the pre-existing climate map.
-    const addIsland1024_l10 = (x, z) => stack.addIsland(removeOcean1024, x, z, 7);
-    const tempPostIsland1024 = (x, z) => stack.expandTemperatureToLand(temp1024_l9, addIsland1024_l10, x, z, 2213);
+    // Layer 10: Add Island again, now applied on the climate-seeded map so offshore
+    // additions inherit climate directly (no post-merge temperature expansion step).
+    const addIsland1024_l10_land = (x, z) => stack.addIsland(removeOcean1024, x, z, 7);
+    const addIsland1024_l10_temp = (x, z) => stack.addIsland(temp1024_l9, x, z, 7);
+
     // Layer 11: Warm -> Temperate buffering around cold/freezing neighbors.
-    const tempAfterWarmToTemperate_l11 = (x, z) => stack.warmToTemperate(tempPostIsland1024, x, z);
+    const tempAfterWarmToTemperate_l11 = (x, z) => stack.warmToTemperate(addIsland1024_l10_temp, x, z);
     // Layer 12: Freezing -> Cold buffering around warm/temperate neighbors.
     const tempAfterFreezingToCold_l12 = (x, z) => stack.freezingToCold(tempAfterWarmToTemperate_l11, x, z);
     const variantTemp1024 = (x, z) => stack.addBiomeVariants(tempAfterFreezingToCold_l12, x, z);
-    const zoomLand512 = (x, z) => stack.zoom(addIsland1024_l10, x, z, 8);
+    const zoomLand512 = (x, z) => stack.zoom(addIsland1024_l10_land, x, z, 8);
     const zoomTemp512 = (x, z) => stack.zoom(variantTemp1024, x, z, 9);
     const zoomLand256 = (x, z) => stack.zoom(zoomLand512, x, z, 10);
     const zoomTemp256 = (x, z) => stack.zoom(zoomTemp512, x, z, 11);
