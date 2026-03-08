@@ -12,10 +12,14 @@
     const zoom2048 = (x, z) => stack.zoom(island4096, x, z, 1);
     const addIsland2048 = (x, z) => stack.addIsland(zoom2048, x, z, 2);
     const zoom1024 = (x, z) => stack.zoom(addIsland2048, x, z, 3);
-    const addIsland1024a = (x, z) => stack.addIsland(zoom1024, x, z, 4);
-    const addIsland1024b = (x, z) => stack.addIsland(addIsland1024a, x, z, 5);
-    const addIsland1024c = (x, z) => stack.addIsland(addIsland1024b, x, z, 6);
-    const removeOcean1024 = (x, z) => stack.removeTooMuchOcean(addIsland1024c, x, z);
+
+    // Layers 5-7 in legacy-main: three consecutive AddIsland passes at the same
+    // resolution (~1024 blocks per cell). Each pass uses the exact same rule set;
+    // different salts keep each pass stochastically distinct.
+    const addIsland1024_l5 = (x, z) => stack.addIsland(zoom1024, x, z, 4);
+    const addIsland1024_l6 = (x, z) => stack.addIsland(addIsland1024_l5, x, z, 5);
+    const addIsland1024_l7 = (x, z) => stack.addIsland(addIsland1024_l6, x, z, 6);
+    const removeOcean1024 = (x, z) => stack.removeTooMuchOcean(addIsland1024_l7, x, z);
     const temp1024 = (x, z) => stack.addTemperatures(removeOcean1024, x, z);
     const addIslandPostTemp1024 = (x, z) => stack.addIsland(removeOcean1024, x, z, 7);
     const tempPostIsland1024 = (x, z) => stack.expandTemperatureToLand(temp1024, addIslandPostTemp1024, x, z, 2213);
