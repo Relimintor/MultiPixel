@@ -4775,8 +4775,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             cameraViewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
             frustum.setFromProjectionMatrix(cameraViewProj);
 
-            // Stage 1: frustum culling candidates.
-            const candidates = [];
+            // Conservative chunk-level culling only: rely on frustum test to avoid directional popping.
             for (const group of chunks.values()) {
                 frustumTempCenter.set(
                     group.userData.cx * CHUNK_SIZE + CHUNK_SIZE * 0.5,
@@ -4785,62 +4784,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 );
                 frustumTempSphere.center.copy(frustumTempCenter);
                 frustumTempSphere.radius = group.userData.frustumRadius || 40;
-                const inView = frustum.intersectsSphere(frustumTempSphere);
-                // Chunk-level frustum culling: skip rendering chunks outside camera view.
-                group.visible = inView;
-                if (!inView) continue;
-
-                const camSpace = frustumTempCenter.clone().applyMatrix4(camera.matrixWorldInverse);
-                if (camSpace.z >= 0) {
-                    group.visible = false;
-                    continue;
-                }
-
-                const dist = Math.sqrt(camSpace.x * camSpace.x + camSpace.y * camSpace.y + camSpace.z * camSpace.z);
-                candidates.push({ group, camSpace, dist });
+                group.visible = frustum.intersectsSphere(frustumTempSphere);
             }
-
-            // Stage 2: lightweight chunk occlusion culling.
-            // Keep nearest chunk depth per angular cell; farther chunks in the same cell are treated as hidden.
-            const AZ_BINS = 24;
-            const EL_BINS = 14;
-            const nearestDepth = new Float32Array(AZ_BINS * EL_BINS);
-            nearestDepth.fill(Infinity);
-
-            const MAX_OCCLUSION_DIST = CHUNK_SIZE * 7;
-            const DEPTH_MARGIN = CHUNK_SIZE * 1.7;
-
-            for (const c of candidates) {
-                if (c.dist > MAX_OCCLUSION_DIST) continue;
-                const az = Math.atan2(c.camSpace.x, -c.camSpace.z);
-                const el = Math.atan2(c.camSpace.y, Math.max(0.0001, Math.hypot(c.camSpace.x, c.camSpace.z)));
-                const azN = (az + Math.PI) / (Math.PI * 2);
-                const elN = (el + Math.PI * 0.5) / Math.PI;
-                const ai = Math.max(0, Math.min(AZ_BINS - 1, Math.floor(azN * AZ_BINS)));
-                const ei = Math.max(0, Math.min(EL_BINS - 1, Math.floor(elN * EL_BINS)));
-                const idx = ai + ei * AZ_BINS;
-                if (c.dist < nearestDepth[idx]) nearestDepth[idx] = c.dist;
-            }
-
-            for (const c of candidates) {
-                // Never occlusion-cull near chunks to avoid visible popping around player.
-                if (c.dist <= CHUNK_SIZE * 2.5) {
-                    c.group.visible = true;
-                    continue;
-                }
-
-                const az = Math.atan2(c.camSpace.x, -c.camSpace.z);
-                const el = Math.atan2(c.camSpace.y, Math.max(0.0001, Math.hypot(c.camSpace.x, c.camSpace.z)));
-                const azN = (az + Math.PI) / (Math.PI * 2);
-                const elN = (el + Math.PI * 0.5) / Math.PI;
-                const ai = Math.max(0, Math.min(AZ_BINS - 1, Math.floor(azN * AZ_BINS)));
-                const ei = Math.max(0, Math.min(EL_BINS - 1, Math.floor(elN * EL_BINS)));
-                const idx = ai + ei * AZ_BINS;
-                const near = nearestDepth[idx];
-                const occluded = Number.isFinite(near) && (c.dist > near + DEPTH_MARGIN);
-                c.group.visible = !occluded;
-            }
-
         }
 
         function updateChunkAndNeighbors(centerGroup, lx, lz) {
@@ -5629,5 +5574,3 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
         }
 
         window.onload = init;
-        }
-        }
