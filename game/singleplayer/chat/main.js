@@ -67,9 +67,16 @@
         }
     }
 
+    function escapeRegExp(value) {
+        return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
     function hasCensoredWord(input) {
-        const normalized = ` ${String(input || '').toLowerCase()} `;
-        return censorWords.find((word) => normalized.includes(` ${word} `));
+        const normalized = String(input || '').toLowerCase();
+        return censorWords.find((word) => {
+            const pattern = new RegExp(`(^|[^a-z0-9])${escapeRegExp(word)}([^a-z0-9]|$)`, 'i');
+            return pattern.test(normalized);
+        });
     }
 
     function openCommandHelp() {
