@@ -34,8 +34,14 @@
     // Layer 12: Freezing -> Cold buffering around warm/temperate neighbors.
     const tempAfterFreezingToCold_l12 = (x, z) => stack.freezingToCold(tempAfterWarmToTemperate_l11, x, z);
     const variantTemp1024 = (x, z) => stack.addBiomeVariants(tempAfterFreezingToCold_l12, x, z);
-    const zoomLand512 = (x, z) => stack.zoom(addIsland1024_l10_land, x, z, 8);
-    const zoomTemp512 = (x, z) => stack.zoom(variantTemp1024, x, z, 9);
+
+    // Layer 14: zoom 1024 -> 512 on both land and temperature maps.
+    // Both calls use the same fuzzy-zoom rule (`stack.zoom`) so borders gain jagged detail
+    // at the same stage, while salts stay distinct to avoid cache-key collisions.
+    const L14_ZOOM_LAND_SALT = 8;
+    const L14_ZOOM_TEMP_SALT = 9;
+    const zoomLand512 = (x, z) => stack.zoom(addIsland1024_l10_land, x, z, L14_ZOOM_LAND_SALT);
+    const zoomTemp512 = (x, z) => stack.zoom(variantTemp1024, x, z, L14_ZOOM_TEMP_SALT);
     const zoomLand256 = (x, z) => stack.zoom(zoomLand512, x, z, 10);
     const zoomTemp256 = (x, z) => stack.zoom(zoomTemp512, x, z, 11);
     const addIsland256 = (x, z) => stack.addIsland(zoomLand256, x, z, 12);
