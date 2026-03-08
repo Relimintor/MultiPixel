@@ -1725,7 +1725,7 @@ window.perlin = perlinInstance;
             p.className = 'eat-particle';
             p.style.left = `${44 + Math.random() * 28}%`;
             p.style.top = `${48 + Math.random() * 16}%`;
-            p.style.backgroundImage = `url('${BREAKING_PARTICLE_BASE}/break_particles.png')`;
+            p.style.backgroundImage = `url('${BREAKING_PARTICLE_BASE}/break_particle.png')`;
             p.style.backgroundSize = 'cover';
             p.style.transform = `scale(${0.6 + Math.random() * 0.7})`;
             eatOverlayEl.appendChild(p);
@@ -4807,7 +4807,11 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                      }
                   
                      // --- Tree Generation (Minecraft-like oaks on natural low/mid elevations) ---
-                     if (!isRiver && isTreeBiome(biome)) {
+                     // Keep trees off the main river channel, but allow them near riverbanks.
+                     // Using the broader terrain-carving threshold (0.1) here suppresses trees almost everywhere.
+                     const treeRiverBlockThreshold = 0.24;
+                     const isTreeBlockedByRiver = riverInfluence > treeRiverBlockThreshold;
+                     if (!isTreeBlockedByRiver && isTreeBiome(biome)) {
                          let topY = -1;
                          for (let yy = CHUNK_HEIGHT - 2; yy >= 1; yy--) {
                              const tidx = x + yy * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;

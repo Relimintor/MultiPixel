@@ -133,7 +133,8 @@
     GLASS_BLOCK: getAssetPath('textures/building/glass_block.png'),
     SMOOTH_STONE_BLOCK: getAssetPath('textures/smooth_stone.png'),
     GRAVEL: getAssetPath('textures/gravel.png'),
-    SMOOTH_SANDSTONE_BLOCK: getAssetPath('textures/sand/normal/smooth_sandstone_block.png'),
+    // Reuse the existing sandstone top texture until a dedicated smooth texture asset is added.
+    SMOOTH_SANDSTONE_BLOCK: getAssetPath('sand/sandstone/sandstone_top.png'),
     IRON_ORE_BLOCK: getAssetPath('textures/iron_ore.png'),
     IRON_ORE: getAssetPath('textures/item/raw_iron.png'),
     RAW_IRON_BLOCK: getAssetPath('textures/raw_iron_block.png'),
