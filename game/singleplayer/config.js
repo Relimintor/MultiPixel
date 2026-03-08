@@ -45,15 +45,15 @@
       regionHillChance: 0.08,
     },
     treeDensityByBiome: {
-      Forest: 0.19,
+      Forest: 0.22,
       Plains: 0.035,
       Mountains: 0.02,
       'Snowy Plains': 0.01,
       Desert: 0,
       Ocean: 0,
     },
-    treeClusterBonus: 0.13,
-    treeMinSpacingChance: 0.65,
+    treeClusterBonus: 0.14,
+    treeMinSpacingChance: 0.75,
   };
 
   const CAVE_SCALE = 0.05;
@@ -71,7 +71,7 @@
   const HOTBAR_SLOTS = 9;
   const TOTAL_INV_SIZE = INV_ROWS * INV_COLS + HOTBAR_SLOTS;
 
-  const REPO_BASE_PREFIX = '/MultiPixel';
+  const REPO_BASE_PREFIX = '/MultiPixel3';
   const getAssetPath = (subPath) => {
     const ASSET_BASE_DIR = 'game/singleplayer/assets';
     if (REPO_BASE_PREFIX) return `${REPO_BASE_PREFIX}/${ASSET_BASE_DIR}/${subPath}`;
