@@ -322,13 +322,17 @@ window.perlin = perlinInstance;
         }
 
         let targetRenderPixelRatio = computeRenderPixelRatio();
-        const configuredChunkRenderDistance = Math.floor(Number(worldGenSettings.chunkRenderDistance) || 12);
+        const configuredChunkRenderDistance = Math.floor(Number(worldGenSettings.chunkRenderDistance) || 8);
         const baseChunkRenderDistance = Math.max(4, Math.min(WORLD_RADIUS, configuredChunkRenderDistance));
         const effectiveChunkLoadRadius = Math.max(4, Math.min(WORLD_RADIUS, isLowEndDevice ? Math.max(4, baseChunkRenderDistance - 2) : baseChunkRenderDistance));
         const ENTITY_ACTIVATION_RANGE = Math.max(24, Number(worldGenSettings.entityActivationRange) || 72);
         const ENTITY_ACTIVATION_RANGE_SQ = ENTITY_ACTIVATION_RANGE * ENTITY_ACTIVATION_RANGE;
         const CHUNK_UPDATE_INTERVAL_MS = isLowEndDevice ? 220 : 90;
         const FRUSTUM_CULL_INTERVAL_MS = isLowEndDevice ? 120 : 60;
+        const FOG_BASE_NEAR = Math.max(12, effectiveChunkLoadRadius * CHUNK_SIZE * 0.18);
+        const FOG_DAY_NEAR_BOOST = Math.max(4, effectiveChunkLoadRadius * CHUNK_SIZE * 0.05);
+        const FOG_BASE_FAR = Math.max(54, effectiveChunkLoadRadius * CHUNK_SIZE * 0.72);
+        const FOG_DAY_FAR_BOOST = Math.max(16, effectiveChunkLoadRadius * CHUNK_SIZE * 0.22);
         const chunkOffsetsByRadius = new Map();
         let lastChunkUpdateMs = -Infinity;
         let lastFrustumCullMs = -Infinity;
@@ -738,8 +742,8 @@ window.perlin = perlinInstance;
 
             ambientLight.intensity = 0.26 + daylight * 0.45;
             hemiLight.intensity = 0.18 + daylight * 0.55;
-            scene.fog.near = 20 + daylight * 8;
-            scene.fog.far = 105 + daylight * 38;
+            scene.fog.near = FOG_BASE_NEAR + daylight * FOG_DAY_NEAR_BOOST;
+            scene.fog.far = FOG_BASE_FAR + daylight * FOG_DAY_FAR_BOOST;
         }
 
 
