@@ -1567,6 +1567,7 @@ window.perlin = perlinInstance;
                 root,
                 hp: 20,
                 attackCooldownMs: 0,
+                attackReach: 1.2 + Math.random() * 0.5,
                 burnTickMs: 0,
                 targetY: y,
                 groundProbeMs: 0,
@@ -1599,13 +1600,15 @@ window.perlin = perlinInstance;
             for (let i = zombieEntities.length - 1; i >= 0; i--) {
                 const z = zombieEntities[i];
                 if (!isEntityActiveAt(z.root.position)) continue;
-                const toPlayer = new THREE.Vector3(playerPos.x - z.root.position.x, 0, playerPos.z - z.root.position.z);
-                const dist = toPlayer.length();
-                if (dist > 0.001) toPlayer.normalize();
+                const toPlayerFlat = new THREE.Vector3(playerPos.x - z.root.position.x, 0, playerPos.z - z.root.position.z);
+                const distFlat = toPlayerFlat.length();
+                if (distFlat > 0.001) toPlayerFlat.normalize();
+                const dy = (playerPos.y + 0.9) - (z.root.position.y + 0.9);
+                const dist3D = Math.hypot(distFlat, dy);
 
                 const speed = 1.18;
-                const nx = z.root.position.x + toPlayer.x * speed * dt;
-                const nz = z.root.position.z + toPlayer.z * speed * dt;
+                const nx = z.root.position.x + toPlayerFlat.x * speed * dt;
+                const nz = z.root.position.z + toPlayerFlat.z * speed * dt;
 
                 z.groundProbeMs -= deltaMs;
                 if (z.groundProbeMs <= 0) {
@@ -1619,7 +1622,7 @@ window.perlin = perlinInstance;
                     z.root.position.y += (z.targetY - z.root.position.y) * Math.min(1, dt * 12);
                 }
 
-                if (dist > 0.1) z.root.rotation.y = Math.atan2(toPlayer.x, toPlayer.z);
+                if (distFlat > 0.1) z.root.rotation.y = Math.atan2(toPlayerFlat.x, toPlayerFlat.z);
 
                 const parts = z.root.userData.zombieParts;
                 if (parts) {
@@ -1634,7 +1637,7 @@ window.perlin = perlinInstance;
                 }
 
                 z.attackCooldownMs = Math.max(0, z.attackCooldownMs - deltaMs);
-                if (dist < 1.35 && z.attackCooldownMs <= 0) {
+                if (dist3D < (z.attackReach || 1.35) && z.attackCooldownMs <= 0) {
                     z.attackCooldownMs = 900;
                     takeDamage(3);
                 }
@@ -3295,11 +3298,11 @@ window.perlin = perlinInstance;
 
             const isSprinting = isMoving && (player.keys['e'] || mobileControls.sprint);
             const speedBoostMultiplier = (isSprinting && playerPrivileges.speed) ? 1.85 : 1;
-            if (window.HungerSystem) {
+            const isFlying = playerPrivileges.fly && isFlyActive;
+            if (window.HungerSystem && !isFlying) {
                 window.HungerSystem.update(performance.now(), { isMoving, isSprinting, isJumping: player.isJumping });
             }
-            const hungerMultiplier = window.HungerSystem ? window.HungerSystem.getSpeedMultiplier() : 1;
-            const isFlying = playerPrivileges.fly && isFlyActive;
+            const hungerMultiplier = isFlying ? 1 : (window.HungerSystem ? window.HungerSystem.getSpeedMultiplier() : 1);
 
             if (isFlying) {
                 const flySprintMultiplier = isSprinting ? (1.55 * speedBoostMultiplier) : speedBoostMultiplier;
@@ -4342,8 +4345,8 @@ function buildPartFaceRects(x, y, w, h, d) {
             if (isFlyingPose) {
                 playerAvatarParts.leftLegPivot.rotation.x = 0;
                 playerAvatarParts.rightLegPivot.rotation.x = 0;
-                playerAvatarParts.leftArmPivot.rotation.x = Math.PI / 2;
-                playerAvatarParts.rightArmPivot.rotation.x = -Math.PI / 2;
+                playerAvatarParts.leftArmPivot.rotation.x = 1.25;
+                playerAvatarParts.rightArmPivot.rotation.x = -1.45;
             } else if (player.isSwimming) {
                 const stroke = time * 0.02;
                 const legKick = Math.sin(time * 0.028) * 0.25;
