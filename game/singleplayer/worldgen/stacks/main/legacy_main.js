@@ -29,8 +29,9 @@
     // inheriting nearby temperature classes from the pre-existing climate map.
     const addIsland1024_l10 = (x, z) => stack.addIsland(removeOcean1024, x, z, 7);
     const tempPostIsland1024 = (x, z) => stack.expandTemperatureToLand(temp1024_l9, addIsland1024_l10, x, z, 2213);
-    const warmTemp1024 = (x, z) => stack.warmToTemperate(tempPostIsland1024, x, z);
-    const coldTemp1024 = (x, z) => stack.freezingToCold(warmTemp1024, x, z);
+    // Layer 11: Warm -> Temperate buffering around cold/freezing neighbors.
+    const tempAfterWarmToTemperate_l11 = (x, z) => stack.warmToTemperate(tempPostIsland1024, x, z);
+    const coldTemp1024 = (x, z) => stack.freezingToCold(tempAfterWarmToTemperate_l11, x, z);
     const variantTemp1024 = (x, z) => stack.addBiomeVariants(coldTemp1024, x, z);
     const zoomLand512 = (x, z) => stack.zoom(addIsland1024_l10, x, z, 8);
     const zoomTemp512 = (x, z) => stack.zoom(variantTemp1024, x, z, 9);

@@ -136,9 +136,17 @@
       return this.cached('warm_to_temperate', x, z, () => {
         const center = tempFn(x, z);
         if (!isWarmClass(center)) return center;
-        const neighbors = [tempFn(x, z - 1), tempFn(x, z + 1), tempFn(x - 1, z), tempFn(x + 1, z)];
-        const hasColdNeighbor = neighbors.some((v) => isColdClass(v) || isFreezingClass(v));
-        if (!hasColdNeighbor) return center;
+
+        // Layer 11 (Warm -> Temperate): if a warm center touches any cold/freezing tile
+        // in the cardinal neighborhood (N/S/E/W), convert it to a temperate buffer.
+        const north = tempFn(x, z - 1);
+        const south = tempFn(x, z + 1);
+        const west = tempFn(x - 1, z);
+        const east = tempFn(x + 1, z);
+        const hasColdOrFreezingNeighbor = [north, south, west, east]
+          .some((v) => isColdClass(v) || isFreezingClass(v));
+        if (!hasColdOrFreezingNeighbor) return center;
+
         return center === C().WARM_SPECIAL ? C().TEMPERATE_SPECIAL : C().TEMPERATE;
       });
     }
