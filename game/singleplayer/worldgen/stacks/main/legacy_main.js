@@ -8,6 +8,7 @@
     const z256 = Math.floor(wz / 256);
 
     const island4096 = (x, z) => stack.cached('island_4096', x, z, () => stack.ops.island(x, z));
+    // Zoom passes in legacy main all use stack.zoom(...), which is the shared fuzzy 2x upscaler.
     const zoom2048 = (x, z) => stack.zoom(island4096, x, z, 1);
     const addIsland2048 = (x, z) => stack.addIsland(zoom2048, x, z, 2);
     const zoom1024 = (x, z) => stack.zoom(addIsland2048, x, z, 3);
