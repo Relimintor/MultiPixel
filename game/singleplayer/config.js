@@ -201,6 +201,10 @@
     PORKCHOP_COOKED: getAssetPath('textures/item/food/pork/cooked_porkchop.png'),
     ZOMBIE_TEXTURE: getAssetPath('textures/mobs/hostile/zombie.png'),
     ROTTEN_FLESH: getAssetPath('textures/item/food/rotten_flesh.png'),
+
+    //Jungle tree
+    JUNGLE_LOG: getAssetPath('textures/jungle/jungle_log.png'),
+    JUNGLE_LOG_TOP: getAssetPath('textures/jungle/jungle_log_top.png'),
   };
 
   const blockMaterials = {
@@ -213,25 +217,10 @@
     1: { name: 'Grass', id: 1, textured: true, textureKey: 'GRASS' },
     2: { name: 'Dirt', id: 2, textured: true, textureKey: 'DIRT' }, 
     3: { name: 'Stone', id: 3, textured: true, textureKey: 'STONE' },
-    6: { name: 'Leaves', id: 6, textured: true, textureKey: 'LEAVES', transparent: true, opacity: 1 },
     7: { name: 'Sand', id: 7, textured: true, textureKey: 'SAND' },
     15: { name: 'Snow Block', id: 15, textured: true, textureKey: 'SNOW_BLOCK', color: 0xf2f7ff },
     59: { name: 'Ice', id: 59, textured: true, textureKey: 'ICE' },
     28: { name: 'gravel', id: 28, textured: true, textureKey: 'GRAVEL' },
-    5: { 
-      name: 'Wood Log', 
-      id: 5, 
-      textured: true, 
-      textureKey: 'WOOD_LOG', 
-      textureByFace: {
-        top: 'OAK_LOG_TOP',
-        bottom: 'OAK_LOG_TOP',
-        posX: 'WOOD_LOG',
-        negX: 'WOOD_LOG',
-        posZ: 'WOOD_LOG',
-        negZ: 'WOOD_LOG'
-      } 
-    },
      13: { 
       name: 'Sand stone', 
       id: 13, 
@@ -247,6 +236,46 @@
       },
     },
 
+    /* Wood Types
+    With theyr
+    respective leaf block*/
+
+    //oak
+    
+     5: { 
+      name: 'Oak Log', 
+      id: 5, 
+      textured: true, 
+      textureKey: 'WOOD_LOG', 
+      textureByFace: {
+        top: 'OAK_LOG_TOP',
+        bottom: 'OAK_LOG_TOP',
+        posX: 'WOOD_LOG',
+        negX: 'WOOD_LOG',
+        posZ: 'WOOD_LOG',
+        negZ: 'WOOD_LOG'
+      } 
+    },
+
+    6: { name: 'Oak Leaves', id: 6, textured: true, textureKey: 'LEAVES', transparent: true, opacity: 1 },
+
+    //Jungle
+      96: { 
+      name: 'Jungle Log', 
+      id: 5, 
+      textured: true, 
+      textureKey: 'JUNGLE_LOG', 
+      textureByFace: {
+        top: 'JUNGLE_LOG_TOP',
+        bottom: 'JUNGLE_LOG_TOP',
+        posX: 'JUNGLE_LOG',
+        negX: 'JUNGLE_LOG',
+        posZ: 'JUNGLE_LOG',
+        negZ: 'JUNGLE_LOG'
+      } 
+    },
+  97: { name: 'Jungle Leaves', id: 6, textured: true, textureKey: 'LEAVES', transparent: true, opacity: 1 },
+    
     /*Building ig*/
     8: { name: 'Oak Planks', id: 8, textured: true, textureKey: 'OAK_PLANK' },
     17: { name: 'Cobblestone', id: 17, textured: true, textureKey: 'COBBLESTONE' },
@@ -446,7 +475,7 @@
     REPO_BASE_PREFIX,
     WORLD_GEN_SETTINGS,
     ASSET_FILEPATHS, blockMaterials,
-    SOLID_BLOCKS: [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91 ],
+    SOLID_BLOCKS: [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97 ],
     LIQUID_BLOCKS: [4, 33, 47, 48, 49, 50, 51, 52, 53, 60, 61, 62, 63, 64, 65, 66],
     DEFAULT_PLAYER: {
       moveSpeed: 0.12,
