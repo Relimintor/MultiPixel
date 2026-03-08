@@ -56,8 +56,18 @@
         if (sx === 0 && sz === 1) return this.ops.random.pick2D(x, z, this.ops.seed + salt + 53, 2) === 0 ? c00 : c01;
 
         const c11 = parentFn(px + 1, pz + 1);
-        const pick = this.ops.random.pick2D(x, z, this.ops.seed + salt + 79, 4);
-        return [c00, c10, c01, c11][pick];
+
+        // For the center of the 2x2 block, preserve dominant neighbors when possible
+        // so macro landmasses stay coherent across early large-scale zooms.
+        const roll = this.ops.random.at2D(x, z, this.ops.seed + salt + 79);
+        if (c10 === c01 && c01 === c11) return c10;
+        if (c00 === c10 && c00 === c01) return c00;
+        if (c00 === c10) return roll < 0.66 ? c00 : (roll < 0.83 ? c01 : c11);
+        if (c00 === c01) return roll < 0.66 ? c00 : (roll < 0.83 ? c10 : c11);
+        if (c10 === c11) return roll < 0.66 ? c10 : (roll < 0.83 ? c00 : c01);
+        if (c01 === c11) return roll < 0.66 ? c01 : (roll < 0.83 ? c00 : c10);
+        if (c00 === c11) return roll < 0.5 ? c00 : (roll < 0.75 ? c10 : c01);
+        return [c00, c10, c01, c11][Math.floor(roll * 4)];
       });
     }
 
