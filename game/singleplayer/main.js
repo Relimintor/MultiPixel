@@ -1362,6 +1362,8 @@ window.perlin = perlinInstance;
             if (y < SEA_LEVEL || y > SEA_LEVEL + 24) return false;
             const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
             if (under !== 1 && under !== 2) return false;
+            const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(Math.floor(wx), y, Math.floor(wz)) : 15;
+            if (lightLevel < 7) return false;
             const biome = getBiome(Math.floor(wx), Math.floor(wz));
             if (biome !== 'Forest') return false;
             return spawnWolfAtExact(wx, y, wz);
@@ -1394,6 +1396,8 @@ window.perlin = perlinInstance;
             if (y < SEA_LEVEL || y > SEA_LEVEL + 36) return false;
             const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
             if (under !== 1 && under !== 2 && under !== 3 && under !== 7 && under !== 15) return false;
+            const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(Math.floor(wx), y, Math.floor(wz)) : 15;
+            if (lightLevel < 7) return false;
             return spawnWolfAtExact(wx, y, wz);
         }
 

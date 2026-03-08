@@ -30,7 +30,8 @@
         } else if (b === 22) {
           light -= 0.25;
         } else {
-          light -= 1.7;
+          light -= 15;
+          break;
         }
         if (light <= 0) return 0;
       }
