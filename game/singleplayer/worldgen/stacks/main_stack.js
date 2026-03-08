@@ -181,7 +181,19 @@
     }
 
     addBiomeVariants(tempFn, x, z) {
-      return this.cached('biome_variant', x, z, () => tempFn(x, z));
+      const { C } = S();
+      return this.cached('biome_variant', x, z, () => {
+        const center = tempFn(x, z);
+        if (center !== C().WARM && center !== C().TEMPERATE && center !== C().COLD) return center;
+
+        // Layer 13: mark a subset of non-freezing climates as special biome candidates.
+        // warm -> badlands candidate, temperate -> jungle candidate, cold -> giant taiga candidate.
+        const becomesSpecial = this.ops.random.pick2D(x, z, this.ops.seed + 401, 13) === 0;
+        if (!becomesSpecial) return center;
+        if (center === C().WARM) return C().WARM_SPECIAL;
+        if (center === C().COLD) return C().COLD_SPECIAL;
+        return C().TEMPERATE_SPECIAL;
+      });
     }
 
 
