@@ -39,6 +39,7 @@
       return value;
     }
 
+    // Fuzzy zoom: doubles resolution and fills new cells via random neighbor copying.
     zoom(parentFn, x, z, salt) {
       return this.cached(`zoom_${salt}`, x, z, () => {
         const px = x >> 1;
