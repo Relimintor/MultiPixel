@@ -412,6 +412,56 @@ window.perlin = perlinInstance;
             chunkOffsetsByRadius.set(radius, offsets);
             return offsets;
         }
+
+        function getTexturePackScriptPath(packId) {
+            if (!packId) return '';
+            const repoPrefix = window.SingleplayerConfig?.REPO_BASE_PREFIX || '';
+            return `${repoPrefix}/game/singleplayer/edit/texturepack/${packId}/main.js`;
+        }
+
+        function toPackAssetPath(packId, relativeAssetPath) {
+            const repoPrefix = window.SingleplayerConfig?.REPO_BASE_PREFIX || '';
+            return `${repoPrefix}/game/singleplayer/edit/texturepack/${packId}/${relativeAssetPath}`;
+        }
+
+        async function applySelectedTexturePackOverrides() {
+            const selectedPackId = localStorage.getItem('singleplayer.texturePackId');
+            if (!selectedPackId) return;
+
+            const scriptPath = getTexturePackScriptPath(selectedPackId);
+            if (!scriptPath) return;
+
+            const registered = [];
+            const registry = {
+                register(pack) {
+                    if (!pack || !pack.id) return;
+                    registered.push(pack);
+                }
+            };
+            window.SingleplayerTexturePackRegistry = registry;
+
+            const loaded = await new Promise((resolve) => {
+                const script = document.createElement('script');
+                script.src = `${scriptPath}?v=1`;
+                script.async = true;
+                script.onload = () => resolve(true);
+                script.onerror = () => resolve(false);
+                document.head.appendChild(script);
+            });
+
+            const activePack = loaded ? registered.find((pack) => pack.id === selectedPackId) : null;
+            const overrides = activePack?.assetOverrides || null;
+            if (!overrides || typeof overrides !== 'object') return;
+
+            for (const key in overrides) {
+                if (!Object.prototype.hasOwnProperty.call(ASSET_FILEPATHS, key)) continue;
+                const relativePath = String(overrides[key] || '').trim();
+                if (!relativePath) continue;
+                ASSET_FILEPATHS[key] = toPackAssetPath(selectedPackId, relativePath);
+            }
+
+            console.info('[TexturePack] applied', selectedPackId);
+        }
         
         async function loadAssets() {
             const loader = new THREE.TextureLoader();
@@ -502,6 +552,7 @@ window.perlin = perlinInstance;
 
         async function init() {
             
+            await applySelectedTexturePackOverrides();
             await loadAssets(); // Load all textures and materials first!
             await loadIglooStructure();
             preloadBreakingTextures();
@@ -617,7 +668,7 @@ window.perlin = perlinInstance;
                 if (isInventoryOpen) toggleInventory();
             });
             if (editSkinBtn) editSkinBtn.addEventListener('click', () => {
-                toggleInventorySkinPreview();
+                window.location.href = `${window.SingleplayerConfig?.REPO_BASE_PREFIX || '/MultiPixel'}/game/singleplayer/edit/index.html`;
             });
             if (furnaceCloseBtn) furnaceCloseBtn.addEventListener('click', () => {
                 if (isInventoryOpen) toggleInventory();
@@ -1576,8 +1627,10 @@ window.perlin = perlinInstance;
                 const head = getBlockType(x, y + 1, z);
                 if (!isSolid(under) || isLiquid(under) || under === 6) continue;
                 if (feet !== 0 || head !== 0) continue;
-                const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(x, y, z) : 0;
-                if (lightLevel > 7) continue;
+                const skyLightLevel = lightingSystem ? lightingSystem.getSkyLightLevel(x, y, z) : 0;
+                if (skyLightLevel > 7) continue;
+                const blockLightLevel = lightingSystem ? lightingSystem.getBlockLightLevel(x, y, z) : 0;
+                if (blockLightLevel > 7) continue;
                 if (lightingSystem && lightingSystem.hasNearbyBlockLightSource(x, y, z, 7)) continue;
                 return y;
             }
@@ -1599,6 +1652,8 @@ window.perlin = perlinInstance;
                 attackCooldownMs: 0,
                 attackReach: 1.2 + Math.random() * 0.5,
                 burnTickMs: 0,
+                inDirectSunlight: false,
+                sunProbeMs: 0,
                 targetY: y,
                 groundProbeMs: 0,
             });
@@ -1618,6 +1673,14 @@ window.perlin = perlinInstance;
             const wx = yawObject.position.x + Math.cos(angle) * dist;
             const wz = yawObject.position.z + Math.sin(angle) * dist;
             spawnZombieAt(wx, wz);
+        }
+
+
+        function isZombieInDirectSunlight(wx, wy, wz) {
+            if (!lightingSystem) return canZombieSeeSky(wx, wy, wz);
+            if (!lightingSystem.isOpenToSky(wx, wy, wz)) return false;
+            const skyLight = lightingSystem.getSkyLightLevel(wx, wy, wz);
+            return skyLight >= 12;
         }
 
         function updateZombies(time, deltaMs) {
@@ -1676,7 +1739,14 @@ window.perlin = perlinInstance;
                 const zy = Math.floor(z.root.position.y + 1.6);
                 const zz = Math.floor(z.root.position.z);
                 const inLiquid = isLiquid(getBlockType(zx, zy, zz));
-                if (burningTime && !inLiquid && canZombieSeeSky(zx, zy, zz)) {
+
+                z.sunProbeMs = (z.sunProbeMs ?? 0) - deltaMs;
+                if (z.sunProbeMs <= 0) {
+                    z.sunProbeMs = 220;
+                    z.inDirectSunlight = isZombieInDirectSunlight(zx, zy, zz);
+                }
+
+                if (burningTime && !inLiquid && z.inDirectSunlight) {
                     z.burnTickMs += deltaMs;
                     if (z.burnTickMs >= 900) {
                         z.burnTickMs = 0;
@@ -1725,7 +1795,7 @@ window.perlin = perlinInstance;
             p.className = 'eat-particle';
             p.style.left = `${44 + Math.random() * 28}%`;
             p.style.top = `${48 + Math.random() * 16}%`;
-            p.style.backgroundImage = `url('${BREAKING_PARTICLE_BASE}/break_particles.png')`;
+            p.style.backgroundImage = `url('${BREAKING_PARTICLE_BASE}/break_particle.png')`;
             p.style.backgroundSize = 'cover';
             p.style.transform = `scale(${0.6 + Math.random() * 0.7})`;
             eatOverlayEl.appendChild(p);
@@ -4807,7 +4877,11 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                      }
                   
                      // --- Tree Generation (Minecraft-like oaks on natural low/mid elevations) ---
-                     if (!isRiver && isTreeBiome(biome)) {
+                     // Keep trees off the main river channel, but allow them near riverbanks.
+                     // Using the broader terrain-carving threshold (0.1) here suppresses trees almost everywhere.
+                     const treeRiverBlockThreshold = 0.24;
+                     const isTreeBlockedByRiver = riverInfluence > treeRiverBlockThreshold;
+                     if (!isTreeBlockedByRiver && isTreeBiome(biome)) {
                          let topY = -1;
                          for (let yy = CHUNK_HEIGHT - 2; yy >= 1; yy--) {
                              const tidx = x + yy * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;

@@ -1,0 +1,72 @@
+.edit-body {
+  min-height: 100vh;
+  margin: 0;
+  background: #10141d;
+  color: #f4f6fb;
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+.edit-shell {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.edit-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.edit-tabs {
+  display: flex;
+  gap: 12px;
+  margin: 20px 0;
+}
+
+.edit-tab,
+#edit-back-btn,
+.edit-action {
+  background: #20283a;
+  color: #eef2ff;
+  border: 1px solid #394764;
+  border-radius: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+
+.edit-tab.active {
+  background: #2f5cf0;
+  border-color: #4f74ef;
+}
+
+.edit-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+
+.edit-card {
+  background: #161c2a;
+  border: 1px solid #334260;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.edit-card h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+
+.edit-card p {
+  margin: 0 0 10px;
+  color: #c5cee4;
+  font-size: 13px;
+}
+
+.edit-note {
+  color: #b9c5df;
+}
+
+.hidden { display: none !important; }
