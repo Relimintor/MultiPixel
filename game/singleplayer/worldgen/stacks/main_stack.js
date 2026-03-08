@@ -99,14 +99,16 @@
       return this.cached('remove_ocean', x, z, () => {
         const center = parentFn(x, z);
         if (!isOceanCell(center)) return center;
+
         const n = parentFn(x, z - 1);
         const s = parentFn(x, z + 1);
         const w = parentFn(x - 1, z);
         const e = parentFn(x + 1, z);
-        if (isOceanCell(n) && isOceanCell(s) && isOceanCell(w) && isOceanCell(e)) {
-          return this.ops.random.at2D(x, z, this.ops.seed + 222) < 0.5 ? C().LAND : C().OCEAN;
-        }
-        return center;
+
+        // Legacy rule: if center + N/S/E/W are all ocean, flip center to land with 50% chance.
+        const oceanCross = isOceanCell(n) && isOceanCell(s) && isOceanCell(w) && isOceanCell(e);
+        if (!oceanCross) return center;
+        return this.ops.random.pick2D(x, z, this.ops.seed + 222, 2) === 0 ? C().LAND : C().OCEAN;
       });
     }
 
@@ -114,13 +116,18 @@
       const { C } = S();
       return this.cached('temperature', x, z, () => {
         if (landFn(x, z) !== C().LAND) return C().OCEAN;
-        const r = this.ops.random.at2D(x, z, this.ops.seed + 303);
-        const special = this.ops.random.at2D(x, z, this.ops.seed + 304) < this.specialRegionChance;
-        const warmThreshold = this.temperatureDistribution.warm;
-        const coldThreshold = this.temperatureDistribution.warm + this.temperatureDistribution.cold;
-        if (r < warmThreshold) return special ? C().WARM_SPECIAL : C().WARM;
-        if (r < coldThreshold) return special ? C().COLD_SPECIAL : C().COLD;
-        return C().FREEZING;
+
+        // Legacy layer-9 behavior: assign climate classes with a 4:1:1 roll.
+        // warm: 4/6, cold: 1/6, freezing: 1/6.
+        const climateRoll = this.ops.random.pick2D(x, z, this.ops.seed + 303, 6);
+        const baseTemp = climateRoll < 4 ? C().WARM : (climateRoll === 4 ? C().COLD : C().FREEZING);
+
+        // Legacy special flag chance: exactly 1/13.
+        const isSpecial = this.ops.random.pick2D(x, z, this.ops.seed + 304, 13) === 0;
+        if (!isSpecial) return baseTemp;
+        if (baseTemp === C().WARM) return C().WARM_SPECIAL;
+        if (baseTemp === C().COLD) return C().COLD_SPECIAL;
+        return baseTemp;
       });
     }
 
