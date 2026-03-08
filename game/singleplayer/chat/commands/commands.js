@@ -55,6 +55,10 @@
       return window.SingleplayerChatCommandGamemode.execute(parts, ctx);
     }
 
+    if (command === '/grantme' && window.SingleplayerChatCommandGrantMe?.execute) {
+      return window.SingleplayerChatCommandGrantMe.execute(parts, ctx);
+    }
+
     if (command === '/set') {
       if (window.SingleplayerChatCommandSet?.execute) {
         return window.SingleplayerChatCommandSet.execute(parts, ctx);

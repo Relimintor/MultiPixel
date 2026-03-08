@@ -164,6 +164,8 @@ window.perlin = perlinInstance;
         let isCreativeMode = false;
         let isCreativeMenuOpen = false;
         const creativeCatalog = [];
+        const playerPrivileges = { fly: false, speed: false, noclip: false };
+        const FLY_VERTICAL_SPEED = 0.24;
 
         // --- NEW CRAFTING STATE VARIABLES ---
         let isCraftingTableOpen = false;
@@ -1745,6 +1747,7 @@ window.perlin = perlinInstance;
                 setGameMode,
                 openCreativeMenu,
                 closeCreativeMenu,
+                grantPrivilege,
                 openCommandHelp: () => window.SingleplayerChat?.openCommandHelp?.(),
                 mobileAssetBase: MOBILE_ASSET_BASE,
                 onOpen: () => {
@@ -1865,6 +1868,26 @@ window.perlin = perlinInstance;
             heldItemSourceType = null;
             renderHeldItem();
             updateHotbarUI();
+            return true;
+        }
+
+        function grantPrivilege(name) {
+            const key = String(name || '').toLowerCase();
+            if (key !== 'fly' && key !== 'speed' && key !== 'noclip') return false;
+            if (key === 'noclip' && !playerPrivileges.fly) {
+                showGameMessage('Grant fly first before noclip.');
+                return false;
+            }
+            playerPrivileges[key] = true;
+            if (key === 'fly') {
+                player.velocity.y = 0;
+                player.isJumping = false;
+                showGameMessage('Fly enabled. Space = up, Shift = down.');
+            } else if (key === 'speed') {
+                showGameMessage('Speed enabled. Hold E to boost movement.');
+            } else if (key === 'noclip') {
+                showGameMessage('Noclip enabled while fly is active.');
+            }
             return true;
         }
 
@@ -3256,12 +3279,31 @@ window.perlin = perlinInstance;
             player.isMoving = isMoving;
 
             const isSprinting = isMoving && (player.keys['e'] || mobileControls.sprint);
+            const speedBoostMultiplier = (isSprinting && playerPrivileges.speed) ? 1.85 : 1;
             if (window.HungerSystem) {
                 window.HungerSystem.update(performance.now(), { isMoving, isSprinting, isJumping: player.isJumping });
             }
             const hungerMultiplier = window.HungerSystem ? window.HungerSystem.getSpeedMultiplier() : 1;
+            const isFlying = playerPrivileges.fly;
 
-            if (isSwimming) {
+            if (isFlying) {
+                const flySprintMultiplier = isSprinting ? (1.55 * speedBoostMultiplier) : speedBoostMultiplier;
+                const flyBaseSpeed = player.baseMoveSpeed * 1.12 * flySprintMultiplier;
+                player.moveSpeed = flyBaseSpeed;
+                player.velocity.x = player.direction.x * player.moveSpeed;
+                player.velocity.z = player.direction.z * player.moveSpeed;
+
+                const flyUp = !!(player.keys[' '] || mobileControls.jump);
+                const flyDown = !!player.keys['shift'];
+                if (flyUp && !flyDown) {
+                    player.velocity.y = FLY_VERTICAL_SPEED * (isSprinting ? flySprintMultiplier : 1);
+                } else if (flyDown && !flyUp) {
+                    player.velocity.y = -FLY_VERTICAL_SPEED * (isSprinting ? flySprintMultiplier : 1);
+                } else {
+                    player.velocity.y = 0;
+                }
+                player.isJumping = false;
+            } else if (isSwimming) {
                 const swimSprintMultiplier = isSprinting ? SWIM_SPRINT_MULTIPLIER : 1;
                 player.moveSpeed = player.baseMoveSpeed * SWIM_SPEED_FACTOR * swimSprintMultiplier * hungerMultiplier;
                 player.velocity.x = player.direction.x * player.moveSpeed;
@@ -3278,7 +3320,7 @@ window.perlin = perlinInstance;
                 }
                 player.isJumping = false;
             } else {
-                const sprintMultiplier = isSprinting ? player.sprintMultiplier : 1;
+                const sprintMultiplier = isSprinting ? player.sprintMultiplier * speedBoostMultiplier : 1;
                 player.moveSpeed = player.baseMoveSpeed * sprintMultiplier * hungerMultiplier;
                 player.velocity.x = player.direction.x * player.moveSpeed;
                 player.velocity.z = player.direction.z * player.moveSpeed;
@@ -3391,7 +3433,8 @@ window.perlin = perlinInstance;
         }
 
         function isColliding() {
-          
+            if (playerPrivileges.noclip && playerPrivileges.fly) return false;
+
             const px = yawObject.position.x;
             const py = yawObject.position.y;
             const pz = yawObject.position.z;
