@@ -31,8 +31,9 @@
     const tempPostIsland1024 = (x, z) => stack.expandTemperatureToLand(temp1024_l9, addIsland1024_l10, x, z, 2213);
     // Layer 11: Warm -> Temperate buffering around cold/freezing neighbors.
     const tempAfterWarmToTemperate_l11 = (x, z) => stack.warmToTemperate(tempPostIsland1024, x, z);
-    const coldTemp1024 = (x, z) => stack.freezingToCold(tempAfterWarmToTemperate_l11, x, z);
-    const variantTemp1024 = (x, z) => stack.addBiomeVariants(coldTemp1024, x, z);
+    // Layer 12: Freezing -> Cold buffering around warm/temperate neighbors.
+    const tempAfterFreezingToCold_l12 = (x, z) => stack.freezingToCold(tempAfterWarmToTemperate_l11, x, z);
+    const variantTemp1024 = (x, z) => stack.addBiomeVariants(tempAfterFreezingToCold_l12, x, z);
     const zoomLand512 = (x, z) => stack.zoom(addIsland1024_l10, x, z, 8);
     const zoomTemp512 = (x, z) => stack.zoom(variantTemp1024, x, z, 9);
     const zoomLand256 = (x, z) => stack.zoom(zoomLand512, x, z, 10);

@@ -156,9 +156,17 @@
       return this.cached('freezing_to_cold', x, z, () => {
         const center = tempFn(x, z);
         if (!isFreezingClass(center)) return center;
-        const neighbors = [tempFn(x, z - 1), tempFn(x, z + 1), tempFn(x - 1, z), tempFn(x + 1, z)];
-        const hasWarmishNeighbor = neighbors.some((v) => isWarmClass(v) || v === C().TEMPERATE || v === C().TEMPERATE_SPECIAL);
-        return hasWarmishNeighbor ? C().COLD : center;
+
+        // Layer 12 (Freezing -> Cold): deterministic cardinal-neighbor smoothing.
+        // If freezing touches any warm/temperate class in N/S/E/W, downgrade to cold.
+        const north = tempFn(x, z - 1);
+        const south = tempFn(x, z + 1);
+        const west = tempFn(x - 1, z);
+        const east = tempFn(x + 1, z);
+        const hasWarmOrTemperateNeighbor = [north, south, west, east].some((v) =>
+          isWarmClass(v) || v === C().TEMPERATE || v === C().TEMPERATE_SPECIAL
+        );
+        return hasWarmOrTemperateNeighbor ? C().COLD : center;
       });
     }
 
