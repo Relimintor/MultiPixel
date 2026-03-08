@@ -39,21 +39,27 @@
       return value;
     }
 
+    // Fuzzy zoom: doubles resolution and fills new cells via random neighbor copying.
     zoom(parentFn, x, z, salt) {
       return this.cached(`zoom_${salt}`, x, z, () => {
         const px = x >> 1;
         const pz = z >> 1;
         const sx = x & 1;
         const sz = z & 1;
+
         const c00 = parentFn(px, pz);
         if (sx === 0 && sz === 0) return c00;
+
         const c10 = parentFn(px + 1, pz);
         const c01 = parentFn(px, pz + 1);
-        const c11 = parentFn(px + 1, pz + 1);
-        const roll = this.ops.random.at2D(x, z, this.ops.seed + salt);
+        if (sx === 1 && sz === 0) return this.ops.random.pick2D(x, z, this.ops.seed + salt + 31, 2) === 0 ? c00 : c10;
+        if (sx === 0 && sz === 1) return this.ops.random.pick2D(x, z, this.ops.seed + salt + 53, 2) === 0 ? c00 : c01;
 
-        if (sx === 0 && sz === 1) return roll < 0.5 ? c00 : c01;
-        if (sx === 1 && sz === 0) return roll < 0.5 ? c00 : c10;
+        const c11 = parentFn(px + 1, pz + 1);
+
+        // For the center of the 2x2 block, preserve dominant neighbors when possible
+        // so macro landmasses stay coherent across early large-scale zooms.
+        const roll = this.ops.random.at2D(x, z, this.ops.seed + salt + 79);
         if (c10 === c01 && c01 === c11) return c10;
         if (c00 === c10 && c00 === c01) return c00;
         if (c00 === c10) return roll < 0.66 ? c00 : (roll < 0.83 ? c01 : c11);
@@ -65,6 +71,11 @@
       });
     }
 
+    // Backward-compatible alias for earlier commits/tests.
+    zoomFuzzy(parentFn, x, z, salt) {
+      return this.zoom(parentFn, x, z, salt);
+    }
+
     addIsland(parentFn, x, z, salt) {
       const { C, isOceanCell } = S();
       return this.cached(`add_island_${salt}`, x, z, () => {
@@ -74,17 +85,22 @@
         const west = parentFn(x - 1, z);
         const east = parentFn(x + 1, z);
         const neighbors = [north, south, west, east];
-        const rand = this.ops.random.at2D(x, z, this.ops.seed + salt);
 
-        if (center === C().LAND) {
-          const oceanNeighbors = neighbors.filter((v) => isOceanCell(v)).length;
-          if (oceanNeighbors >= 3 && rand < 0.14) return C().OCEAN;
-          return C().LAND;
+        const landNeighbors = neighbors.filter((v) => !isOceanCell(v));
+
+        // Ocean touching land: chance is exactly 1 / (N + 1), where N is land-neighbor count.
+        // When conversion happens, copy one random neighboring land value (preserves region ids).
+        if (isOceanCell(center)) {
+          const n = landNeighbors.length;
+          if (n === 0) return center;
+          const chosen = landNeighbors[this.ops.random.pick2D(x, z, this.ops.seed + salt + 31, n)];
+          return this.ops.random.pick2D(x, z, this.ops.seed + salt + 53, n + 1) === 0 ? chosen : center;
         }
 
-        const landNeighbors = neighbors.filter((v) => v === C().LAND).length;
-        if (landNeighbors === 0) return center;
-        return rand < 0.36 ? C().LAND : center;
+        // Isolated land (all four neighbors ocean) erodes with exact 1 / 5 probability.
+        const isolatedLand = neighbors.every((v) => isOceanCell(v));
+        if (isolatedLand && this.ops.random.pick2D(x, z, this.ops.seed + salt + 79, 5) === 0) return C().OCEAN;
+        return center;
       });
     }
 
@@ -93,14 +109,16 @@
       return this.cached('remove_ocean', x, z, () => {
         const center = parentFn(x, z);
         if (!isOceanCell(center)) return center;
+
         const n = parentFn(x, z - 1);
         const s = parentFn(x, z + 1);
         const w = parentFn(x - 1, z);
         const e = parentFn(x + 1, z);
-        if (isOceanCell(n) && isOceanCell(s) && isOceanCell(w) && isOceanCell(e)) {
-          return this.ops.random.at2D(x, z, this.ops.seed + 222) < 0.5 ? C().LAND : C().OCEAN;
-        }
-        return center;
+
+        // Legacy rule: if center + N/S/E/W are all ocean, flip center to land with 50% chance.
+        const oceanCross = isOceanCell(n) && isOceanCell(s) && isOceanCell(w) && isOceanCell(e);
+        if (!oceanCross) return center;
+        return this.ops.random.pick2D(x, z, this.ops.seed + 222, 2) === 0 ? C().LAND : C().OCEAN;
       });
     }
 
@@ -108,13 +126,18 @@
       const { C } = S();
       return this.cached('temperature', x, z, () => {
         if (landFn(x, z) !== C().LAND) return C().OCEAN;
-        const r = this.ops.random.at2D(x, z, this.ops.seed + 303);
-        const special = this.ops.random.at2D(x, z, this.ops.seed + 304) < this.specialRegionChance;
-        const warmThreshold = this.temperatureDistribution.warm;
-        const coldThreshold = this.temperatureDistribution.warm + this.temperatureDistribution.cold;
-        if (r < warmThreshold) return special ? C().WARM_SPECIAL : C().WARM;
-        if (r < coldThreshold) return special ? C().COLD_SPECIAL : C().COLD;
-        return C().FREEZING;
+
+        // Legacy layer-9 behavior: assign climate classes with a 4:1:1 roll.
+        // warm: 4/6, cold: 1/6, freezing: 1/6.
+        const climateRoll = this.ops.random.pick2D(x, z, this.ops.seed + 303, 6);
+        const baseTemp = climateRoll < 4 ? C().WARM : (climateRoll === 4 ? C().COLD : C().FREEZING);
+
+        // Legacy special flag chance: exactly 1/13.
+        const isSpecial = this.ops.random.pick2D(x, z, this.ops.seed + 304, 13) === 0;
+        if (!isSpecial) return baseTemp;
+        if (baseTemp === C().WARM) return C().WARM_SPECIAL;
+        if (baseTemp === C().COLD) return C().COLD_SPECIAL;
+        return baseTemp;
       });
     }
 
@@ -123,9 +146,17 @@
       return this.cached('warm_to_temperate', x, z, () => {
         const center = tempFn(x, z);
         if (!isWarmClass(center)) return center;
-        const neighbors = [tempFn(x, z - 1), tempFn(x, z + 1), tempFn(x - 1, z), tempFn(x + 1, z)];
-        const hasColdNeighbor = neighbors.some((v) => isColdClass(v) || isFreezingClass(v));
-        if (!hasColdNeighbor) return center;
+
+        // Layer 11 (Warm -> Temperate): if a warm center touches any cold/freezing tile
+        // in the cardinal neighborhood (N/S/E/W), convert it to a temperate buffer.
+        const north = tempFn(x, z - 1);
+        const south = tempFn(x, z + 1);
+        const west = tempFn(x - 1, z);
+        const east = tempFn(x + 1, z);
+        const hasColdOrFreezingNeighbor = [north, south, west, east]
+          .some((v) => isColdClass(v) || isFreezingClass(v));
+        if (!hasColdOrFreezingNeighbor) return center;
+
         return center === C().WARM_SPECIAL ? C().TEMPERATE_SPECIAL : C().TEMPERATE;
       });
     }
@@ -135,9 +166,17 @@
       return this.cached('freezing_to_cold', x, z, () => {
         const center = tempFn(x, z);
         if (!isFreezingClass(center)) return center;
-        const neighbors = [tempFn(x, z - 1), tempFn(x, z + 1), tempFn(x - 1, z), tempFn(x + 1, z)];
-        const hasWarmishNeighbor = neighbors.some((v) => isWarmClass(v) || v === C().TEMPERATE || v === C().TEMPERATE_SPECIAL);
-        return hasWarmishNeighbor ? C().COLD : center;
+
+        // Layer 12 (Freezing -> Cold): deterministic cardinal-neighbor smoothing.
+        // If freezing touches any warm/temperate class in N/S/E/W, downgrade to cold.
+        const north = tempFn(x, z - 1);
+        const south = tempFn(x, z + 1);
+        const west = tempFn(x - 1, z);
+        const east = tempFn(x + 1, z);
+        const hasWarmOrTemperateNeighbor = [north, south, west, east].some((v) =>
+          isWarmClass(v) || v === C().TEMPERATE || v === C().TEMPERATE_SPECIAL
+        );
+        return hasWarmOrTemperateNeighbor ? C().COLD : center;
       });
     }
 
