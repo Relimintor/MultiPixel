@@ -152,7 +152,7 @@
                     <img id="chat-close-icon" alt="close chat" draggable="false" />
                 </button>
                 <div id="chat-log"></div>
-                <input id="chat-input" type="text" maxlength="180" placeholder="Type message or /give, /spawn, /time, /gamemode, /grantme, /set, /help" autocomplete="off" />
+                <input id="chat-input" type="text" maxlength="180" placeholder="Type message or /give, /spawn, /time, /gamemode, /grantme, /ungrantme, /set, /help" autocomplete="off" />
             </div>
             <div id="chat-help-overlay" role="dialog" aria-label="Command help">
                 <div id="chat-help-panel">
@@ -164,6 +164,7 @@
                     <p><strong>/set fov</strong> &lt;amount&gt; — set camera field of view (50 to 120).</p>
                     <p><strong>/gamemode creative</strong> — switch to creative and open creative menu.</p>
                     <p><strong>/grantme</strong> &lt;fly|speed|noclip&gt; — grant yourself movement privileges.</p>
+                    <p><strong>/ungrantme</strong> &lt;fly|speed|noclip&gt; — remove movement privileges.</p>
                     <p><strong>/help</strong> — open this command help panel.</p>
                     <button id="chat-help-close" type="button">Close</button>
                 </div>
@@ -223,7 +224,7 @@
         context = initContext || {};
         buildUI();
         loadCensorWords();
-        pushMessage('Chat ready. Use /give, /spawn, /time, /gamemode, /grantme, /help.', 'chat-info');
+        pushMessage('Chat ready. Use /give, /spawn, /time, /gamemode, /grantme, /ungrantme, /help.', 'chat-info');
     }
 
     window.SingleplayerChat = {

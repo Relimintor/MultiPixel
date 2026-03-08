@@ -165,6 +165,8 @@ window.perlin = perlinInstance;
         let isCreativeMenuOpen = false;
         const creativeCatalog = [];
         const playerPrivileges = { fly: false, speed: false, noclip: false };
+        let isFlyActive = false;
+        let lastSpaceTapAt = 0;
         const FLY_VERTICAL_SPEED = 0.24;
 
         // --- NEW CRAFTING STATE VARIABLES ---
@@ -1748,6 +1750,7 @@ window.perlin = perlinInstance;
                 openCreativeMenu,
                 closeCreativeMenu,
                 grantPrivilege,
+                ungrantPrivilege,
                 openCommandHelp: () => window.SingleplayerChat?.openCommandHelp?.(),
                 mobileAssetBase: MOBILE_ASSET_BASE,
                 onOpen: () => {
@@ -1880,14 +1883,26 @@ window.perlin = perlinInstance;
             }
             playerPrivileges[key] = true;
             if (key === 'fly') {
-                player.velocity.y = 0;
-                player.isJumping = false;
-                showGameMessage('Fly enabled. Space = up, Shift = down.');
+                showGameMessage('Fly privilege granted. Double-space to start flying.');
             } else if (key === 'speed') {
                 showGameMessage('Speed enabled. Hold E to boost movement.');
             } else if (key === 'noclip') {
-                showGameMessage('Noclip enabled while fly is active.');
+                showGameMessage('Noclip enabled while flying.');
             }
+            return true;
+        }
+
+        function ungrantPrivilege(name) {
+            const key = String(name || '').toLowerCase();
+            if (key !== 'fly' && key !== 'speed' && key !== 'noclip') return false;
+            playerPrivileges[key] = false;
+            if (key === 'fly') {
+                isFlyActive = false;
+                player.velocity.y = 0;
+                player.isJumping = false;
+                playerPrivileges.noclip = false;
+            }
+            showGameMessage(`${key} privilege removed.`);
             return true;
         }
 
@@ -3284,7 +3299,7 @@ window.perlin = perlinInstance;
                 window.HungerSystem.update(performance.now(), { isMoving, isSprinting, isJumping: player.isJumping });
             }
             const hungerMultiplier = window.HungerSystem ? window.HungerSystem.getSpeedMultiplier() : 1;
-            const isFlying = playerPrivileges.fly;
+            const isFlying = playerPrivileges.fly && isFlyActive;
 
             if (isFlying) {
                 const flySprintMultiplier = isSprinting ? (1.55 * speedBoostMultiplier) : speedBoostMultiplier;
@@ -3433,7 +3448,7 @@ window.perlin = perlinInstance;
         }
 
         function isColliding() {
-            if (playerPrivileges.noclip && playerPrivileges.fly) return false;
+            if (playerPrivileges.noclip && playerPrivileges.fly && isFlyActive) return false;
 
             const px = yawObject.position.x;
             const py = yawObject.position.y;
@@ -4317,12 +4332,19 @@ function buildPartFaceRects(x, y, w, h, d) {
         function updatePlayerAvatarVisuals(time) {
             if (!playerAvatarParts) return;
 
+            const isFlyingPose = playerPrivileges.fly && isFlyActive;
+
             if (playerAvatar) {
-                playerAvatar.rotation.x = player.isSwimming ? -Math.PI / 2 : 0;
+                playerAvatar.rotation.x = (player.isSwimming || isFlyingPose) ? -Math.PI / 2 : 0;
                 playerAvatar.rotation.z = 0;
             }
 
-            if (player.isSwimming) {
+            if (isFlyingPose) {
+                playerAvatarParts.leftLegPivot.rotation.x = 0;
+                playerAvatarParts.rightLegPivot.rotation.x = 0;
+                playerAvatarParts.leftArmPivot.rotation.x = Math.PI / 2;
+                playerAvatarParts.rightArmPivot.rotation.x = -Math.PI / 2;
+            } else if (player.isSwimming) {
                 const stroke = time * 0.02;
                 const legKick = Math.sin(time * 0.028) * 0.25;
                 playerAvatarParts.leftLegPivot.rotation.x = legKick;
@@ -4406,6 +4428,18 @@ function buildPartFaceRects(x, y, w, h, d) {
                     e.preventDefault();
                     window.SingleplayerChat?.toggle?.();
                     return;
+                }
+                if (k === ' ' && playerPrivileges.fly && !isInventoryOpen && !window.SingleplayerChat?.isOpen?.() && !e.repeat) {
+                    const now = Date.now();
+                    if (now - lastSpaceTapAt <= 280) {
+                        isFlyActive = !isFlyActive;
+                        player.velocity.y = 0;
+                        player.isJumping = false;
+                        showGameMessage(isFlyActive ? 'Flying enabled.' : 'Flying disabled.');
+                        lastSpaceTapAt = 0;
+                    } else {
+                        lastSpaceTapAt = now;
+                    }
                 }
                 if (window.SingleplayerChat?.isOpen?.()) {
                     return;
