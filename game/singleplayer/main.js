@@ -722,7 +722,7 @@ window.perlin = perlinInstance;
 
         function getCurrentSkyLightCap() {
             const normalized = Math.max(0, Math.min(1, (getSunFactor() + 0.85) / 1.85));
-            return Math.max(0, Math.min(7, Math.floor(normalized * 7)));
+            return Math.max(0, Math.min(15, Math.floor(normalized * 15)));
         }
 
         function setTimeByClock(hours, minutes) {
@@ -1573,7 +1573,7 @@ window.perlin = perlinInstance;
                 if (!isSolid(under) || isLiquid(under) || under === 6) continue;
                 if (feet !== 0 || head !== 0) continue;
                 const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(x, y, z) : 0;
-                if (lightLevel > 6) continue;
+                if (lightLevel > 7) continue;
                 if (lightingSystem && lightingSystem.hasNearbyBlockLightSource(x, y, z, 7)) continue;
                 return y;
             }

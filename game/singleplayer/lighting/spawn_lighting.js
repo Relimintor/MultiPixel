@@ -18,7 +18,7 @@
     }
 
     function getSkyLightLevel(wx, wy, wz) {
-      const cap = Math.max(0, Math.min(7, Math.floor(Number(getSkyLightCap ? getSkyLightCap() : 7))));
+      const cap = Math.max(0, Math.min(15, Math.floor(Number(getSkyLightCap ? getSkyLightCap() : 15))));
       if (cap <= 0) return 0;
       let light = 15;
       for (let y = CHUNK_HEIGHT - 1; y > wy; y--) {
@@ -26,7 +26,7 @@
         if (b === 0) {
           light = Math.min(15, light + 0.02);
         } else if (isLiquid(b)) {
-          light -= 0.6;
+          light -= 1;
         } else if (b === 22) {
           light -= 0.25;
         } else {
