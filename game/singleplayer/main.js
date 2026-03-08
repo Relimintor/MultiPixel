@@ -5629,5 +5629,3 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
         }
 
         window.onload = init;
-        }
-        }
