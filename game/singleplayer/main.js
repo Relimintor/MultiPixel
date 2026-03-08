@@ -1576,8 +1576,10 @@ window.perlin = perlinInstance;
                 const head = getBlockType(x, y + 1, z);
                 if (!isSolid(under) || isLiquid(under) || under === 6) continue;
                 if (feet !== 0 || head !== 0) continue;
-                const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(x, y, z) : 0;
-                if (lightLevel > 7) continue;
+                const skyLightLevel = lightingSystem ? lightingSystem.getSkyLightLevel(x, y, z) : 0;
+                if (skyLightLevel > 7) continue;
+                const blockLightLevel = lightingSystem ? lightingSystem.getBlockLightLevel(x, y, z) : 0;
+                if (blockLightLevel > 7) continue;
                 if (lightingSystem && lightingSystem.hasNearbyBlockLightSource(x, y, z, 7)) continue;
                 return y;
             }
@@ -1599,6 +1601,8 @@ window.perlin = perlinInstance;
                 attackCooldownMs: 0,
                 attackReach: 1.2 + Math.random() * 0.5,
                 burnTickMs: 0,
+                inDirectSunlight: false,
+                sunProbeMs: 0,
                 targetY: y,
                 groundProbeMs: 0,
             });
@@ -1618,6 +1622,14 @@ window.perlin = perlinInstance;
             const wx = yawObject.position.x + Math.cos(angle) * dist;
             const wz = yawObject.position.z + Math.sin(angle) * dist;
             spawnZombieAt(wx, wz);
+        }
+
+
+        function isZombieInDirectSunlight(wx, wy, wz) {
+            if (!lightingSystem) return canZombieSeeSky(wx, wy, wz);
+            if (!lightingSystem.isOpenToSky(wx, wy, wz)) return false;
+            const skyLight = lightingSystem.getSkyLightLevel(wx, wy, wz);
+            return skyLight >= 12;
         }
 
         function updateZombies(time, deltaMs) {
@@ -1676,7 +1688,14 @@ window.perlin = perlinInstance;
                 const zy = Math.floor(z.root.position.y + 1.6);
                 const zz = Math.floor(z.root.position.z);
                 const inLiquid = isLiquid(getBlockType(zx, zy, zz));
-                if (burningTime && !inLiquid && canZombieSeeSky(zx, zy, zz)) {
+
+                z.sunProbeMs = (z.sunProbeMs ?? 0) - deltaMs;
+                if (z.sunProbeMs <= 0) {
+                    z.sunProbeMs = 220;
+                    z.inDirectSunlight = isZombieInDirectSunlight(zx, zy, zz);
+                }
+
+                if (burningTime && !inLiquid && z.inDirectSunlight) {
                     z.burnTickMs += deltaMs;
                     if (z.burnTickMs >= 900) {
                         z.burnTickMs = 0;
