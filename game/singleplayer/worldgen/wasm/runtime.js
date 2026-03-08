@@ -24,6 +24,34 @@
         return this.backend;
       }
 
+      const decodeBase64ToBytes = (base64Text) => {
+        const normalized = String(base64Text || '').trim();
+        if (!normalized) return null;
+        const binary = atob(normalized);
+        const out = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+        return out;
+      };
+
+      const instantiateFromBytes = async (imports) => {
+        const res = await fetch(modulePath, { cache: 'no-store' });
+        if (res.ok) {
+          const bytes = await res.arrayBuffer();
+          return WebAssembly.instantiate(bytes, imports);
+        }
+
+        const b64Path = `${modulePath}.base64`;
+        const b64Res = await fetch(b64Path, { cache: 'no-store' });
+        if (!b64Res.ok) {
+          throw new Error(`Failed to fetch WASM module (${res.status}) and fallback base64 (${b64Res.status})`);
+        }
+
+        const b64Text = await b64Res.text();
+        const bytes = decodeBase64ToBytes(b64Text);
+        if (!bytes) throw new Error('Base64 WASM fallback was empty.');
+        return WebAssembly.instantiate(bytes, imports);
+      };
+
       try {
         const imports = {
           env: {
@@ -33,15 +61,17 @@
 
         let instance;
         if (WebAssembly.instantiateStreaming) {
+          // Prefer normal .wasm fetch path; if unavailable, fallback to text base64.
           const res = await fetch(modulePath, { cache: 'no-store' });
-          if (!res.ok) throw new Error(`Failed to fetch WASM module (${res.status})`);
-          const out = await WebAssembly.instantiateStreaming(res, imports);
-          instance = out.instance;
+          if (res.ok) {
+            const out = await WebAssembly.instantiateStreaming(res, imports);
+            instance = out.instance;
+          } else {
+            const out = await instantiateFromBytes(imports);
+            instance = out.instance;
+          }
         } else {
-          const res = await fetch(modulePath, { cache: 'no-store' });
-          if (!res.ok) throw new Error(`Failed to fetch WASM module (${res.status})`);
-          const bytes = await res.arrayBuffer();
-          const out = await WebAssembly.instantiate(bytes, imports);
+          const out = await instantiateFromBytes(imports);
           instance = out.instance;
         }
 
