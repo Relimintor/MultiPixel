@@ -161,7 +161,14 @@ window.perlin = perlinInstance;
         let inventory = new Array(TOTAL_INV_SIZE).fill(null);
         let selectedHotbarIndex = 0; // 0-8
         let isInventoryOpen = false;
-        
+        let isCreativeMode = false;
+        let isCreativeMenuOpen = false;
+        const creativeCatalog = [];
+        const playerPrivileges = { fly: false, speed: false, noclip: false };
+        let isFlyActive = false;
+        let lastSpaceTapAt = 0;
+        const FLY_VERTICAL_SPEED = 0.24;
+
         // --- NEW CRAFTING STATE VARIABLES ---
         let isCraftingTableOpen = false;
         let isFurnaceOpen = false;
@@ -592,6 +599,20 @@ window.perlin = perlinInstance;
             if (editSkinIcon) editSkinIcon.src = editSkinIconPath;
             if (furnaceCloseIcon) furnaceCloseIcon.src = closeIconPath;
             if (chestCloseIcon) chestCloseIcon.src = closeIconPath;
+            const creativeCloseIcon = document.getElementById('creative-close-icon');
+            const creativeInventoryIcon = document.getElementById('creative-inventory-icon');
+            if (creativeCloseIcon) creativeCloseIcon.src = closeIconPath;
+            if (creativeInventoryIcon) creativeInventoryIcon.src = ASSET_FILEPATHS.CHEST_NORMAL || `${assetBasePath}/textures/chest/normal.png`;
+            const creativeCloseBtn = document.getElementById('creative-close-btn');
+            const creativeInventoryBtn = document.getElementById('creative-inventory-btn');
+            if (creativeCloseBtn) creativeCloseBtn.addEventListener('click', () => {
+                if (isCreativeMenuOpen) closeCreativeMenu();
+            });
+            if (creativeInventoryBtn) creativeInventoryBtn.addEventListener('click', () => {
+                if (!isCreativeMenuOpen) return;
+                closeCreativeMenu();
+                toggleInventory();
+            });
             if (closeBtn) closeBtn.addEventListener('click', () => {
                 if (isInventoryOpen) toggleInventory();
             });
@@ -1725,6 +1746,11 @@ window.perlin = perlinInstance;
                 getRenderDistance: () => currentChunkLoadRadius,
                 setFov: setCameraFov,
                 getFov: getCameraFov,
+                setGameMode,
+                openCreativeMenu,
+                closeCreativeMenu,
+                grantPrivilege,
+                ungrantPrivilege,
                 openCommandHelp: () => window.SingleplayerChat?.openCommandHelp?.(),
                 mobileAssetBase: MOBILE_ASSET_BASE,
                 onOpen: () => {
@@ -1779,7 +1805,109 @@ window.perlin = perlinInstance;
             }
         }
 
+        function getMaterialIconPath(mat) {
+            if (!mat || !mat.textured) return '';
+            const faceKey = mat.textureByFace?.posX || mat.textureByFace?.posZ;
+            const preferredKey = faceKey || mat.textureKey;
+            return ASSET_FILEPATHS[preferredKey] || ASSET_FILEPATHS[mat.textureKey] || '';
+        }
+
+        function buildCreativeCatalog() {
+            creativeCatalog.length = 0;
+            const seen = new Set();
+            const entries = Object.values(blockMaterials || {})
+                .filter((mat) => mat && Number.isFinite(mat.id) && mat.id !== 0)
+                .sort((a, b) => a.id - b.id);
+            entries.forEach((mat) => {
+                if (seen.has(mat.id)) return;
+                seen.add(mat.id);
+                creativeCatalog.push(mat.id);
+            });
+        }
+
+        function setGameMode(mode) {
+            const normalized = String(mode || '').toLowerCase();
+            if (normalized !== 'creative' && normalized !== 'survival') return false;
+            isCreativeMode = normalized === 'creative';
+            return true;
+        }
+
+        function openCreativeMenu() {
+            const creativeScreen = document.getElementById('creative-screen');
+            const hud = document.getElementById('hud');
+            if (!creativeScreen) return false;
+            isInventoryOpen = true;
+            isCreativeMenuOpen = true;
+            isCraftingTableOpen = false;
+            isFurnaceOpen = false;
+            activeFurnaceKey = null;
+            activeChestKey = null;
+            buildCreativeCatalog();
+            renderInventoryScreen();
+            creativeScreen.classList.remove('hidden');
+            document.getElementById('inventory-screen')?.classList.add('hidden');
+            document.getElementById('furnace-screen')?.classList.add('hidden');
+            document.getElementById('chest-screen')?.classList.add('hidden');
+            hud?.classList.add('opacity-0');
+            if (!mobileControls.enabled) document.exitPointerLock();
+            player.keys = {};
+            return true;
+        }
+
+        function closeCreativeMenu() {
+            const creativeScreen = document.getElementById('creative-screen');
+            const hud = document.getElementById('hud');
+            if (!isCreativeMenuOpen) return false;
+            isCreativeMenuOpen = false;
+            isInventoryOpen = false;
+            creativeScreen?.classList.add('hidden');
+            hud?.classList.remove('opacity-0');
+            if (!mobileControls.enabled) document.body.requestPointerLock();
+            if (heldItem && !addToInventory(heldItem.id, heldItem.count)) {
+                showGameMessage('Inventory Full!');
+            }
+            heldItem = null;
+            heldItemSourceIndex = -1;
+            heldItemSourceType = null;
+            renderHeldItem();
+            updateHotbarUI();
+            return true;
+        }
+
+        function grantPrivilege(name) {
+            const key = String(name || '').toLowerCase();
+            if (key !== 'fly' && key !== 'speed' && key !== 'noclip') return false;
+            if (key === 'noclip' && !playerPrivileges.fly) {
+                showGameMessage('Grant fly first before noclip.');
+                return false;
+            }
+            playerPrivileges[key] = true;
+            if (key === 'fly') {
+                showGameMessage('Fly privilege granted. Double-space to start flying.');
+            } else if (key === 'speed') {
+                showGameMessage('Speed enabled. Hold E to boost movement.');
+            } else if (key === 'noclip') {
+                showGameMessage('Noclip enabled while flying.');
+            }
+            return true;
+        }
+
+        function ungrantPrivilege(name) {
+            const key = String(name || '').toLowerCase();
+            if (key !== 'fly' && key !== 'speed' && key !== 'noclip') return false;
+            playerPrivileges[key] = false;
+            if (key === 'fly') {
+                isFlyActive = false;
+                player.velocity.y = 0;
+                player.isJumping = false;
+                playerPrivileges.noclip = false;
+            }
+            showGameMessage(`${key} privilege removed.`);
+            return true;
+        }
+
         function updateHotbarUI() {
+
             const hotbar = document.getElementById('hotbar');
             hotbar.innerHTML = '';
             
@@ -1796,7 +1924,7 @@ window.perlin = perlinInstance;
 
                     if (mat.textured) {
                         // --- USING DIRECT PATH FOR HOTBAR ICON ---
-                        imgPath = ASSET_FILEPATHS[mat.textureKey];
+                        imgPath = getMaterialIconPath(mat);
                     } else {
                         const colorHex = mat.color ? mat.color.toString(16).padStart(6, '0') : '7F8C8D';
                         colorStyle = `background-color: #${colorHex};`;
@@ -1866,7 +1994,7 @@ window.perlin = perlinInstance;
             let slotArray;
             let finalIndex = slotIndex;
 
-            if (slotType === 'hotbar') {
+            if (slotType === 'hotbar' || slotType === 'creative-hotbar') {
                 slotArray = inventory;
             } else if (slotType === 'main-inv') {
                 finalIndex = HOTBAR_SLOTS + slotIndex;
@@ -1888,6 +2016,17 @@ window.perlin = perlinInstance;
 
         function handleInventoryRightClick(slotIndex, slotType = 'inv') {
             if (!isInventoryOpen || slotType === 'output') return;
+
+            if (slotType === 'creative-item') {
+                const itemId = creativeCatalog[slotIndex];
+                if (!Number.isFinite(itemId) || !blockMaterials[itemId]) return;
+                heldItem = { id: itemId, count: 1 };
+                heldItemSourceIndex = -1;
+                heldItemSourceType = 'creative-item';
+                renderHeldItem();
+                updateHotbarUI();
+                return;
+            }
 
             const { slotArray, finalIndex } = resolveInventorySlotTarget(slotIndex, slotType);
             if (!slotArray) return;
@@ -1996,6 +2135,17 @@ window.perlin = perlinInstance;
 
         function handleInventoryClick(slotIndex, slotType = 'inv') {
             if (!isInventoryOpen) return;
+
+            if (slotType === 'creative-item') {
+                const itemId = creativeCatalog[slotIndex];
+                if (!Number.isFinite(itemId) || !blockMaterials[itemId]) return;
+                heldItem = { id: itemId, count: 64 };
+                heldItemSourceIndex = -1;
+                heldItemSourceType = 'creative-item';
+                renderHeldItem();
+                updateHotbarUI();
+                return;
+            }
             
             let { slotArray, finalIndex } = resolveInventorySlotTarget(slotIndex, slotType);
             
@@ -2110,6 +2260,8 @@ window.perlin = perlinInstance;
             const furnaceFuelSlot = document.getElementById('furnace-fuel-slot');
             const furnaceOutputSlot = document.getElementById('furnace-output-slot');
             const chestGrid = document.getElementById('chest-grid');
+            const creativeGrid = document.getElementById('creative-item-grid');
+            const creativeHotbarGrid = document.getElementById('creative-hotbar-grid');
 
             if (!mainGrid || !hotbarGrid) return;
 
@@ -2123,6 +2275,8 @@ window.perlin = perlinInstance;
             if (furnaceFuelSlot) furnaceFuelSlot.innerHTML = '';
             if (furnaceOutputSlot) furnaceOutputSlot.innerHTML = '';
             if (chestGrid) chestGrid.innerHTML = '';
+            if (creativeGrid) creativeGrid.innerHTML = '';
+            if (creativeHotbarGrid) creativeHotbarGrid.innerHTML = '';
 
             const mainStart = HOTBAR_SLOTS;
 
@@ -2142,7 +2296,7 @@ window.perlin = perlinInstance;
                     let imgPath = '';
                     let colorStyle = '';
 
-                    if (mat.textured) imgPath = ASSET_FILEPATHS[mat.textureKey];
+                    if (mat.textured) imgPath = getMaterialIconPath(mat);
                     else {
                         const colorHex = mat.color ? mat.color.toString(16).padStart(6, '0') : '7F8C8D';
                         colorStyle = `background-color: #${colorHex};`;
@@ -2169,6 +2323,19 @@ window.perlin = perlinInstance;
                     const displayIndex = r * INV_COLS + c;
                     mainGrid.appendChild(createSlot(inventory[invIndex], displayIndex, 'main-inv'));
                 }
+            }
+
+
+            if (isCreativeMenuOpen) {
+                for (let i = 0; i < creativeCatalog.length; i++) {
+                    const id = creativeCatalog[i];
+                    creativeGrid?.appendChild(createSlot({ id, count: 64 }, i, 'creative-item'));
+                }
+                for (let i = 0; i < HOTBAR_SLOTS; i++) {
+                    creativeHotbarGrid?.appendChild(createSlot(inventory[i], i, 'creative-hotbar'));
+                }
+                renderHeldItem();
+                return;
             }
 
             if (usingFurnaceScreen && activeFurnaceKey) {
@@ -2228,7 +2395,7 @@ window.perlin = perlinInstance;
                 let colorStyle = '';
 
                 if (mat.textured) {
-                    imgPath = ASSET_FILEPATHS[mat.textureKey]; // Direct path
+                    imgPath = getMaterialIconPath(mat);
                 } else {
                     const colorHex = mat.color ? mat.color.toString(16).padStart(6, '0') : '7F8C8D';
                     colorStyle = `background-color: #${colorHex};`;
@@ -2263,6 +2430,11 @@ window.perlin = perlinInstance;
             const container2x2 = document.getElementById('crafting-2x2-container');
             const container3x3 = document.getElementById('crafting-3x3-container');
             const inventoryPanel = document.getElementById('inventory-panel');
+
+            if (isCreativeMenuOpen) {
+                closeCreativeMenu();
+                return;
+            }
 
             if (isInventoryOpen) {
                 isInventoryOpen = false;
@@ -3122,12 +3294,31 @@ window.perlin = perlinInstance;
             player.isMoving = isMoving;
 
             const isSprinting = isMoving && (player.keys['e'] || mobileControls.sprint);
+            const speedBoostMultiplier = (isSprinting && playerPrivileges.speed) ? 1.85 : 1;
             if (window.HungerSystem) {
                 window.HungerSystem.update(performance.now(), { isMoving, isSprinting, isJumping: player.isJumping });
             }
             const hungerMultiplier = window.HungerSystem ? window.HungerSystem.getSpeedMultiplier() : 1;
+            const isFlying = playerPrivileges.fly && isFlyActive;
 
-            if (isSwimming) {
+            if (isFlying) {
+                const flySprintMultiplier = isSprinting ? (1.55 * speedBoostMultiplier) : speedBoostMultiplier;
+                const flyBaseSpeed = player.baseMoveSpeed * 1.12 * flySprintMultiplier;
+                player.moveSpeed = flyBaseSpeed;
+                player.velocity.x = player.direction.x * player.moveSpeed;
+                player.velocity.z = player.direction.z * player.moveSpeed;
+
+                const flyUp = !!(player.keys[' '] || mobileControls.jump);
+                const flyDown = !!player.keys['shift'];
+                if (flyUp && !flyDown) {
+                    player.velocity.y = FLY_VERTICAL_SPEED * (isSprinting ? flySprintMultiplier : 1);
+                } else if (flyDown && !flyUp) {
+                    player.velocity.y = -FLY_VERTICAL_SPEED * (isSprinting ? flySprintMultiplier : 1);
+                } else {
+                    player.velocity.y = 0;
+                }
+                player.isJumping = false;
+            } else if (isSwimming) {
                 const swimSprintMultiplier = isSprinting ? SWIM_SPRINT_MULTIPLIER : 1;
                 player.moveSpeed = player.baseMoveSpeed * SWIM_SPEED_FACTOR * swimSprintMultiplier * hungerMultiplier;
                 player.velocity.x = player.direction.x * player.moveSpeed;
@@ -3144,7 +3335,7 @@ window.perlin = perlinInstance;
                 }
                 player.isJumping = false;
             } else {
-                const sprintMultiplier = isSprinting ? player.sprintMultiplier : 1;
+                const sprintMultiplier = isSprinting ? player.sprintMultiplier * speedBoostMultiplier : 1;
                 player.moveSpeed = player.baseMoveSpeed * sprintMultiplier * hungerMultiplier;
                 player.velocity.x = player.direction.x * player.moveSpeed;
                 player.velocity.z = player.direction.z * player.moveSpeed;
@@ -3257,7 +3448,8 @@ window.perlin = perlinInstance;
         }
 
         function isColliding() {
-          
+            if (playerPrivileges.noclip && playerPrivileges.fly && isFlyActive) return false;
+
             const px = yawObject.position.x;
             const py = yawObject.position.y;
             const pz = yawObject.position.z;
@@ -4140,12 +4332,19 @@ function buildPartFaceRects(x, y, w, h, d) {
         function updatePlayerAvatarVisuals(time) {
             if (!playerAvatarParts) return;
 
+            const isFlyingPose = playerPrivileges.fly && isFlyActive;
+
             if (playerAvatar) {
-                playerAvatar.rotation.x = player.isSwimming ? -Math.PI / 2 : 0;
+                playerAvatar.rotation.x = (player.isSwimming || isFlyingPose) ? -Math.PI / 2 : 0;
                 playerAvatar.rotation.z = 0;
             }
 
-            if (player.isSwimming) {
+            if (isFlyingPose) {
+                playerAvatarParts.leftLegPivot.rotation.x = 0;
+                playerAvatarParts.rightLegPivot.rotation.x = 0;
+                playerAvatarParts.leftArmPivot.rotation.x = Math.PI / 2;
+                playerAvatarParts.rightArmPivot.rotation.x = -Math.PI / 2;
+            } else if (player.isSwimming) {
                 const stroke = time * 0.02;
                 const legKick = Math.sin(time * 0.028) * 0.25;
                 playerAvatarParts.leftLegPivot.rotation.x = legKick;
@@ -4209,11 +4408,16 @@ function buildPartFaceRects(x, y, w, h, d) {
             document.addEventListener('keydown', e => {
                 const k = e.key.toLowerCase();
                 if (k === 'y' || k === 'i') {
-                    toggleInventory();
+                    if (isCreativeMenuOpen) {
+                        closeCreativeMenu();
+                    } else {
+                        toggleInventory();
+                    }
                     return;
                 }
                 if (k === 'escape' && isInventoryOpen) {
-                    toggleInventory();
+                    if (isCreativeMenuOpen) closeCreativeMenu();
+                    else toggleInventory();
                     return;
                 }
                 if (k === 'c') {
@@ -4224,6 +4428,18 @@ function buildPartFaceRects(x, y, w, h, d) {
                     e.preventDefault();
                     window.SingleplayerChat?.toggle?.();
                     return;
+                }
+                if (k === ' ' && playerPrivileges.fly && !isInventoryOpen && !window.SingleplayerChat?.isOpen?.() && !e.repeat) {
+                    const now = Date.now();
+                    if (now - lastSpaceTapAt <= 280) {
+                        isFlyActive = !isFlyActive;
+                        player.velocity.y = 0;
+                        player.isJumping = false;
+                        showGameMessage(isFlyActive ? 'Flying enabled.' : 'Flying disabled.');
+                        lastSpaceTapAt = 0;
+                    } else {
+                        lastSpaceTapAt = now;
+                    }
                 }
                 if (window.SingleplayerChat?.isOpen?.()) {
                     return;
