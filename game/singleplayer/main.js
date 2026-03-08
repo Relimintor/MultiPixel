@@ -4289,10 +4289,21 @@ function buildPartFaceRects(x, y, w, h, d) {
 
         function canPlaceMinecraftLikeTree(data, x, z, topY, trunkHeight) {
             if (x < 2 || x > CHUNK_SIZE - 3 || z < 2 || z > CHUNK_SIZE - 3) return false;
-            const maxY = Math.min(CHUNK_HEIGHT - 2, topY + trunkHeight + 3);
-            for (let y = topY + 1; y <= maxY; y++) {
-                const rel = y - (topY + trunkHeight);
-                const radius = rel >= 0 ? 1 : (rel >= -2 ? 2 : 1);
+            const trunkTopY = topY + trunkHeight;
+            if (trunkTopY + 2 >= CHUNK_HEIGHT) return false;
+
+            // Trunk clearance: only the center column must be empty/replacable.
+            for (let y = topY + 1; y <= trunkTopY; y++) {
+                const idx = x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
+                const b = data[idx];
+                if (b !== 0 && b !== 6) return false;
+            }
+
+            // Crown clearance: validate just the canopy layers that we actually place.
+            for (let y = trunkTopY - 2; y <= trunkTopY + 1; y++) {
+                if (y < 1 || y >= CHUNK_HEIGHT) continue;
+                const rel = y - trunkTopY;
+                const radius = rel === 1 ? 1 : (rel === 0 ? 2 : (rel === -1 ? 2 : 1));
                 for (let ox = -radius; ox <= radius; ox++) {
                     for (let oz = -radius; oz <= radius; oz++) {
                         const tx = x + ox;
@@ -4304,7 +4315,10 @@ function buildPartFaceRects(x, y, w, h, d) {
                     }
                 }
             }
-            return true;
+
+            const crownIdx = x + (trunkTopY + 2) * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
+            const crownBlock = data[crownIdx];
+            return crownBlock === 0 || crownBlock === 6;
         }
 
         function placeMinecraftLikeTree(data, x, z, topY, trunkHeight, wx, wz, treeStyle = 'oak') {
