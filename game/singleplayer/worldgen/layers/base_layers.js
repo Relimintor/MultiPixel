@@ -26,7 +26,8 @@
     }
 
     island(cellX, cellZ) {
-      return this.random.at2D(cellX, cellZ, this.seed + 101) < 0.1 ? C.LAND : C.OCEAN;
+      // First legacy-main island pass: exact 1-in-10 chance per 4096x4096 parent cell.
+      return this.random.pick2D(cellX, cellZ, this.seed + 101, 10) === 0 ? C.LAND : C.OCEAN;
     }
 
     zoom(parentValue, wx, wz, fromScale, toScale, salt) {

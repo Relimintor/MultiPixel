@@ -7,8 +7,10 @@
 
   function resolveItemId(rawToken, ctx) {
     if (!rawToken) return null;
-    const numeric = Number.parseInt(rawToken, 10);
-    if (Number.isFinite(numeric)) return numeric;
+    if (/^\d+$/.test(String(rawToken).trim())) {
+      const numeric = Number.parseInt(rawToken, 10);
+      if (Number.isFinite(numeric)) return numeric;
+    }
 
     const token = String(rawToken).toLowerCase().replace(/[^a-z0-9]/g, '');
     const aliases = { chest: 82 };
