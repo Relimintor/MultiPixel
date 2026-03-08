@@ -412,6 +412,56 @@ window.perlin = perlinInstance;
             chunkOffsetsByRadius.set(radius, offsets);
             return offsets;
         }
+
+        function getTexturePackScriptPath(packId) {
+            if (!packId) return '';
+            const repoPrefix = window.SingleplayerConfig?.REPO_BASE_PREFIX || '';
+            return `${repoPrefix}/game/singleplayer/edit/texturepack/${packId}/main.js`;
+        }
+
+        function toPackAssetPath(packId, relativeAssetPath) {
+            const repoPrefix = window.SingleplayerConfig?.REPO_BASE_PREFIX || '';
+            return `${repoPrefix}/game/singleplayer/edit/texturepack/${packId}/${relativeAssetPath}`;
+        }
+
+        async function applySelectedTexturePackOverrides() {
+            const selectedPackId = localStorage.getItem('singleplayer.texturePackId');
+            if (!selectedPackId) return;
+
+            const scriptPath = getTexturePackScriptPath(selectedPackId);
+            if (!scriptPath) return;
+
+            const registered = [];
+            const registry = {
+                register(pack) {
+                    if (!pack || !pack.id) return;
+                    registered.push(pack);
+                }
+            };
+            window.SingleplayerTexturePackRegistry = registry;
+
+            const loaded = await new Promise((resolve) => {
+                const script = document.createElement('script');
+                script.src = `${scriptPath}?v=1`;
+                script.async = true;
+                script.onload = () => resolve(true);
+                script.onerror = () => resolve(false);
+                document.head.appendChild(script);
+            });
+
+            const activePack = loaded ? registered.find((pack) => pack.id === selectedPackId) : null;
+            const overrides = activePack?.assetOverrides || null;
+            if (!overrides || typeof overrides !== 'object') return;
+
+            for (const key in overrides) {
+                if (!Object.prototype.hasOwnProperty.call(ASSET_FILEPATHS, key)) continue;
+                const relativePath = String(overrides[key] || '').trim();
+                if (!relativePath) continue;
+                ASSET_FILEPATHS[key] = toPackAssetPath(selectedPackId, relativePath);
+            }
+
+            console.info('[TexturePack] applied', selectedPackId);
+        }
         
         async function loadAssets() {
             const loader = new THREE.TextureLoader();
@@ -502,6 +552,7 @@ window.perlin = perlinInstance;
 
         async function init() {
             
+            await applySelectedTexturePackOverrides();
             await loadAssets(); // Load all textures and materials first!
             await loadIglooStructure();
             preloadBreakingTextures();
@@ -617,7 +668,7 @@ window.perlin = perlinInstance;
                 if (isInventoryOpen) toggleInventory();
             });
             if (editSkinBtn) editSkinBtn.addEventListener('click', () => {
-                toggleInventorySkinPreview();
+                window.location.href = `${window.SingleplayerConfig?.REPO_BASE_PREFIX || '/MultiPixel'}/game/singleplayer/edit/index.html`;
             });
             if (furnaceCloseBtn) furnaceCloseBtn.addEventListener('click', () => {
                 if (isInventoryOpen) toggleInventory();
