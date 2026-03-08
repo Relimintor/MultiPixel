@@ -4555,10 +4555,11 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                              }
                          }
 
-                         // 1.17-style shaping raises inland plateaus a lot higher than before.
-                         // Keep a low cutoff near beaches, but allow higher inland forest/plains trees.
-                         const maxTreeY = biome === 'Forest' ? (SEA_LEVEL + 42) : (biome === 'Mushroom Fields' ? (SEA_LEVEL + 28) : (SEA_LEVEL + 32));
-                         if (topY >= SEA_LEVEL && topY <= maxTreeY) {
+                         // Allow trees across the full playable surface band for non-mountain biomes.
+                         // The previous hard cap was too low for newer terrain profiles, preventing tree spawns.
+                         const minTreeY = Math.max(SEA_LEVEL - 2, 2);
+                         const maxTreeY = Math.min(CHUNK_HEIGHT - 8, SEA_LEVEL + 68);
+                         if (topY >= minTreeY && topY <= maxTreeY) {
                              const topIdx = x + topY * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
                              const topType = data[topIdx];
                              const validGround = (topType === 1 || topType === 2 || topType === 3 || topType === 7 || topType === 28);
