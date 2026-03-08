@@ -74,19 +74,21 @@
         const west = parentFn(x - 1, z);
         const east = parentFn(x + 1, z);
         const neighbors = [north, south, west, east];
-        const rand = this.ops.random.at2D(x, z, this.ops.seed + salt);
 
-        const oceanNeighbors = neighbors.filter((v) => isOceanCell(v)).length;
-        const landNeighbors = neighbors.length - oceanNeighbors;
+        const landNeighbors = neighbors.filter((v) => !isOceanCell(v));
 
-        // Land tile fully surrounded by ocean can erode back to ocean.
-        if (center === C().LAND) {
-          if (oceanNeighbors === 4 && rand < 0.14) return C().OCEAN;
-          return C().LAND;
+        // Ocean touching land: chance is exactly 1 / (N + 1), where N is land-neighbor count.
+        // When conversion happens, copy one random neighboring land value (preserves region ids).
+        if (isOceanCell(center)) {
+          const n = landNeighbors.length;
+          if (n === 0) return center;
+          const chosen = landNeighbors[this.ops.random.pick2D(x, z, this.ops.seed + salt + 31, n)];
+          return this.ops.random.pick2D(x, z, this.ops.seed + salt + 53, n + 1) === 0 ? chosen : center;
         }
 
-        // Ocean tile touching any land has a small chance to become land.
-        if (landNeighbors > 0 && rand < 0.36) return C().LAND;
+        // Isolated land (all four neighbors ocean) erodes with exact 1 / 5 probability.
+        const isolatedLand = neighbors.every((v) => isOceanCell(v));
+        if (isolatedLand && this.ops.random.pick2D(x, z, this.ops.seed + salt + 79, 5) === 0) return C().OCEAN;
         return center;
       });
     }
