@@ -1725,7 +1725,7 @@ window.perlin = perlinInstance;
             p.className = 'eat-particle';
             p.style.left = `${44 + Math.random() * 28}%`;
             p.style.top = `${48 + Math.random() * 16}%`;
-            p.style.backgroundImage = `url('${BREAKING_PARTICLE_BASE}/break_particles.png')`;
+            p.style.backgroundImage = `url('${BREAKING_PARTICLE_BASE}/break_particle.png')`;
             p.style.backgroundSize = 'cover';
             p.style.transform = `scale(${0.6 + Math.random() * 0.7})`;
             eatOverlayEl.appendChild(p);
