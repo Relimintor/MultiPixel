@@ -4242,11 +4242,31 @@ function buildPartFaceRects(x, y, w, h, d) {
 
         function getTreeSpawnChanceForBiome(biomeName, topY) {
             const map = worldGenSettings.treeDensityByBiome || {};
-            const baseChance = Number(map[biomeName] ?? map.Plains ?? 0.04);
+            const rawName = String(biomeName || 'Plains');
+            const normalized = rawName.toLowerCase();
+            let baseChance = Number(map[rawName]);
+            if (!Number.isFinite(baseChance)) {
+                if (normalized.includes('forest') || normalized.includes('jungle') || normalized.includes('taiga')) {
+                    baseChance = Number(map.Forest ?? 0.19);
+                } else if (normalized.includes('plains') || normalized.includes('river') || normalized.includes('swamp') || normalized.includes('savanna')) {
+                    baseChance = Number(map.Plains ?? 0.04);
+                } else if (normalized.includes('mushroom')) {
+                    baseChance = 0.017;
+                } else {
+                    baseChance = Number(map.Plains ?? 0.04);
+                }
+            }
             let adjusted = baseChance;
             if (topY > SEA_LEVEL + 26) adjusted *= 0.7;
             if (topY < SEA_LEVEL + 2) adjusted *= 0.5;
             return Math.max(0, Math.min(0.45, adjusted));
+        }
+
+        function isTreeBiome(biomeName) {
+            const normalized = String(biomeName || '').toLowerCase();
+            if (!normalized) return false;
+            if (normalized.includes('ocean') || normalized.includes('desert') || normalized.includes('snowy') || normalized.includes('mountain')) return false;
+            return true;
         }
 
         function hasNearbyTreeTrunk(data, x, z, radius) {
@@ -4524,7 +4544,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                      }
                   
                      // --- Tree Generation (Minecraft-like oaks on natural low/mid elevations) ---
-                     if (!isRiver && (biome === 'Forest' || biome === 'Plains' || biome === 'Mushroom Fields')) {
+                     if (!isRiver && isTreeBiome(biome)) {
                          let topY = -1;
                          for (let yy = CHUNK_HEIGHT - 2; yy >= 1; yy--) {
                              const tidx = x + yy * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
@@ -4541,12 +4561,12 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                          if (topY >= SEA_LEVEL && topY <= maxTreeY) {
                              const topIdx = x + topY * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
                              const topType = data[topIdx];
-                             const validGround = (topType === 1 || topType === 2 || topType === 7 || topType === 28);
+                             const validGround = (topType === 1 || topType === 2 || topType === 3 || topType === 7 || topType === 28);
                              if (validGround) {
                                  const treeNoise = octaveNoise2D(wx, wz, 2, 0.56, 2.0, 0.028, 700, -350) * 0.5 + 0.5;
                                  const scatter = hashRand2D(wx, wz, 99);
                                  const density = treeNoise * 0.6 + scatter * 0.4;
-                                 const chance = biome === 'Mushroom Fields' ? 0.017 : getTreeSpawnChanceForBiome(biome, topY);
+                                 const chance = getTreeSpawnChanceForBiome(biome, topY);
                                  const clusterBonus = Number(worldGenSettings.treeClusterBonus ?? 0.12);
                                  const nearbyTree = hasNearbyTreeTrunk(data, x, z, 3);
                                  const spacingGate = Number(worldGenSettings.treeMinSpacingChance ?? 0.65);
