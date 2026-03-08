@@ -1,8 +1,9 @@
 (function () {
   window.WorldgenStacksMain = window.WorldgenStacksMain || {};
   window.WorldgenStacksMain.sampleLegacyMain = function (stack, wx, wz) {
-    const x4096 = Math.floor(wx / 4096);
-    const z4096 = Math.floor(wz / 4096);
+    const MAIN_ISLAND_CELL_SCALE = 4096;
+    const x4096 = Math.floor(wx / MAIN_ISLAND_CELL_SCALE);
+    const z4096 = Math.floor(wz / MAIN_ISLAND_CELL_SCALE);
     const x256 = Math.floor(wx / 256);
     const z256 = Math.floor(wz / 256);
 
