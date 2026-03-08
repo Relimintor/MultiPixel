@@ -325,6 +325,8 @@ window.perlin = perlinInstance;
         const configuredChunkRenderDistance = Math.floor(Number(worldGenSettings.chunkRenderDistance) || 4);
         const baseChunkRenderDistance = Math.max(4, Math.min(WORLD_RADIUS, configuredChunkRenderDistance));
         let currentChunkLoadRadius = baseChunkRenderDistance;
+        // Backward-compatible alias for code paths that still reference the old name.
+        let effectiveChunkLoadRadius = currentChunkLoadRadius;
         const ENTITY_ACTIVATION_RANGE = Math.max(24, Number(worldGenSettings.entityActivationRange) || 72);
         const ENTITY_ACTIVATION_RANGE_SQ = ENTITY_ACTIVATION_RANGE * ENTITY_ACTIVATION_RANGE;
         const CHUNK_UPDATE_INTERVAL_MS = isLowEndDevice ? 220 : 90;
@@ -717,6 +719,7 @@ window.perlin = perlinInstance;
             const clamped = Math.max(4, Math.min(WORLD_RADIUS, parsed));
             if (clamped === currentChunkLoadRadius) return true;
             currentChunkLoadRadius = clamped;
+            effectiveChunkLoadRadius = currentChunkLoadRadius;
             lastChunkUpdateMs = -Infinity;
             ensureChunksAroundPlayer(true);
             return true;
