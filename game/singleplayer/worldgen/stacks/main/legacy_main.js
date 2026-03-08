@@ -1,12 +1,14 @@
 (function () {
   window.WorldgenStacksMain = window.WorldgenStacksMain || {};
   window.WorldgenStacksMain.sampleLegacyMain = function (stack, wx, wz) {
-    const x4096 = Math.floor(wx / 4096);
-    const z4096 = Math.floor(wz / 4096);
+    const MAIN_ISLAND_CELL_SCALE = 4096;
+    const x4096 = Math.floor(wx / MAIN_ISLAND_CELL_SCALE);
+    const z4096 = Math.floor(wz / MAIN_ISLAND_CELL_SCALE);
     const x256 = Math.floor(wx / 256);
     const z256 = Math.floor(wz / 256);
 
     const island4096 = (x, z) => stack.cached('island_4096', x, z, () => stack.ops.island(x, z));
+    // First upscale (4096 -> 2048): fuzzy zoom, i.e. random neighbor copies to break square edges.
     const zoom2048 = (x, z) => stack.zoom(island4096, x, z, 1);
     const addIsland2048 = (x, z) => stack.addIsland(zoom2048, x, z, 2);
     const zoom1024 = (x, z) => stack.zoom(addIsland2048, x, z, 3);

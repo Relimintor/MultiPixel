@@ -45,24 +45,24 @@
         const pz = z >> 1;
         const sx = x & 1;
         const sz = z & 1;
+
         const c00 = parentFn(px, pz);
         if (sx === 0 && sz === 0) return c00;
+
         const c10 = parentFn(px + 1, pz);
         const c01 = parentFn(px, pz + 1);
-        const c11 = parentFn(px + 1, pz + 1);
-        const roll = this.ops.random.at2D(x, z, this.ops.seed + salt);
+        if (sx === 1 && sz === 0) return this.ops.random.pick2D(x, z, this.ops.seed + salt + 31, 2) === 0 ? c00 : c10;
+        if (sx === 0 && sz === 1) return this.ops.random.pick2D(x, z, this.ops.seed + salt + 53, 2) === 0 ? c00 : c01;
 
-        if (sx === 0 && sz === 1) return roll < 0.5 ? c00 : c01;
-        if (sx === 1 && sz === 0) return roll < 0.5 ? c00 : c10;
-        if (c10 === c01 && c01 === c11) return c10;
-        if (c00 === c10 && c00 === c01) return c00;
-        if (c00 === c10) return roll < 0.66 ? c00 : (roll < 0.83 ? c01 : c11);
-        if (c00 === c01) return roll < 0.66 ? c00 : (roll < 0.83 ? c10 : c11);
-        if (c10 === c11) return roll < 0.66 ? c10 : (roll < 0.83 ? c00 : c01);
-        if (c01 === c11) return roll < 0.66 ? c01 : (roll < 0.83 ? c00 : c10);
-        if (c00 === c11) return roll < 0.5 ? c00 : (roll < 0.75 ? c10 : c01);
-        return [c00, c10, c01, c11][Math.floor(roll * 4)];
+        const c11 = parentFn(px + 1, pz + 1);
+        const pick = this.ops.random.pick2D(x, z, this.ops.seed + salt + 79, 4);
+        return [c00, c10, c01, c11][pick];
       });
+    }
+
+    // Backward-compatible alias for earlier commits/tests.
+    zoomFuzzy(parentFn, x, z, salt) {
+      return this.zoom(parentFn, x, z, salt);
     }
 
     addIsland(parentFn, x, z, salt) {
@@ -76,15 +76,18 @@
         const neighbors = [north, south, west, east];
         const rand = this.ops.random.at2D(x, z, this.ops.seed + salt);
 
+        const oceanNeighbors = neighbors.filter((v) => isOceanCell(v)).length;
+        const landNeighbors = neighbors.length - oceanNeighbors;
+
+        // Land tile fully surrounded by ocean can erode back to ocean.
         if (center === C().LAND) {
-          const oceanNeighbors = neighbors.filter((v) => isOceanCell(v)).length;
-          if (oceanNeighbors >= 3 && rand < 0.14) return C().OCEAN;
+          if (oceanNeighbors === 4 && rand < 0.14) return C().OCEAN;
           return C().LAND;
         }
 
-        const landNeighbors = neighbors.filter((v) => v === C().LAND).length;
-        if (landNeighbors === 0) return center;
-        return rand < 0.36 ? C().LAND : center;
+        // Ocean tile touching any land has a small chance to become land.
+        if (landNeighbors > 0 && rand < 0.36) return C().LAND;
+        return center;
       });
     }
 
