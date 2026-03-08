@@ -122,7 +122,7 @@
       if (temp !== C.FREEZING) return temp;
       const c = this.toCell(wx, wz, scale);
       const n = this.perlin.noise2D(c.x * 0.41 - 70, c.z * 0.41 + 77);
-      return n > -0.02 ? C.COLD : temp;
+      return n > 0.32 ? C.COLD : temp;
     }
 
     addBiomeVariants(temp, wx, wz, scale) {
