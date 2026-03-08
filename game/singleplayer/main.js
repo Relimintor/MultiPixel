@@ -4841,25 +4841,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 c.group.visible = !occluded;
             }
 
-        function updateChunkAndNeighbors(centerGroup, lx, lz) {
-            const cx = centerGroup.userData.cx;
-            const cz = centerGroup.userData.cz;
-            const needsNeighbors = (lx === 0 || lx === CHUNK_SIZE - 1 || lz === 0 || lz === CHUNK_SIZE - 1);
-
-            if (blockUpdateBatchDepth > 0) {
-                markBatchedChunkRemeshNeed(cx, cz, needsNeighbors);
-                return;
-            }
-
-            requestChunkRemesh(cx, cz, 'block');
-            if (needsNeighbors) {
-                requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
-            }
-
-            requestChunkRemesh(cx, cz, 'block');
-            if (needsNeighbors) {
-                requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
-            }
+        }
 
         function updateChunkAndNeighbors(centerGroup, lx, lz) {
             const cx = centerGroup.userData.cx;
@@ -4869,11 +4851,6 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             if (blockUpdateBatchDepth > 0) {
                 markBatchedChunkRemeshNeed(cx, cz, needsNeighbors);
                 return;
-            }
-
-            requestChunkRemesh(cx, cz, 'block');
-            if (needsNeighbors) {
-                requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
             }
 
             requestChunkRemesh(cx, cz, 'block');
