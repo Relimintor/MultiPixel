@@ -310,7 +310,18 @@ window.perlin = perlinInstance;
             (deviceMemoryGb !== null && deviceMemoryGb <= 4) ||
             (cpuThreads !== null && cpuThreads <= 4)
         );
-        const targetRenderPixelRatio = Math.min(window.devicePixelRatio || 1, isLowEndDevice ? 1 : 1.5);
+        function computeRenderPixelRatio() {
+            const rawDeviceRatio = window.devicePixelRatio || 1;
+            const ratioCap = isLowEndDevice ? 1 : 1.5;
+            // Limit drawing-buffer pixel count to avoid huge VRAM/RAM spikes on large displays.
+            const maxRenderPixels = isLowEndDevice ? 2_000_000 : 3_000_000;
+            const viewportPixels = Math.max(1, window.innerWidth * window.innerHeight);
+            const budgetRatio = Math.sqrt(maxRenderPixels / viewportPixels);
+            const safeRatio = Math.max(0.75, Math.min(ratioCap, budgetRatio));
+            return Math.min(rawDeviceRatio, safeRatio);
+        }
+
+        let targetRenderPixelRatio = computeRenderPixelRatio();
         const configuredChunkRenderDistance = Math.floor(Number(worldGenSettings.chunkRenderDistance) || 12);
         const baseChunkRenderDistance = Math.max(4, Math.min(WORLD_RADIUS, configuredChunkRenderDistance));
         const effectiveChunkLoadRadius = Math.max(4, Math.min(WORLD_RADIUS, isLowEndDevice ? Math.max(4, baseChunkRenderDistance - 2) : baseChunkRenderDistance));
@@ -605,6 +616,7 @@ window.perlin = perlinInstance;
            // Renderer setup
             renderer = new THREE.WebGLRenderer({ antialias: !isLowEndDevice });
             renderer.setSize(window.innerWidth, window.innerHeight);
+            targetRenderPixelRatio = computeRenderPixelRatio();
             renderer.setPixelRatio(targetRenderPixelRatio);
             document.body.appendChild(renderer.domElement);
             setupFirstPersonHandOverlay();
@@ -5570,6 +5582,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
+            targetRenderPixelRatio = computeRenderPixelRatio();
             renderer.setPixelRatio(targetRenderPixelRatio);
         }
 
