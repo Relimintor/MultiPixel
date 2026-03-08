@@ -49,8 +49,12 @@
     const L15_ZOOM_TEMP_SALT = 11;
     const zoomLand256 = (x, z) => stack.zoom(zoomLand512, x, z, L15_ZOOM_LAND_SALT);
     const zoomTemp256 = (x, z) => stack.zoom(zoomTemp512, x, z, L15_ZOOM_TEMP_SALT);
-    const addIsland256 = (x, z) => stack.addIsland(zoomLand256, x, z, 12);
-    const mushroom256 = (x, z) => stack.addMushroomIsland(addIsland256, x, z);
+
+    // Layer 16: Add Island at 256 scale (same AddIsland rule set as earlier passes).
+    // At this resolution it mostly adds small coastal islands / peninsula bumps and
+    // trims isolated one-cell land specks.
+    const addIsland256_l16 = (x, z) => stack.addIsland(zoomLand256, x, z, 12);
+    const mushroom256 = (x, z) => stack.addMushroomIsland(addIsland256_l16, x, z);
     const deepOcean256 = (x, z) => stack.addDeepOcean(mushroom256, x, z);
     const tempAligned256 = (x, z) => stack.expandTemperatureToLand(zoomTemp256, deepOcean256, x, z, 2214);
 
