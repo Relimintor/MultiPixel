@@ -149,6 +149,7 @@
     temperatureToBiome(temp, wx, wz, scale) {
       const c = this.toCell(wx, wz, scale);
       const r = this.random.at2D(c.x, c.z, this.seed + 1200);
+      const humidityNoise = this.perlin.noise2D(c.x * 0.51 + 340, c.z * 0.51 - 210);
       const warmSpecial = temp === C.WARM_SPECIAL;
       const temperateSpecial = temp === C.TEMPERATE_SPECIAL || temp === C.SPECIAL;
       const coldSpecial = temp === C.COLD_SPECIAL;
@@ -158,8 +159,10 @@
       if (coldSpecial) return 'Giant Tree Taiga';
 
       if (temp === C.WARM) {
-        if (r < 0.50) return 'Desert';
-        if (r < 0.83) return 'Savanna';
+        // Keep jungles in the hottest/wettest cells (humidity noise band 0.3..1.0).
+        if (humidityNoise >= 0.3) return 'Jungle';
+        if (r < 0.32) return 'Desert';
+        if (r < 0.66) return 'Savanna';
         return 'Plains';
       }
       if (temp === C.TEMPERATE) {

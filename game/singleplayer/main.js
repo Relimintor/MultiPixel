@@ -4588,11 +4588,11 @@ function buildPartFaceRects(x, y, w, h, d) {
                 if (normalized.includes('forest') || normalized.includes('jungle') || normalized.includes('taiga')) {
                     baseChance = Number(map.Forest ?? 0.19);
                 } else if (normalized.includes('plains') || normalized.includes('river') || normalized.includes('swamp') || normalized.includes('savanna')) {
-                    baseChance = Number(map.Plains ?? 0.04);
+                    baseChance = Number(map.Plains ?? 0.06);
                 } else if (normalized.includes('mushroom')) {
                     baseChance = 0.017;
                 } else {
-                    baseChance = Number(map.Plains ?? 0.04);
+                    baseChance = Number(map.Plains ?? 0.06);
                 }
             }
             let adjusted = baseChance;
@@ -4906,7 +4906,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                      // --- Tree Generation (Minecraft-like oaks on natural low/mid elevations) ---
                      // Keep trees off the main river channel, but allow them near riverbanks.
                      // Using the broader terrain-carving threshold (0.1) here suppresses trees almost everywhere.
-                     const treeRiverBlockThreshold = 0.24;
+                     const treeRiverBlockThreshold = biome === 'Plains' ? 0.34 : 0.26;
                      const isTreeBlockedByRiver = riverInfluence > treeRiverBlockThreshold;
                      if (!isTreeBlockedByRiver && isTreeBiome(biome)) {
                          let topY = -1;

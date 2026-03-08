@@ -46,8 +46,8 @@
     },
     treeDensityByBiome: {
       Forest: 0.22,
-      'Jungle Forest': 0.31,
-      Plains: 0.035,
+      'Jungle Forest': 0.28,
+      Plains: 0.065,
       Mountains: 0.02,
       'Snowy Plains': 0.01,
       Desert: 0,
