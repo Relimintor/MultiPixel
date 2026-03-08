@@ -32,8 +32,11 @@
     <script src="chat/commands/spawn/main.js?v=1"></script>
     <script src="chat/commands/time/main.js?v=1"></script>
     <script src="chat/commands/help/main.js?v=1"></script>
-    <script src="chat/commands/commands.js?v=1"></script>
-    <script src="chat/main.js?v=2"></script>
+    <script src="chat/commands/set/main.js?v=2"></script>
+    <script src="chat/commands/gamemode/main.js?v=1"></script>
+    <script src="chat/commands/grantme/main.js?v=1"></script>
+    <script src="chat/commands/commands.js?v=4"></script>
+    <script src="chat/main.js?v=5"></script>
     <script src="worldgen/random/qcg.js?v=4"></script>
     <script src="worldgen/noise/fbm.js?v=4"></script>
     <script src="worldgen/layers/registry/index.js?v=4"></script>
@@ -213,6 +216,20 @@
             </div>
         </div>
     </div>
+
+    <div id="creative-screen" class="hidden absolute inset-0 flex items-center justify-center z-[220]">
+        <div id="creative-panel" class="pointer-events-auto">
+            <button id="creative-close-btn" class="inventory-close-btn" type="button" aria-label="Close creative menu">
+                <img id="creative-close-icon" alt="close creative menu" draggable="false" />
+            </button>
+            <button id="creative-inventory-btn" type="button" aria-label="Open inventory from creative">
+                <img id="creative-inventory-icon" alt="open inventory" draggable="false" />
+            </button>
+            <div id="creative-item-grid" class="slot-grid grid-9x5"></div>
+            <div id="creative-hotbar-grid" class="slot-grid grid-9x1"></div>
+        </div>
+    </div>
+
     <div id="mobile-controls" class="hidden">
         <div id="mobile-joystick" class="mobile-btn-area">
             <img id="mobile-joystick-bg" alt="joystick" draggable="false" />
