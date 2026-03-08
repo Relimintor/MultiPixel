@@ -519,7 +519,7 @@ window.perlin = perlinInstance;
                 if (wasmRuntime?.init) {
                     wasmRuntime.init({
                         enabled: Boolean(wasmSettings.enabled),
-                        modulePath: wasmSettings.modulePath || 'worldgen/wasm/worldgen.wasm',
+                        modulePath: wasmSettings.modulePath || 'worldgen/wasm/worldgen.wasm.base64',
                     }).catch(() => {});
                 }
                 console.info('[World seed]', worldSeed);

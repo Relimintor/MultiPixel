@@ -14,7 +14,7 @@ Only `cave_shape` is currently wired into gameplay generation. The others are re
 
 ## Runtime behavior
 
-- If `WORLD_GEN_SETTINGS.wasm.enabled` is true, the game attempts to load `WORLD_GEN_SETTINGS.wasm.modulePath`.
+- If `WORLD_GEN_SETTINGS.wasm.enabled` is true, the game attempts to load `WORLD_GEN_SETTINGS.wasm.modulePath` (default: `worldgen/wasm/worldgen.wasm.base64`).
 - On load failure or missing exports, runtime automatically falls back to JavaScript generation.
 - The game remains fully playable without any `.wasm` file.
 
@@ -41,6 +41,7 @@ clang --target=wasm32 -O3 -nostdlib \
 
 ### Binary-free workflow
 
-- Runtime first tries `worldgen.wasm`.
-- If that fetch fails, it automatically tries `worldgen.wasm.base64` and instantiates from decoded bytes.
-- This allows binary-free repositories while keeping the WASM acceleration path enabled.
+- Runtime loads whatever `modulePath` points to.
+- If `modulePath` ends with `.base64`, it decodes text and instantiates WASM bytes directly.
+- If `modulePath` points to `.wasm`, runtime will also try `modulePath + ".base64"` as fallback if `.wasm` is missing.
+- This allows binary-free repositories while keeping the WASM acceleration path enabled and avoids unnecessary `.wasm` 404s when using a base64 default path.

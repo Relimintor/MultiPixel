@@ -14,7 +14,7 @@
       this.error = null;
     }
 
-    async init({ enabled = false, modulePath = 'worldgen/wasm/worldgen.wasm' } = {}) {
+    async init({ enabled = false, modulePath = 'worldgen/wasm/worldgen.wasm.base64' } = {}) {
       if (this.initialized || this.failed || !enabled) return this.backend;
       this.initialized = true;
 
@@ -33,23 +33,45 @@
         return out;
       };
 
-      const instantiateFromBytes = async (imports) => {
-        const res = await fetch(modulePath, { cache: 'no-store' });
-        if (res.ok) {
-          const bytes = await res.arrayBuffer();
+      const instantiateFromResponse = async (res, path, imports) => {
+        const useBase64Payload = String(path || '').toLowerCase().endsWith('.base64');
+        if (useBase64Payload) {
+          const b64Text = await res.text();
+          const bytes = decodeBase64ToBytes(b64Text);
+          if (!bytes) throw new Error('Base64 WASM payload was empty.');
           return WebAssembly.instantiate(bytes, imports);
         }
 
-        const b64Path = `${modulePath}.base64`;
-        const b64Res = await fetch(b64Path, { cache: 'no-store' });
-        if (!b64Res.ok) {
-          throw new Error(`Failed to fetch WASM module (${res.status}) and fallback base64 (${b64Res.status})`);
+        const bytes = await res.arrayBuffer();
+        return WebAssembly.instantiate(bytes, imports);
+      };
+
+      const instantiateFromPath = async (path, imports) => {
+        const res = await fetch(path, { cache: 'no-store' });
+        if (!res.ok) return { ok: false, status: res.status };
+
+        const canStream = WebAssembly.instantiateStreaming && !String(path).toLowerCase().endsWith('.base64');
+        const out = canStream
+          ? await WebAssembly.instantiateStreaming(res, imports)
+          : await instantiateFromResponse(res, path, imports);
+        return { ok: true, out };
+      };
+
+      const instantiateWithFallback = async (imports) => {
+        const candidates = [];
+        candidates.push(modulePath);
+        if (!String(modulePath).toLowerCase().endsWith('.base64')) {
+          candidates.push(`${modulePath}.base64`);
         }
 
-        const b64Text = await b64Res.text();
-        const bytes = decodeBase64ToBytes(b64Text);
-        if (!bytes) throw new Error('Base64 WASM fallback was empty.');
-        return WebAssembly.instantiate(bytes, imports);
+        let lastStatus = null;
+        for (const path of candidates) {
+          const result = await instantiateFromPath(path, imports);
+          if (result.ok) return { instance: result.out.instance, loadedPath: path };
+          lastStatus = result.status;
+        }
+
+        throw new Error(`Failed to fetch WASM module from ${candidates.join(' or ')}${lastStatus ? ` (last status ${lastStatus})` : ''}`);
       };
 
       try {
@@ -59,21 +81,7 @@
           },
         };
 
-        let instance;
-        if (WebAssembly.instantiateStreaming) {
-          // Prefer normal .wasm fetch path; if unavailable, fallback to text base64.
-          const res = await fetch(modulePath, { cache: 'no-store' });
-          if (res.ok) {
-            const out = await WebAssembly.instantiateStreaming(res, imports);
-            instance = out.instance;
-          } else {
-            const out = await instantiateFromBytes(imports);
-            instance = out.instance;
-          }
-        } else {
-          const out = await instantiateFromBytes(imports);
-          instance = out.instance;
-        }
+        const { instance, loadedPath } = await instantiateWithFallback(imports);
 
         const exp = instance.exports || {};
         this.backend = {
@@ -88,7 +96,7 @@
           throw new Error('WASM module loaded but did not export expected symbols.');
         }
 
-        console.info('[Worldgen WASM] enabled', { modulePath });
+        console.info('[Worldgen WASM] enabled', { modulePath: loadedPath || modulePath });
       } catch (err) {
         this.failed = true;
         this.error = err;

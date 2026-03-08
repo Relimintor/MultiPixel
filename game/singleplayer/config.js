@@ -12,7 +12,7 @@
     seedStorageKey: 'singleplayer.worldSeed',
     wasm: {
       enabled: true,
-      modulePath: 'worldgen/wasm/worldgen.wasm',
+      modulePath: 'worldgen/wasm/worldgen.wasm.base64',
       preferCaveSampling: true,
     },
     terrainCarving: {
