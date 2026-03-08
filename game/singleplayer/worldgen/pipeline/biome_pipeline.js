@@ -17,7 +17,8 @@
     if (biome === 'Mountains' || biome === 'Windswept Hills' || biome === 'Wooded Mountains' || biome === 'Gravelly Mountains' || biome === 'Mountain Edge') return 'Mountains';
     if (biome === 'Snowy Tundra' || biome === 'Snowy Plains' || biome === 'Snowy Mountains' || biome === 'Ice Spikes' || biome === 'Snowy Taiga' || biome === 'Snowy Taiga Hills' || biome === 'Snowy Taiga Mountains' || biome === 'Snowy Beach') return 'Snowy Plains';
     if (biome === 'Mushroom Fields' || biome === 'Mushroom Field Shore') return 'Mushroom Fields';
-    if (biome === 'Jungle' || biome === 'Jungle Hills' || biome === 'Jungle Edge' || biome === 'Bamboo Jungle' || biome === 'Bamboo Jungle Hills' || biome === 'Forest' || biome === 'Flower Forest' || biome === 'Birch Forest' || biome === 'Tall Birch Forest' || biome === 'Dark Forest' || biome === 'Taiga' || biome === 'Taiga Hills' || biome === 'Giant Tree Taiga' || biome === 'Giant Spruce Taiga' || biome === 'Wooded Hills') return 'Forest';
+    if (biome === 'Jungle' || biome === 'Jungle Hills' || biome === 'Jungle Edge' || biome === 'Bamboo Jungle' || biome === 'Bamboo Jungle Hills') return 'Jungle Forest';
+    if (biome === 'Forest' || biome === 'Flower Forest' || biome === 'Birch Forest' || biome === 'Tall Birch Forest' || biome === 'Dark Forest' || biome === 'Taiga' || biome === 'Taiga Hills' || biome === 'Giant Tree Taiga' || biome === 'Giant Spruce Taiga' || biome === 'Wooded Hills') return 'Forest';
     if (biome === 'Savanna' || biome === 'Savanna Plateau' || biome === 'Shattered Savanna' || biome === 'Shattered Savanna Plateau' || biome === 'Plains' || biome === 'Sunflower Plains' || biome === 'Swamp' || biome === 'Beach' || biome === 'Stone Shore') return 'Plains';
     return biome;
   };

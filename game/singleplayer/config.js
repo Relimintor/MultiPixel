@@ -46,7 +46,8 @@
     },
     treeDensityByBiome: {
       Forest: 0.22,
-      Plains: 0.035,
+      'Jungle Forest': 0.28,
+      Plains: 0.065,
       Mountains: 0.02,
       'Snowy Plains': 0.01,
       Desert: 0,
@@ -262,7 +263,7 @@
     //Jungle
       96: { 
       name: 'Jungle Log', 
-      id: 5, 
+      id: 96, 
       textured: true, 
       textureKey: 'JUNGLE_LOG', 
       textureByFace: {
@@ -274,7 +275,7 @@
         negZ: 'JUNGLE_LOG'
       } 
     },
-  97: { name: 'Jungle Leaves', id: 6, textured: true, textureKey: 'LEAVES', transparent: true, opacity: 1 },
+  97: { name: 'Jungle Leaves', id: 97, textured: true, textureKey: 'LEAVES', transparent: true, opacity: 1 },
     
     /*Building ig*/
     8: { name: 'Oak Planks', id: 8, textured: true, textureKey: 'OAK_PLANK' },

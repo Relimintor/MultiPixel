@@ -798,6 +798,17 @@ window.perlin = perlinInstance;
             };
         }
 
+
+        function getBiomeFogAndHumidityEffects() {
+            const wx = Math.floor(yawObject?.position?.x || 0);
+            const wz = Math.floor(yawObject?.position?.z || 0);
+            const biome = getBiome(wx, wz);
+            if (biome === 'Jungle Forest') {
+                return { humidity: 0.9, nearMul: 1.18, farMul: 0.7 };
+            }
+            return { humidity: 0.5, nearMul: 1.0, farMul: 1.0 };
+        }
+
         function setRenderDistance(amount) {
             const parsed = Number.parseInt(amount, 10);
             if (!Number.isFinite(parsed)) return false;
@@ -859,8 +870,11 @@ window.perlin = perlinInstance;
             ambientLight.intensity = 0.26 + daylight * 0.45;
             hemiLight.intensity = 0.18 + daylight * 0.55;
             const fog = getFogDistances(currentChunkLoadRadius);
-            scene.fog.near = fog.nearBase + daylight * fog.nearDayBoost;
-            scene.fog.far = fog.farBase + daylight * fog.farDayBoost;
+            const biomeEffects = getBiomeFogAndHumidityEffects();
+            scene.fog.near = (fog.nearBase + daylight * fog.nearDayBoost) * biomeEffects.nearMul;
+            scene.fog.far = (fog.farBase + daylight * fog.farDayBoost) * biomeEffects.farMul;
+            window.SingleplayerClimateState = window.SingleplayerClimateState || {};
+            window.SingleplayerClimateState.humidity = biomeEffects.humidity;
         }
 
 
@@ -3580,6 +3594,7 @@ window.perlin = perlinInstance;
         const BIOME_CLIMATE_TARGETS = [
             { name: 'Desert', temp: 0.09, humidity: -0.12, continentalness: 0.18, erosion: 0.08, weirdness: 0.06 },
             { name: 'Forest', temp: 0.0, humidity: 0.16, continentalness: 0.14, erosion: 0.06, weirdness: -0.04 },
+            { name: 'Jungle Forest', temp: 0.95, humidity: 0.9, continentalness: 0.2, erosion: 0.03, weirdness: 0.0 },
             { name: 'Plains', temp: -0.02, humidity: 0.02, continentalness: 0.1, erosion: 0.2, weirdness: 0.02 },
             { name: 'Snowy Plains', temp: -0.52, humidity: 0.04, continentalness: 0.12, erosion: 0.18, weirdness: -0.02 },
         ];
@@ -3629,15 +3644,18 @@ window.perlin = perlinInstance;
             const mountainW = smoothstep(0.50, 0.80, mountainNoise) * smoothstep(0.34, 0.90, continentalNoise);
             const desertW = smoothstep(0.02, 0.48, climate.temp) * smoothstep(0.24, -0.30, climate.humidity) * smoothstep(0.30, 0.90, continentalNoise);
             const snowyW = smoothstep(-0.20, -0.64, climate.temp) * smoothstep(-0.18, 0.50, climate.humidity) * smoothstep(0.22, 0.86, continentalNoise) * (1 - mountainW * 0.70);
-            const forestW = smoothstep(-0.12, 0.44, climate.humidity) * smoothstep(-0.28, 0.40, climate.temp) * (1 - desertW * 0.72);
-            const plainsW = 0.16 + smoothstep(0.14, 0.66, continentalNoise) * 0.14;
+            const jungleHumidityW = smoothstep(0.30, 1.0, climate.humidity);
+            const jungleTempW = smoothstep(0.55, 0.98, climate.temp);
+            const jungleW = jungleHumidityW * jungleTempW * smoothstep(0.22, 0.92, continentalNoise) * (1 - mountainW * 0.55);
+            const forestW = smoothstep(-0.12, 0.44, climate.humidity) * smoothstep(-0.28, 0.40, climate.temp) * (1 - desertW * 0.72) * (1 - jungleW * 0.7);
+            const plainsW = (0.16 + smoothstep(0.14, 0.66, continentalNoise) * 0.14) * (1 - jungleW * 0.5);
 
-            const total = oceanW + mountainW + desertW + snowyW + forestW + plainsW;
+            const total = oceanW + mountainW + desertW + snowyW + forestW + plainsW + jungleW;
             if (total <= 0) {
                 return {
                     tv,
                     climate,
-                    weights: { Ocean: 0, Mountains: 0, Desert: 0, Forest: 0, Plains: 1, 'Snowy Plains': 0 }
+                    weights: { Ocean: 0, Mountains: 0, Desert: 0, Forest: 0, 'Jungle Forest': 0, Plains: 1, 'Snowy Plains': 0 }
                 };
             }
 
@@ -3649,6 +3667,7 @@ window.perlin = perlinInstance;
                     Mountains: mountainW / total,
                     Desert: desertW / total,
                     Forest: forestW / total,
+                    'Jungle Forest': jungleW / total,
                     Plains: plainsW / total,
                     'Snowy Plains': snowyW / total,
                 }
@@ -3763,6 +3782,7 @@ window.perlin = perlinInstance;
             let h =
                 plainsH * weights['Plains'] +
                 forestH * weights['Forest'] +
+                (forestH + 2) * (weights['Jungle Forest'] || 0) +
                 desertH * weights['Desert'] +
                 snowyH * weights['Snowy Plains'] +
                 mountainH * weights['Mountains'] +
@@ -4568,11 +4588,11 @@ function buildPartFaceRects(x, y, w, h, d) {
                 if (normalized.includes('forest') || normalized.includes('jungle') || normalized.includes('taiga')) {
                     baseChance = Number(map.Forest ?? 0.19);
                 } else if (normalized.includes('plains') || normalized.includes('river') || normalized.includes('swamp') || normalized.includes('savanna')) {
-                    baseChance = Number(map.Plains ?? 0.04);
+                    baseChance = Number(map.Plains ?? 0.06);
                 } else if (normalized.includes('mushroom')) {
                     baseChance = 0.017;
                 } else {
-                    baseChance = Number(map.Plains ?? 0.04);
+                    baseChance = Number(map.Plains ?? 0.06);
                 }
             }
             let adjusted = baseChance;
@@ -4598,15 +4618,15 @@ function buildPartFaceRects(x, y, w, h, d) {
                     for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
                         const idx = tx + y * CHUNK_SIZE + tz * CHUNK_SIZE * CHUNK_HEIGHT;
                         const block = data[idx];
-                        if (block === 5) return true;
-                        if (block !== 0 && block !== 6) break;
+                        if (block === 5 || block === 96) return true;
+                        if (block !== 0 && block !== 6 && block !== 97) break;
                     }
                 }
             }
             return false;
         }
 
-        function canPlaceMinecraftLikeTree(data, x, z, topY, trunkHeight) {
+        function canPlaceMinecraftLikeTree(data, x, z, topY, trunkHeight, treeStyle = 'oak') {
             if (x < 2 || x > CHUNK_SIZE - 3 || z < 2 || z > CHUNK_SIZE - 3) return false;
             const trunkTopY = topY + trunkHeight;
             if (trunkTopY + 2 >= CHUNK_HEIGHT) return false;
@@ -4615,14 +4635,18 @@ function buildPartFaceRects(x, y, w, h, d) {
             for (let y = topY + 1; y <= trunkTopY; y++) {
                 const idx = x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
                 const b = data[idx];
-                if (b !== 0 && b !== 6) return false;
+                if (b !== 0 && b !== 6 && b !== 97) return false;
             }
 
             // Crown clearance: validate just the canopy layers that we actually place.
             for (let y = trunkTopY - 2; y <= trunkTopY + 1; y++) {
                 if (y < 1 || y >= CHUNK_HEIGHT) continue;
                 const rel = y - trunkTopY;
-                const radius = rel === 1 ? 1 : (rel === 0 ? 2 : (rel === -1 ? 2 : 1));
+                const radius = treeStyle === 'jungle_large'
+                    ? (rel >= 1 ? 2 : (rel === 0 ? 3 : (rel === -1 ? 3 : 2)))
+                    : (treeStyle === 'jungle_small'
+                        ? (rel === 1 ? 1 : (rel === 0 ? 2 : (rel === -1 ? 2 : 1)))
+                        : (rel === 1 ? 1 : (rel === 0 ? 2 : (rel === -1 ? 2 : 1))));
                 for (let ox = -radius; ox <= radius; ox++) {
                     for (let oz = -radius; oz <= radius; oz++) {
                         const tx = x + ox;
@@ -4630,20 +4654,21 @@ function buildPartFaceRects(x, y, w, h, d) {
                         if (tx < 0 || tx >= CHUNK_SIZE || tz < 0 || tz >= CHUNK_SIZE) return false;
                         const idx = tx + y * CHUNK_SIZE + tz * CHUNK_SIZE * CHUNK_HEIGHT;
                         const b = data[idx];
-                        if (b !== 0 && b !== 6) return false;
+                        if (b !== 0 && b !== 6 && b !== 97) return false;
                     }
                 }
             }
 
             const crownIdx = x + (trunkTopY + 2) * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
             const crownBlock = data[crownIdx];
-            return crownBlock === 0 || crownBlock === 6;
+            return crownBlock === 0 || crownBlock === 6 || crownBlock === 97;
         }
 
         function placeMinecraftLikeTree(data, x, z, topY, trunkHeight, wx, wz, treeStyle = 'oak') {
             const trunkTopY = topY + trunkHeight;
-            const trunkType = treeStyle === 'glass_mushroom' ? 80 : 5;
-            const leafType = treeStyle === 'glass_mushroom' ? 26 : 6;
+            const isJungleTree = treeStyle === 'jungle_small' || treeStyle === 'jungle_large';
+            const trunkType = treeStyle === 'glass_mushroom' ? 80 : (isJungleTree ? 96 : 5);
+            const leafType = treeStyle === 'glass_mushroom' ? 26 : (isJungleTree ? 97 : 6);
             for (let i = 1; i <= trunkHeight; i++) {
                 const ty = topY + i;
                 const idx = x + ty * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
@@ -4653,7 +4678,9 @@ function buildPartFaceRects(x, y, w, h, d) {
             for (let y = trunkTopY - 2; y <= trunkTopY + 1; y++) {
                 if (y < 1 || y >= CHUNK_HEIGHT) continue;
                 const rel = y - trunkTopY;
-                const radius = rel === 1 ? 1 : (rel === 0 ? 2 : (rel === -1 ? 2 : 1));
+                const radius = treeStyle === 'jungle_large'
+                    ? (rel >= 1 ? 2 : (rel === 0 ? 3 : (rel === -1 ? 3 : 2)))
+                    : (rel === 1 ? 1 : (rel === 0 ? 2 : (rel === -1 ? 2 : 1)));
                 for (let ox = -radius; ox <= radius; ox++) {
                     for (let oz = -radius; oz <= radius; oz++) {
                         if (Math.abs(ox) === radius && Math.abs(oz) === radius && hashRand2D(wx + ox * 31, wz + oz * 17 + y * 7, 611) < 0.35) continue;
@@ -4879,14 +4906,14 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                      // --- Tree Generation (Minecraft-like oaks on natural low/mid elevations) ---
                      // Keep trees off the main river channel, but allow them near riverbanks.
                      // Using the broader terrain-carving threshold (0.1) here suppresses trees almost everywhere.
-                     const treeRiverBlockThreshold = 0.24;
+                     const treeRiverBlockThreshold = biome === 'Plains' ? 0.34 : 0.26;
                      const isTreeBlockedByRiver = riverInfluence > treeRiverBlockThreshold;
                      if (!isTreeBlockedByRiver && isTreeBiome(biome)) {
                          let topY = -1;
                          for (let yy = CHUNK_HEIGHT - 2; yy >= 1; yy--) {
                              const tidx = x + yy * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
                              const ttype = data[tidx];
-                             if (ttype !== 0 && ttype !== 4 && ttype !== 6) {
+                             if (ttype !== 0 && ttype !== 4 && ttype !== 6 && ttype !== 97) {
                                  topY = yy;
                                  break;
                              }
@@ -4912,10 +4939,17 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                                  const shouldTrySpawn = (spawnRoll < (chance + density * clusterBonus)) && (!nearbyTree || spawnRoll < spacingGate * 0.75);
 
                                  if (shouldTrySpawn) {
-                                     const trunkHeight = 4 + Math.floor(hashRand2D(wx, wz, 157) * 2); // 4-5
-                                     if (canPlaceMinecraftLikeTree(data, x, z, topY, trunkHeight)) {
+                                     const isJungleForest = biome === 'Jungle Forest';
+                                     const jungleLarge = isJungleForest && hashRand2D(wx, wz, 911) < 0.28;
+                                     const trunkHeight = isJungleForest
+                                         ? (jungleLarge ? 8 + Math.floor(hashRand2D(wx, wz, 913) * 4) : 5 + Math.floor(hashRand2D(wx, wz, 157) * 3))
+                                         : (4 + Math.floor(hashRand2D(wx, wz, 157) * 2));
+                                     if (canPlaceMinecraftLikeTree(data, x, z, topY, trunkHeight, (isJungleForest ? (jungleLarge ? 'jungle_large' : 'jungle_small') : 'oak'))) {
                                          if (data[topIdx] === 2) data[topIdx] = 1;
-                                         placeMinecraftLikeTree(data, x, z, topY, trunkHeight, wx, wz, biome === 'Mushroom Fields' ? 'glass_mushroom' : 'oak');
+                                         const treeStyle = biome === 'Mushroom Fields'
+                                             ? 'glass_mushroom'
+                                             : (isJungleForest ? (jungleLarge ? 'jungle_large' : 'jungle_small') : 'oak');
+                                         placeMinecraftLikeTree(data, x, z, topY, trunkHeight, wx, wz, treeStyle);
                                      }
                                  }
                              }

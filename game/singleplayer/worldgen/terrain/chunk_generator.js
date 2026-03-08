@@ -22,6 +22,7 @@
         'Deep Ocean': { depth: -1.45, scale: 0.14, floor: -30, ceiling: 3 },
         Plains: { depth: 0.11, scale: 0.17, floor: -2, ceiling: 11 },
         Forest: { depth: 0.17, scale: 0.21, floor: 1, ceiling: 16 },
+        'Jungle Forest': { depth: 0.2, scale: 0.24, floor: 2, ceiling: 18 },
         Desert: { depth: 0.12, scale: 0.14, floor: -1, ceiling: 11 },
         'Snowy Plains': { depth: 0.15, scale: 0.21, floor: 1, ceiling: 15 },
         Mountains: { depth: 0.86, scale: 0.62, floor: 14, ceiling: 38 },
@@ -171,6 +172,11 @@
       if (biome === 'Desert') return depth < 5 ? 7 : 13;
       if (biome === 'Snowy Plains') return depth === 0 ? 15 : 59;
       if (biome === 'Mountains') return depth === 0 && h > seaLevel + 20 ? 15 : 3;
+      if (biome === 'Jungle Forest') {
+        if (depth === 0) return 1;
+        if (depth < 5) return 2;
+        return 3;
+      }
       if (biome === 'Ocean' || biome === 'Deep Ocean') return depth <= 2 ? 28 : 3;
       const beach = h >= seaLevel - 1 && h <= seaLevel + 2;
       if (depth === 0) return beach ? 7 : 1;
