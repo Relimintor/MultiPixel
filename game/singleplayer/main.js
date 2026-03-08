@@ -725,22 +725,7 @@ window.perlin = perlinInstance;
             });
             
             // Dummy items for testing inventory fix
-            addToInventory(2, 64); // Dirt
             addToInventory(5, 5); // Wood Log (for crafting)
-            addToInventory(6, 1); // Leaves
-            addToInventory(14, 42);
-            addToInventory(11, 42);
-            addToInventory(12, 42);      
-            addToInventory(72, 42);      
-            addToInventory(73, 42);      
-            addToInventory(74, 42);      
-            addToInventory(75, 42);      
-            addToInventory(34, 42);      
-            addToInventory(37, 42);      
-            addToInventory(76, 42);      
-            addToInventory(77, 42);      
-            addToInventory(78, 42);      
-            addToInventory(36, 42);  
             addToInventory(59, 64),
 
             
