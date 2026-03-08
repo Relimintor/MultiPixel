@@ -310,10 +310,23 @@ window.perlin = perlinInstance;
             (deviceMemoryGb !== null && deviceMemoryGb <= 4) ||
             (cpuThreads !== null && cpuThreads <= 4)
         );
-        const targetRenderPixelRatio = Math.min(window.devicePixelRatio || 1, isLowEndDevice ? 1 : 1.5);
-        const configuredChunkRenderDistance = Math.floor(Number(worldGenSettings.chunkRenderDistance) || 12);
+        function computeRenderPixelRatio() {
+            const rawDeviceRatio = window.devicePixelRatio || 1;
+            const ratioCap = isLowEndDevice ? 1 : 1.5;
+            // Limit drawing-buffer pixel count to avoid huge VRAM/RAM spikes on large displays.
+            const maxRenderPixels = isLowEndDevice ? 2_000_000 : 3_000_000;
+            const viewportPixels = Math.max(1, window.innerWidth * window.innerHeight);
+            const budgetRatio = Math.sqrt(maxRenderPixels / viewportPixels);
+            const safeRatio = Math.max(0.75, Math.min(ratioCap, budgetRatio));
+            return Math.min(rawDeviceRatio, safeRatio);
+        }
+
+        let targetRenderPixelRatio = computeRenderPixelRatio();
+        const configuredChunkRenderDistance = Math.floor(Number(worldGenSettings.chunkRenderDistance) || 4);
         const baseChunkRenderDistance = Math.max(4, Math.min(WORLD_RADIUS, configuredChunkRenderDistance));
-        const effectiveChunkLoadRadius = Math.max(4, Math.min(WORLD_RADIUS, isLowEndDevice ? Math.max(4, baseChunkRenderDistance - 2) : baseChunkRenderDistance));
+        let currentChunkLoadRadius = baseChunkRenderDistance;
+        // Backward-compatible alias for code paths that still reference the old name.
+        let effectiveChunkLoadRadius = currentChunkLoadRadius;
         const ENTITY_ACTIVATION_RANGE = Math.max(24, Number(worldGenSettings.entityActivationRange) || 72);
         const ENTITY_ACTIVATION_RANGE_SQ = ENTITY_ACTIVATION_RANGE * ENTITY_ACTIVATION_RANGE;
         const CHUNK_UPDATE_INTERVAL_MS = isLowEndDevice ? 220 : 90;
@@ -513,7 +526,7 @@ window.perlin = perlinInstance;
             }
             
             raycaster = new THREE.Raycaster();
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.1, 1000);
             
             yawObject = new THREE.Object3D();
             pitchObject = new THREE.Object3D();
@@ -605,6 +618,7 @@ window.perlin = perlinInstance;
            // Renderer setup
             renderer = new THREE.WebGLRenderer({ antialias: !isLowEndDevice });
             renderer.setSize(window.innerWidth, window.innerHeight);
+            targetRenderPixelRatio = computeRenderPixelRatio();
             renderer.setPixelRatio(targetRenderPixelRatio);
             document.body.appendChild(renderer.domElement);
             setupFirstPersonHandOverlay();
@@ -685,6 +699,41 @@ window.perlin = perlinInstance;
             return true;
         }
 
+        function getFogDistances(renderDistance) {
+            const radius = Math.max(4, Math.min(WORLD_RADIUS, Number(renderDistance) || 4));
+            return {
+                nearBase: Math.max(10, radius * CHUNK_SIZE * 0.12),
+                nearDayBoost: Math.max(3, radius * CHUNK_SIZE * 0.04),
+                farBase: Math.max(42, radius * CHUNK_SIZE * 0.52),
+                farDayBoost: Math.max(10, radius * CHUNK_SIZE * 0.16),
+            };
+        }
+
+        function setRenderDistance(amount) {
+            const parsed = Number.parseInt(amount, 10);
+            if (!Number.isFinite(parsed)) return false;
+            const clamped = Math.max(4, Math.min(WORLD_RADIUS, parsed));
+            if (clamped === currentChunkLoadRadius) return true;
+            currentChunkLoadRadius = clamped;
+            effectiveChunkLoadRadius = currentChunkLoadRadius;
+            lastChunkUpdateMs = -Infinity;
+            ensureChunksAroundPlayer(true);
+            return true;
+        }
+
+        function setCameraFov(amount) {
+            const parsed = Number.parseFloat(amount);
+            if (!Number.isFinite(parsed)) return false;
+            const clamped = Math.max(50, Math.min(120, parsed));
+            camera.fov = clamped;
+            camera.updateProjectionMatrix();
+            return true;
+        }
+
+        function getCameraFov() {
+            return Number(camera?.fov || 90);
+        }
+
         function updateSkyAndSun() {
             const phaseInfo = getTimePhaseInfo();
             let sunFactor = 0;
@@ -726,8 +775,9 @@ window.perlin = perlinInstance;
 
             ambientLight.intensity = 0.26 + daylight * 0.45;
             hemiLight.intensity = 0.18 + daylight * 0.55;
-            scene.fog.near = 20 + daylight * 8;
-            scene.fog.far = 105 + daylight * 38;
+            const fog = getFogDistances(currentChunkLoadRadius);
+            scene.fog.near = fog.nearBase + daylight * fog.nearDayBoost;
+            scene.fog.far = fog.farBase + daylight * fog.farDayBoost;
         }
 
 
@@ -1667,6 +1717,10 @@ window.perlin = perlinInstance;
                 getMobById: (id) => window.SingleplayerMobConfig?.byId?.[id] || null,
                 spawnMobById,
                 setTimeByClock,
+                setRenderDistance,
+                getRenderDistance: () => currentChunkLoadRadius,
+                setFov: setCameraFov,
+                getFov: getCameraFov,
                 openCommandHelp: () => window.SingleplayerChat?.openCommandHelp?.(),
                 mobileAssetBase: MOBILE_ASSET_BASE,
                 onOpen: () => {
@@ -4775,8 +4829,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             cameraViewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
             frustum.setFromProjectionMatrix(cameraViewProj);
 
-            // Stage 1: frustum culling candidates.
-            const candidates = [];
+            // Conservative chunk-level culling only: rely on frustum test to avoid directional popping.
             for (const group of chunks.values()) {
                 frustumTempCenter.set(
                     group.userData.cx * CHUNK_SIZE + CHUNK_SIZE * 0.5,
@@ -4785,62 +4838,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 );
                 frustumTempSphere.center.copy(frustumTempCenter);
                 frustumTempSphere.radius = group.userData.frustumRadius || 40;
-                const inView = frustum.intersectsSphere(frustumTempSphere);
-                // Chunk-level frustum culling: skip rendering chunks outside camera view.
-                group.visible = inView;
-                if (!inView) continue;
-
-                const camSpace = frustumTempCenter.clone().applyMatrix4(camera.matrixWorldInverse);
-                if (camSpace.z >= 0) {
-                    group.visible = false;
-                    continue;
-                }
-
-                const dist = Math.sqrt(camSpace.x * camSpace.x + camSpace.y * camSpace.y + camSpace.z * camSpace.z);
-                candidates.push({ group, camSpace, dist });
+                group.visible = frustum.intersectsSphere(frustumTempSphere);
             }
-
-            // Stage 2: lightweight chunk occlusion culling.
-            // Keep nearest chunk depth per angular cell; farther chunks in the same cell are treated as hidden.
-            const AZ_BINS = 24;
-            const EL_BINS = 14;
-            const nearestDepth = new Float32Array(AZ_BINS * EL_BINS);
-            nearestDepth.fill(Infinity);
-
-            const MAX_OCCLUSION_DIST = CHUNK_SIZE * 7;
-            const DEPTH_MARGIN = CHUNK_SIZE * 1.7;
-
-            for (const c of candidates) {
-                if (c.dist > MAX_OCCLUSION_DIST) continue;
-                const az = Math.atan2(c.camSpace.x, -c.camSpace.z);
-                const el = Math.atan2(c.camSpace.y, Math.max(0.0001, Math.hypot(c.camSpace.x, c.camSpace.z)));
-                const azN = (az + Math.PI) / (Math.PI * 2);
-                const elN = (el + Math.PI * 0.5) / Math.PI;
-                const ai = Math.max(0, Math.min(AZ_BINS - 1, Math.floor(azN * AZ_BINS)));
-                const ei = Math.max(0, Math.min(EL_BINS - 1, Math.floor(elN * EL_BINS)));
-                const idx = ai + ei * AZ_BINS;
-                if (c.dist < nearestDepth[idx]) nearestDepth[idx] = c.dist;
-            }
-
-            for (const c of candidates) {
-                // Never occlusion-cull near chunks to avoid visible popping around player.
-                if (c.dist <= CHUNK_SIZE * 2.5) {
-                    c.group.visible = true;
-                    continue;
-                }
-
-                const az = Math.atan2(c.camSpace.x, -c.camSpace.z);
-                const el = Math.atan2(c.camSpace.y, Math.max(0.0001, Math.hypot(c.camSpace.x, c.camSpace.z)));
-                const azN = (az + Math.PI) / (Math.PI * 2);
-                const elN = (el + Math.PI * 0.5) / Math.PI;
-                const ai = Math.max(0, Math.min(AZ_BINS - 1, Math.floor(azN * AZ_BINS)));
-                const ei = Math.max(0, Math.min(EL_BINS - 1, Math.floor(elN * EL_BINS)));
-                const idx = ai + ei * AZ_BINS;
-                const near = nearestDepth[idx];
-                const occluded = Number.isFinite(near) && (c.dist > near + DEPTH_MARGIN);
-                c.group.visible = !occluded;
-            }
-
         }
 
         function updateChunkAndNeighbors(centerGroup, lx, lz) {
@@ -5430,7 +5429,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
         function getChunkRetentionRadius() {
             // Small hysteresis band prevents rapid load/unload thrashing when crossing chunk borders.
-            return effectiveChunkLoadRadius + 1;
+            return currentChunkLoadRadius + 1;
         }
 
         function ensureChunksAroundPlayer(forceUpdate = false, nowMs = performance.now()) {
@@ -5444,7 +5443,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             lastChunkCoordZ = playerChunkZ;
             lastChunkUpdateMs = nowMs;
 
-            const loadRadius = effectiveChunkLoadRadius;
+            const loadRadius = currentChunkLoadRadius;
             const keepRadius = getChunkRetentionRadius();
 
             const budget = forceUpdate ? CHUNK_CREATION_BUDGET_FORCE : CHUNK_CREATION_BUDGET_PER_TICK;
@@ -5625,9 +5624,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
+            targetRenderPixelRatio = computeRenderPixelRatio();
             renderer.setPixelRatio(targetRenderPixelRatio);
         }
 
         window.onload = init;
-        }
-        }
