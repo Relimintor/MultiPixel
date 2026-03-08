@@ -1,5 +1,5 @@
 (function () {
-  function create({ getBlockType, isLiquid, CHUNK_HEIGHT }) {
+  function create({ getBlockType, isLiquid, CHUNK_HEIGHT, getSkyLightCap }) {
     const EMISSIVE_BLOCK_LIGHT = { 22: 15, 33: 15 };
 
     function isOpaqueBlock(blockId) {
@@ -18,13 +18,15 @@
     }
 
     function getSkyLightLevel(wx, wy, wz) {
+      const cap = Math.max(0, Math.min(15, Math.floor(Number(getSkyLightCap ? getSkyLightCap() : 15))));
+      if (cap <= 0) return 0;
       let light = 15;
       for (let y = CHUNK_HEIGHT - 1; y > wy; y--) {
         const b = getBlockType(wx, y, wz);
         if (b === 0) {
           light = Math.min(15, light + 0.02);
         } else if (isLiquid(b)) {
-          light -= 0.6;
+          light -= 1;
         } else if (b === 22) {
           light -= 0.25;
         } else {
@@ -32,7 +34,7 @@
         }
         if (light <= 0) return 0;
       }
-      return Math.max(0, Math.min(15, Math.floor(light)));
+      return Math.max(0, Math.min(cap, Math.floor(light)));
     }
 
     function getBlockLightLevel(wx, wy, wz) {
@@ -77,11 +79,28 @@
       return Math.max(0, Math.min(15, Math.floor(best)));
     }
 
+
+    function hasNearbyBlockLightSource(wx, wy, wz, radius = 7) {
+      const r = Math.max(1, Number(radius) || 7);
+      const rSq = r * r;
+      for (let dx = -r; dx <= r; dx++) {
+        for (let dy = -r; dy <= r; dy++) {
+          for (let dz = -r; dz <= r; dz++) {
+            const distSq = dx * dx + dy * dy + dz * dz;
+            if (distSq > rSq) continue;
+            const sourceType = getBlockType(wx + dx, wy + dy, wz + dz);
+            if ((EMISSIVE_BLOCK_LIGHT[sourceType] || 0) > 0) return true;
+          }
+        }
+      }
+      return false;
+    }
+
     function getCombinedLight(wx, wy, wz) {
       return Math.max(getSkyLightLevel(wx, wy, wz), getBlockLightLevel(wx, wy, wz));
     }
 
-    return { isOpenToSky, getSkyLightLevel, getBlockLightLevel, getCombinedLight };
+    return { isOpenToSky, getSkyLightLevel, getBlockLightLevel, getCombinedLight, hasNearbyBlockLightSource };
   }
 
   window.SpawnLighting = { create };
