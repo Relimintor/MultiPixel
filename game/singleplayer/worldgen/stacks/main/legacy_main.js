@@ -42,8 +42,13 @@
     const L14_ZOOM_TEMP_SALT = 9;
     const zoomLand512 = (x, z) => stack.zoom(addIsland1024_l10_land, x, z, L14_ZOOM_LAND_SALT);
     const zoomTemp512 = (x, z) => stack.zoom(variantTemp1024, x, z, L14_ZOOM_TEMP_SALT);
-    const zoomLand256 = (x, z) => stack.zoom(zoomLand512, x, z, 10);
-    const zoomTemp256 = (x, z) => stack.zoom(zoomTemp512, x, z, 11);
+
+    // Layer 15: final major continent-scale zoom (512 -> 256) on both maps.
+    // This is still the same fuzzy-zoom operator, just at a smaller regional scale.
+    const L15_ZOOM_LAND_SALT = 10;
+    const L15_ZOOM_TEMP_SALT = 11;
+    const zoomLand256 = (x, z) => stack.zoom(zoomLand512, x, z, L15_ZOOM_LAND_SALT);
+    const zoomTemp256 = (x, z) => stack.zoom(zoomTemp512, x, z, L15_ZOOM_TEMP_SALT);
     const addIsland256 = (x, z) => stack.addIsland(zoomLand256, x, z, 12);
     const mushroom256 = (x, z) => stack.addMushroomIsland(addIsland256, x, z);
     const deepOcean256 = (x, z) => stack.addDeepOcean(mushroom256, x, z);
