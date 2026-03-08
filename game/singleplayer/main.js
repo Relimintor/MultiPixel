@@ -4889,10 +4889,11 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                      }
                   
                      // --- Tree Generation (Minecraft-like oaks on natural low/mid elevations) ---
-                     // Keep trees off the main river channel, but allow them near riverbanks.
-                     // Using the broader terrain-carving threshold (0.1) here suppresses trees almost everywhere.
-                     const treeRiverBlockThreshold = biome === 'Plains' ? 0.34 : 0.26;
-                     const isTreeBlockedByRiver = riverInfluence > treeRiverBlockThreshold;
+                     // Keep trees off the active river channel, but don't let the generic river mask
+                     // suppress all vegetation in normal plains/forest/jungle columns.
+                     const isRiverBiomeColumn = !!worldSample && (worldSample.biome === 'River' || worldSample.biome === 'Frozen River');
+                     const treeRiverBlockThreshold = biome === 'Plains' ? 0.62 : 0.56;
+                     const isTreeBlockedByRiver = isRiverBiomeColumn && riverInfluence > treeRiverBlockThreshold;
                      if (!isTreeBlockedByRiver && isTreeBiome(biome)) {
                          let topY = -1;
                          for (let yy = CHUNK_HEIGHT - 2; yy >= 1; yy--) {
