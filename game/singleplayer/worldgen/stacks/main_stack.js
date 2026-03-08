@@ -39,30 +39,31 @@
       return value;
     }
 
+    // Fuzzy zoom: doubles resolution and fills new cells via random neighbor copying.
     zoom(parentFn, x, z, salt) {
       return this.cached(`zoom_${salt}`, x, z, () => {
         const px = x >> 1;
         const pz = z >> 1;
         const sx = x & 1;
         const sz = z & 1;
+
         const c00 = parentFn(px, pz);
         if (sx === 0 && sz === 0) return c00;
+
         const c10 = parentFn(px + 1, pz);
         const c01 = parentFn(px, pz + 1);
-        const c11 = parentFn(px + 1, pz + 1);
-        const roll = this.ops.random.at2D(x, z, this.ops.seed + salt);
+        if (sx === 1 && sz === 0) return this.ops.random.pick2D(x, z, this.ops.seed + salt + 31, 2) === 0 ? c00 : c10;
+        if (sx === 0 && sz === 1) return this.ops.random.pick2D(x, z, this.ops.seed + salt + 53, 2) === 0 ? c00 : c01;
 
-        if (sx === 0 && sz === 1) return roll < 0.5 ? c00 : c01;
-        if (sx === 1 && sz === 0) return roll < 0.5 ? c00 : c10;
-        if (c10 === c01 && c01 === c11) return c10;
-        if (c00 === c10 && c00 === c01) return c00;
-        if (c00 === c10) return roll < 0.66 ? c00 : (roll < 0.83 ? c01 : c11);
-        if (c00 === c01) return roll < 0.66 ? c00 : (roll < 0.83 ? c10 : c11);
-        if (c10 === c11) return roll < 0.66 ? c10 : (roll < 0.83 ? c00 : c01);
-        if (c01 === c11) return roll < 0.66 ? c01 : (roll < 0.83 ? c00 : c10);
-        if (c00 === c11) return roll < 0.5 ? c00 : (roll < 0.75 ? c10 : c01);
-        return [c00, c10, c01, c11][Math.floor(roll * 4)];
+        const c11 = parentFn(px + 1, pz + 1);
+        const pick = this.ops.random.pick2D(x, z, this.ops.seed + salt + 79, 4);
+        return [c00, c10, c01, c11][pick];
       });
+    }
+
+    // Backward-compatible alias for earlier commits/tests.
+    zoomFuzzy(parentFn, x, z, salt) {
+      return this.zoom(parentFn, x, z, salt);
     }
 
     addIsland(parentFn, x, z, salt) {
@@ -74,17 +75,22 @@
         const west = parentFn(x - 1, z);
         const east = parentFn(x + 1, z);
         const neighbors = [north, south, west, east];
-        const rand = this.ops.random.at2D(x, z, this.ops.seed + salt);
 
-        if (center === C().LAND) {
-          const oceanNeighbors = neighbors.filter((v) => isOceanCell(v)).length;
-          if (oceanNeighbors >= 3 && rand < 0.14) return C().OCEAN;
-          return C().LAND;
+        const landNeighbors = neighbors.filter((v) => !isOceanCell(v));
+
+        // Ocean touching land: chance is exactly 1 / (N + 1), where N is land-neighbor count.
+        // When conversion happens, copy one random neighboring land value (preserves region ids).
+        if (isOceanCell(center)) {
+          const n = landNeighbors.length;
+          if (n === 0) return center;
+          const chosen = landNeighbors[this.ops.random.pick2D(x, z, this.ops.seed + salt + 31, n)];
+          return this.ops.random.pick2D(x, z, this.ops.seed + salt + 53, n + 1) === 0 ? chosen : center;
         }
 
-        const landNeighbors = neighbors.filter((v) => v === C().LAND).length;
-        if (landNeighbors === 0) return center;
-        return rand < 0.36 ? C().LAND : center;
+        // Isolated land (all four neighbors ocean) erodes with exact 1 / 5 probability.
+        const isolatedLand = neighbors.every((v) => isOceanCell(v));
+        if (isolatedLand && this.ops.random.pick2D(x, z, this.ops.seed + salt + 79, 5) === 0) return C().OCEAN;
+        return center;
       });
     }
 
