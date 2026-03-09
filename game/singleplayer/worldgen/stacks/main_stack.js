@@ -97,9 +97,9 @@
           return this.ops.random.pick2D(x, z, this.ops.seed + salt + 53, n + 1) === 0 ? chosen : center;
         }
 
-        // Isolated land (all four neighbors ocean) erodes with exact 1 / 5 probability.
-        const isolatedLand = neighbors.every((v) => isOceanCell(v));
-        if (isolatedLand && this.ops.random.pick2D(x, z, this.ops.seed + salt + 79, 5) === 0) return C().OCEAN;
+        // Keep land cells stable in AddIsland. Eroding isolated land here can remove
+        // early continent cores (the 4096 seed descendants), which causes fragmented
+        // archipelagos instead of continent growth.
         return center;
       });
     }
