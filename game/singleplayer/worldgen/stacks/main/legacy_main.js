@@ -1,6 +1,10 @@
 (function () {
   window.WorldgenStacksMain = window.WorldgenStacksMain || {};
   window.WorldgenStacksMain.sampleLegacyMain = function (stack, wx, wz) {
+    // Layer 1 (legacy-main): initial binary seed map.
+    // - 1 cell = 4096 world blocks.
+    // - LAND probability is exactly 1/10; OCEAN is 9/10.
+    // - Uses the quadratic congruential RNG via stack.ops.island(...).
     const MAIN_ISLAND_CELL_SCALE = 4096;
     const x4096 = Math.floor(wx / MAIN_ISLAND_CELL_SCALE);
     const z4096 = Math.floor(wz / MAIN_ISLAND_CELL_SCALE);

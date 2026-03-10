@@ -97,7 +97,8 @@
           return this.ops.random.pick2D(x, z, this.ops.seed + salt + 53, n + 1) === 0 ? chosen : center;
         }
 
-        // Isolated land (all four neighbors ocean) erodes with exact 1 / 5 probability.
+        // Legacy behavior: isolated land (all four neighbors ocean) erodes with
+        // exact 1 / 5 probability in this layer.
         const isolatedLand = neighbors.every((v) => isOceanCell(v));
         if (isolatedLand && this.ops.random.pick2D(x, z, this.ops.seed + salt + 79, 5) === 0) return C().OCEAN;
         return center;
