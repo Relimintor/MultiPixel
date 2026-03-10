@@ -206,6 +206,7 @@
     //Jungle tree
     JUNGLE_LOG: getAssetPath('textures/jungle/jungle_log.png'),
     JUNGLE_LOG_TOP: getAssetPath('textures/jungle/jungle_log_top.png'),
+    JUNGLE_PLANKS: getAssetPath('textures/jungle/jungle_planks.png'),
   };
 
   const blockMaterials = {
@@ -276,6 +277,7 @@
       } 
     },
   97: { name: 'Jungle Leaves', id: 97, textured: true, textureKey: 'LEAVES', transparent: true, opacity: 1 },
+  98: { name: 'Jungle Planks', id: 98, textured: true, textureKey: 'JUNGLE_PLANKS' },
     
     /*Building ig*/
     8: { name: 'Oak Planks', id: 8, textured: true, textureKey: 'OAK_PLANK' },
@@ -476,7 +478,7 @@
     REPO_BASE_PREFIX,
     WORLD_GEN_SETTINGS,
     ASSET_FILEPATHS, blockMaterials,
-    SOLID_BLOCKS: [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97 ],
+    SOLID_BLOCKS: [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97, 98 ],
     LIQUID_BLOCKS: [4, 33, 47, 48, 49, 50, 51, 52, 53, 60, 61, 62, 63, 64, 65, 66],
     DEFAULT_PLAYER: {
       moveSpeed: 0.12,
