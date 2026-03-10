@@ -2,6 +2,7 @@
   class InfiniteWorldGenerator {
     constructor({ seed, perlin, seaLevel, baseLandY, chunkHeight }) {
       const rngClass = window.WorldgenRandom?.QuadraticCongruential;
+      if (!rngClass) throw new Error('WorldgenRandom.QuadraticCongruential is required');
       this.seed = seed | 0;
       this.perlin = perlin;
       this.seaLevel = seaLevel;
@@ -58,9 +59,13 @@
     }
 
     hashRand2D(wx, wz, salt = 0) {
-      return this.random.valueAt2D(wx | 0, wz | 0, (this.seed + salt) | 0);
+      return this.random.at2D(wx | 0, wz | 0, (this.seed + salt) | 0);
     }
   }
 
   window.InfiniteWorldGenerator = InfiniteWorldGenerator;
+  window.WorldgenCore = window.WorldgenCore || {};
+  if (!window.WorldgenCore.InfiniteWorldGenerator) {
+    window.WorldgenCore.InfiniteWorldGenerator = InfiniteWorldGenerator;
+  }
 })();
