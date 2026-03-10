@@ -80,33 +80,17 @@
         const south = parentFn(x, z + 1);
         const west = parentFn(x - 1, z);
         const east = parentFn(x + 1, z);
-        const northwest = parentFn(x - 1, z - 1);
-        const northeast = parentFn(x + 1, z - 1);
-        const southwest = parentFn(x - 1, z + 1);
-        const southeast = parentFn(x + 1, z + 1);
         const neighbors = [north, south, west, east];
 
         const landNeighbors = neighbors.filter((v) => !isOceanCell(v));
-        const diagonalLandNeighbors = [northwest, northeast, southwest, southeast].filter((v) => !isOceanCell(v));
 
         // Ocean touching land: chance is exactly 1 / (N + 1), where N is land-neighbor count.
         // When conversion happens, copy one random neighboring land value (preserves region ids).
         if (isOceanCell(center)) {
           const n = landNeighbors.length;
-          const d = diagonalLandNeighbors.length;
-          if (n === 0 && d === 0) return center;
-
-          // Prefer converting cells that bridge two nearby land patches.
-          const bridgesCardinal = (!isOceanCell(north) && !isOceanCell(south)) || (!isOceanCell(west) && !isOceanCell(east));
-          const bridgesDiagonal = (!isOceanCell(northwest) && !isOceanCell(southeast)) || (!isOceanCell(northeast) && !isOceanCell(southwest));
-          const bridgeStrength = (bridgesCardinal ? 2 : 0) + (bridgesDiagonal ? 1 : 0) + Math.min(2, Math.max(0, n - 1));
-
-          const nearbyLand = landNeighbors.concat(diagonalLandNeighbors);
-          const chosen = nearbyLand[this.ops.random.pick2D(x, z, this.ops.seed + salt + 31, nearbyLand.length)];
-
-          const baseDenominator = n > 0 ? (n + 1) : 5;
-          const boostedDenominator = Math.max(2, baseDenominator - bridgeStrength);
-          return this.ops.random.pick2D(x, z, this.ops.seed + salt + 53, boostedDenominator) === 0 ? chosen : center;
+          if (n === 0) return center;
+          const chosen = landNeighbors[this.ops.random.pick2D(x, z, this.ops.seed + salt + 31, n)];
+          return this.ops.random.pick2D(x, z, this.ops.seed + salt + 53, n + 1) === 0 ? chosen : center;
         }
 
         // Keep land cells stable in AddIsland. Eroding isolated land here can remove
