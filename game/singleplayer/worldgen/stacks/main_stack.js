@@ -81,22 +81,27 @@
         const west = parentFn(x - 1, z);
         const east = parentFn(x + 1, z);
         const neighbors = [north, south, west, east];
-
         const landNeighbors = neighbors.filter((v) => !isOceanCell(v));
+        const oceanNeighbors = neighbors.length - landNeighbors.length;
 
-        // Ocean touching land: chance is exactly 1 / (N + 1), where N is land-neighbor count.
-        // When conversion happens, copy one random neighboring land value (preserves region ids).
-        if (isOceanCell(center)) {
-          const n = landNeighbors.length;
-          if (n === 0) return center;
-          const chosen = landNeighbors[this.ops.random.pick2D(x, z, this.ops.seed + salt + 31, n)];
-          return this.ops.random.pick2D(x, z, this.ops.seed + salt + 53, n + 1) === 0 ? chosen : center;
+        let expansionChance = 0.35;
+        let erosionChance = 0.08;
+        if (salt === 2) {
+          expansionChance = 0.40;
+          erosionChance = 0.10;
         }
 
-        // Keep land cells stable in AddIsland. Eroding isolated land here can remove
-        // early continent cores (the 4096 seed descendants), which causes fragmented
-        // archipelagos instead of continent growth.
-        return center;
+        if (isOceanCell(center)) {
+          if (landNeighbors.length === 0) return center;
+          const shouldExpand = this.ops.random.at2D(x, z, this.ops.seed + salt + 53) < expansionChance;
+          if (!shouldExpand) return center;
+          return landNeighbors[this.ops.random.pick2D(x, z, this.ops.seed + salt + 31, landNeighbors.length)];
+        }
+
+        const surroundedByOcean = oceanNeighbors === 4;
+        if (!surroundedByOcean) return center;
+        const shouldErode = this.ops.random.at2D(x, z, this.ops.seed + salt + 71) < erosionChance;
+        return shouldErode ? C().OCEAN : center;
       });
     }
 
