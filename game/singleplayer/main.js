@@ -565,7 +565,13 @@ window.perlin = perlinInstance;
             if (typeof PerlinNoise !== 'undefined') {
                 worldSeed = resolveWorldSeed();
                 perlin = new PerlinNoise(worldSeed);
-                worldGenerator = new window.WorldgenCore.InfiniteWorldGenerator({
+                const GeneratorClass = window.WorldgenCore?.InfiniteWorldGenerator || window.InfiniteWorldGenerator;
+                if (!GeneratorClass) {
+                    console.error('World generator implementation is missing (WorldgenCore.InfiniteWorldGenerator / InfiniteWorldGenerator).');
+                    return;
+                }
+
+                worldGenerator = new GeneratorClass({
                     seed: worldSeed,
                     perlin,
                     seaLevel: SEA_LEVEL,
