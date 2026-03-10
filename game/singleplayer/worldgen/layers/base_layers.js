@@ -26,8 +26,8 @@
     }
 
     island(cellX, cellZ) {
-      // Seed larger continental anchors so later island-add passes connect into wider landmasses.
-      return this.random.pick2D(cellX, cellZ, this.seed + 101, 8) === 0 ? C.LAND : C.OCEAN;
+      // Initial 4096-scale seed: exact 10% chance for land.
+      return this.random.pick2D(cellX, cellZ, this.seed + 101, 10) === 0 ? C.LAND : C.OCEAN;
     }
 
     zoom(parentValue, wx, wz, fromScale, toScale, salt) {
