@@ -55,6 +55,7 @@
     { name: 'Copper Shovel', output: { id: 86, count: 1 }, shape: [[69], [10], [10]] },
     { name: 'Iron Shovel', output: { id: 87, count: 1 }, shape: [[67], [10], [10]] },
     { name: 'Diamond Shovel', output: { id: 88, count: 1 }, shape: [[44], [10], [10]] },
+    { name: 'Jungle Planks', output:  { id: 98, count: 4 }, shape: [[96]] },
   ];
 
   function checkCraftingRecipe(inputSlots, gridWidth) {
