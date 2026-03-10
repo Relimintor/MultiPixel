@@ -26,8 +26,8 @@
     }
 
     island(cellX, cellZ) {
-      // First legacy-main island pass: exact 1-in-10 chance per 4096x4096 parent cell.
-      return this.random.pick2D(cellX, cellZ, this.seed + 101, 10) === 0 ? C.LAND : C.OCEAN;
+      // Seed larger continental anchors so later island-add passes connect into wider landmasses.
+      return this.random.pick2D(cellX, cellZ, this.seed + 101, 8) === 0 ? C.LAND : C.OCEAN;
     }
 
     zoom(parentValue, wx, wz, fromScale, toScale, salt) {
@@ -73,13 +73,20 @@
     addIsland(current, wx, wz, scale, salt) {
       const c = this.toCell(wx, wz, scale);
       const r = this.random.at2D(c.x, c.z, this.seed + salt);
-      const n = this.perlin.noise2D(c.x * 0.43 + salt, c.z * 0.43 - salt);
+      const localShape = this.perlin.noise2D(c.x * 0.43 + salt, c.z * 0.43 - salt);
+      const continentalBand = this.perlin.noise2D(c.x * 0.16 + salt * 0.11, c.z * 0.16 - salt * 0.11);
+      const bridgeBand = this.perlin.noise2D(c.x * 0.22 + 200 + salt, c.z * 0.22 - 200 - salt);
+      const continentalBias = Math.max(0, Math.min(1, (continentalBand + 1) * 0.5));
       if (current === C.LAND) {
-        // slight erosion
-        return (r < 0.03 && n < -0.55) ? C.OCEAN : C.LAND;
+        // Keep terrain chunks connected by reducing erosion on continental cores.
+        const erosionChance = 0.012 * (1 - continentalBias * 0.75);
+        return (r < erosionChance && localShape < -0.72) ? C.OCEAN : C.LAND;
       }
-      // expand into water corners
-      return (r < 0.22 && n > 0.12) ? C.LAND : C.OCEAN;
+      // Expand more aggressively on continent bands and occasionally bridge nearby oceans.
+      const bridgeBoost = bridgeBand > 0.42 ? 0.12 : 0;
+      const expansionChance = 0.18 + continentalBias * 0.28 + bridgeBoost;
+      const shapeGate = localShape > (-0.04 - continentalBias * 0.14);
+      return (r < expansionChance && shapeGate) ? C.LAND : C.OCEAN;
     }
 
     removeTooMuchOcean(current, wx, wz, scale) {
@@ -87,7 +94,7 @@
       const c = this.toCell(wx, wz, scale);
       const n = this.perlin.noise2D(c.x * 0.37 + 17, c.z * 0.37 - 13);
       const r = this.random.at2D(c.x, c.z, this.seed + 222);
-      return (n > 0.25 && r < 0.5) ? C.LAND : C.OCEAN;
+      return (n > 0.12 && r < 0.62) ? C.LAND : C.OCEAN;
     }
 
     addTemperatures(landMask, wx, wz, scale) {
