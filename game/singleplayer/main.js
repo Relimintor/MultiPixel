@@ -571,7 +571,7 @@ window.perlin = perlinInstance;
                 const spawnBiomePool = ['Snowy Plains', 'Plains', 'Forest', 'Desert'];
                 const spawnPick = Math.floor(Math.random() * spawnBiomePool.length);
                 spawnBiomeName = spawnBiomePool[Math.max(0, Math.min(spawnBiomePool.length - 1, spawnPick))] || 'Plains';
-                console.info('[World seed]', worldSeed, '[Spawn biome]', spawnBiomeName);
+                console.info('[World seed]', worldSeed, '[Preferred spawn biome]', spawnBiomeName);
                 lightingSystem = SpawnLighting.create ? SpawnLighting.create({ getBlockType, isLiquid, CHUNK_HEIGHT, getSkyLightCap: getCurrentSkyLightCap }) : null;
             } else {
                 console.error("PerlinNoise library failed to load.");
@@ -3576,9 +3576,11 @@ window.perlin = perlinInstance;
         ];
 
         function sampleClimateVector(wx, wz, y = SEA_LEVEL) {
+            const rawTemp = octaveNoise3D(wx, y, wz, 3, 0.52, 2.0, 0.00048, -600, 170, 300);
+            const rawHumidity = octaveNoise3D(wx, y, wz, 3, 0.55, 2.0, 0.00072, 320, -240, -130);
             return {
-                temp: octaveNoise3D(wx, y, wz, 3, 0.52, 2.0, 0.00048, -600, 170, 300),
-                humidity: octaveNoise3D(wx, y, wz, 3, 0.55, 2.0, 0.00072, 320, -240, -130),
+                temp: Math.max(-1, Math.min(1, rawTemp * 1.32)),
+                humidity: Math.max(-1, Math.min(1, rawHumidity * 1.22)),
                 continentalness: octaveNoise3D(wx, y, wz, 3, 0.52, 2.0, 0.00145, 200, 90, 200),
                 erosion: octaveNoise3D(wx, y, wz, 4, 0.5, 2.05, 0.0039, 180, -120, -90),
                 weirdness: octaveNoise3D(wx, y, wz, 4, 0.5, 2.0, 0.0021, -510, 380, 140),
@@ -5846,34 +5848,51 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
         }
 
         function setInitialPlayerPosition() {
-            const searchRadius = 24;
-            for (let r = 0; r <= searchRadius; r++) {
-                for (let dx = -r; dx <= r; dx++) {
-                    const edgeZ = r;
-                    for (const dz of [-edgeZ, edgeZ]) {
-                        const x = dx + 0.5;
-                        const z = dz + 0.5;
-                        const safe = isSafeSpawnSpot(x, z);
-                        if (safe) {
-                            yawObject.position.set(x, safe.y, z);
-                            showGameMessage(`Spawned at light level ${safe.lightLevel}`);
-                            return;
+            const searchRadius = 64;
+
+            function tryFindSpawn(matchBiome) {
+                for (let r = 0; r <= searchRadius; r++) {
+                    for (let dx = -r; dx <= r; dx++) {
+                        const edgeZ = r;
+                        for (const dz of [-edgeZ, edgeZ]) {
+                            const x = dx + 0.5;
+                            const z = dz + 0.5;
+                            const wx = Math.floor(x);
+                            const wz = Math.floor(z);
+                            const biome = getBiome(wx, wz);
+                            if (matchBiome && biome !== matchBiome) continue;
+                            if (biome === 'Ocean' || biome === 'Frozen River') continue;
+                            if (getRiverMask(wx, wz) > 0.45) continue;
+                            const safe = isSafeSpawnSpot(x, z);
+                            if (safe) return { x, z, safe, biome };
+                        }
+                    }
+                    for (let dz = -r + 1; dz <= r - 1; dz++) {
+                        const edgeX = r;
+                        for (const dx of [-edgeX, edgeX]) {
+                            const x = dx + 0.5;
+                            const z = dz + 0.5;
+                            const wx = Math.floor(x);
+                            const wz = Math.floor(z);
+                            const biome = getBiome(wx, wz);
+                            if (matchBiome && biome !== matchBiome) continue;
+                            if (biome === 'Ocean' || biome === 'Frozen River') continue;
+                            if (getRiverMask(wx, wz) > 0.45) continue;
+                            const safe = isSafeSpawnSpot(x, z);
+                            if (safe) return { x, z, safe, biome };
                         }
                     }
                 }
-                for (let dz = -r + 1; dz <= r - 1; dz++) {
-                    const edgeX = r;
-                    for (const dx of [-edgeX, edgeX]) {
-                        const x = dx + 0.5;
-                        const z = dz + 0.5;
-                        const safe = isSafeSpawnSpot(x, z);
-                        if (safe) {
-                            yawObject.position.set(x, safe.y, z);
-                            showGameMessage(`Spawned at light level ${safe.lightLevel}`);
-                            return;
-                        }
-                    }
-                }
+                return null;
+            }
+
+            const preferredSpawn = tryFindSpawn(spawnBiomeName);
+            const fallbackSpawn = preferredSpawn || tryFindSpawn(null);
+            if (fallbackSpawn) {
+                yawObject.position.set(fallbackSpawn.x, fallbackSpawn.safe.y, fallbackSpawn.z);
+                showGameMessage(`Spawned in ${fallbackSpawn.biome} (light ${fallbackSpawn.safe.lightLevel})`);
+                console.info('[Actual spawn biome]', fallbackSpawn.biome, 'at', Math.floor(fallbackSpawn.x), Math.floor(fallbackSpawn.z));
+                return;
             }
 
             yawObject.position.set(0.5, SEA_LEVEL + 8, 0.5);
