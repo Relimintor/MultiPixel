@@ -3579,8 +3579,9 @@ window.perlin = perlinInstance;
             const rawTemp = octaveNoise3D(wx, y, wz, 3, 0.52, 2.0, 0.00048, -600, 170, 300);
             const rawHumidity = octaveNoise3D(wx, y, wz, 3, 0.55, 2.0, 0.00072, 320, -240, -130);
             return {
-                temp: Math.max(-1, Math.min(1, rawTemp * 1.32)),
-                humidity: Math.max(-1, Math.min(1, rawHumidity * 1.22)),
+                // Boost climate spread so hot/cold and wet/dry zones actually form large regions.
+                temp: Math.max(-1, Math.min(1, rawTemp * 2.1)),
+                humidity: Math.max(-1, Math.min(1, rawHumidity * 2.0)),
                 continentalness: octaveNoise3D(wx, y, wz, 3, 0.52, 2.0, 0.00145, 200, 90, 200),
                 erosion: octaveNoise3D(wx, y, wz, 4, 0.5, 2.05, 0.0039, 180, -120, -90),
                 weirdness: octaveNoise3D(wx, y, wz, 4, 0.5, 2.0, 0.0021, -510, 380, 140),
@@ -3661,18 +3662,20 @@ window.perlin = perlinInstance;
 
             // Let every land biome compete directly from climate + weighted noise.
             // This removes spawn-band gating so hot/cold/wet/dry borders can touch naturally.
-            const candidates = ['Desert', 'Forest', 'Jungle Forest', 'Plains', 'Snowy Plains'];
             let bestBiome = 'Plains';
             let bestScore = -Infinity;
 
-            for (const name of candidates) {
-                const base = Number(weights[name] || 0);
-                const tempFit = Math.max(0, 1 - Math.abs(climate.temp - (BIOME_CLIMATE_TARGETS.find(t => t.name === name)?.temp ?? 0)) * 0.8);
-                const humidityFit = Math.max(0, 1 - Math.abs(climate.humidity - (BIOME_CLIMATE_TARGETS.find(t => t.name === name)?.humidity ?? 0)) * 0.8);
-                const score = base + tempFit * 0.24 + humidityFit * 0.20;
+            for (const target of BIOME_CLIMATE_TARGETS) {
+                const dTemp = climate.temp - target.temp;
+                const dHum = climate.humidity - target.humidity;
+                const dCont = climate.continentalness - target.continentalness;
+                const dEro = climate.erosion - target.erosion;
+                const dWeird = climate.weirdness - target.weirdness;
+                const climateDist = dTemp * dTemp + dHum * dHum + dCont * dCont + dEro * dEro + dWeird * dWeird;
+                const score = -climateDist + (Number(weights[target.name] || 0) * 0.65);
                 if (score > bestScore) {
                     bestScore = score;
-                    bestBiome = name;
+                    bestBiome = target.name;
                 }
             }
 
