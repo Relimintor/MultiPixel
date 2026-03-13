@@ -170,8 +170,8 @@
                     <p><strong>/set render_distance</strong> &lt;amount&gt; — set chunk render distance (4 to world max).</p>
                     <p><strong>/set fov</strong> &lt;amount&gt; — set camera field of view (50 to 120).</p>
                     <p><strong>/gamemode creative</strong> — switch to creative and open creative menu.</p>
-                    <p><strong>/grantme</strong> &lt;fly|speed|noclip&gt; — grant yourself movement privileges.</p>
-                    <p><strong>/ungrantme</strong> &lt;fly|speed|noclip&gt; — remove movement privileges.</p>
+                    <p><strong>/grantme</strong> &lt;fly|speed|noclip|all&gt; — grant yourself movement privileges.</p>
+                    <p><strong>/ungrantme</strong> &lt;fly|speed|noclip|all&gt; — remove movement privileges.</p>
                     <p><strong>/help</strong> — open this command help panel.</p>
                     <button id="chat-help-close" type="button">Close</button>
                 </div>
