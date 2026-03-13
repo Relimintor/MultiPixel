@@ -5848,15 +5848,42 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
         }
 
         function setInitialPlayerPosition() {
-            const searchRadius = 64;
+            const localSpawnSearchRadius = 96;
+            const biomeAnchorSearchRadius = 1400;
+            const biomeAnchorStep = 6;
 
-            function tryFindSpawn(matchBiome) {
-                for (let r = 0; r <= searchRadius; r++) {
+            function tryFindBiomeAnchor(targetBiome) {
+                if (!targetBiome) return null;
+                for (let r = 0; r <= biomeAnchorSearchRadius; r += biomeAnchorStep) {
+                    for (let d = -r; d <= r; d += biomeAnchorStep) {
+                        const candidates = [
+                            [d, r],
+                            [d, -r],
+                            [r, d],
+                            [-r, d],
+                        ];
+                        for (const [x, z] of candidates) {
+                            if (Math.abs(x) > biomeAnchorSearchRadius || Math.abs(z) > biomeAnchorSearchRadius) continue;
+                            const wx = Math.floor(x);
+                            const wz = Math.floor(z);
+                            const biome = getBiome(wx, wz);
+                            if (biome !== targetBiome) continue;
+                            if (biome === 'Ocean' || biome === 'Frozen River') continue;
+                            if (getRiverMask(wx, wz) > 0.58) continue;
+                            return { x: wx + 0.5, z: wz + 0.5, biome };
+                        }
+                    }
+                }
+                return null;
+            }
+
+            function tryFindSpawnAround(originX, originZ, matchBiome) {
+                for (let r = 0; r <= localSpawnSearchRadius; r++) {
                     for (let dx = -r; dx <= r; dx++) {
                         const edgeZ = r;
                         for (const dz of [-edgeZ, edgeZ]) {
-                            const x = dx + 0.5;
-                            const z = dz + 0.5;
+                            const x = originX + dx;
+                            const z = originZ + dz;
                             const wx = Math.floor(x);
                             const wz = Math.floor(z);
                             const biome = getBiome(wx, wz);
@@ -5870,8 +5897,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                     for (let dz = -r + 1; dz <= r - 1; dz++) {
                         const edgeX = r;
                         for (const dx of [-edgeX, edgeX]) {
-                            const x = dx + 0.5;
-                            const z = dz + 0.5;
+                            const x = originX + dx;
+                            const z = originZ + dz;
                             const wx = Math.floor(x);
                             const wz = Math.floor(z);
                             const biome = getBiome(wx, wz);
@@ -5886,17 +5913,23 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 return null;
             }
 
-            const preferredSpawn = tryFindSpawn(spawnBiomeName);
-            const fallbackSpawn = preferredSpawn || tryFindSpawn(null);
+            const preferredAnchor = tryFindBiomeAnchor(spawnBiomeName);
+            const preferredSpawn = preferredAnchor
+                ? tryFindSpawnAround(preferredAnchor.x, preferredAnchor.z, spawnBiomeName)
+                : null;
+            const nearbyPreferredSpawn = preferredSpawn || tryFindSpawnAround(0.5, 0.5, spawnBiomeName);
+            const fallbackSpawn = nearbyPreferredSpawn || tryFindSpawnAround(0.5, 0.5, null);
+
             if (fallbackSpawn) {
                 yawObject.position.set(fallbackSpawn.x, fallbackSpawn.safe.y, fallbackSpawn.z);
-                showGameMessage(`Spawned in ${fallbackSpawn.biome} (light ${fallbackSpawn.safe.lightLevel})`);
-                console.info('[Actual spawn biome]', fallbackSpawn.biome, 'at', Math.floor(fallbackSpawn.x), Math.floor(fallbackSpawn.z));
+                showGameMessage(`Spawned in ${fallbackSpawn.biome} (pref ${spawnBiomeName}, light ${fallbackSpawn.safe.lightLevel})`);
+                console.info('[Actual spawn biome]', fallbackSpawn.biome, 'at', Math.floor(fallbackSpawn.x), Math.floor(fallbackSpawn.z), '[Preferred]', spawnBiomeName);
                 return;
             }
 
             yawObject.position.set(0.5, SEA_LEVEL + 8, 0.5);
         }
+
 
 
         function getChunkRetentionRadius() {
