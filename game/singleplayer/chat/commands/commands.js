@@ -43,6 +43,10 @@
       return window.SingleplayerChatCommandSpawn.execute(parts, ctx);
     }
 
+    if (command === '/tp' && window.SingleplayerChatCommandTp?.execute) {
+      return window.SingleplayerChatCommandTp.execute(parts, ctx);
+    }
+
     if (command === '/time' && window.SingleplayerChatCommandTime?.execute) {
       return window.SingleplayerChatCommandTime.execute(parts, ctx);
     }

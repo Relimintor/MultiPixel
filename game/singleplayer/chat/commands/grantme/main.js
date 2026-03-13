@@ -3,7 +3,7 @@
     const privilege = String(parts[1] || '').toLowerCase();
 
     if (!privilege) {
-      return { handled: true, ok: false, message: 'Usage: /grantme <fly|speed|noclip>' };
+      return { handled: true, ok: false, message: 'Usage: /grantme <fly|speed|noclip|all>' };
     }
 
     if (!ctx.grantPrivilege) {
@@ -12,7 +12,7 @@
 
     const granted = ctx.grantPrivilege(privilege);
     if (!granted) {
-      return { handled: true, ok: false, message: 'Unknown privilege. Use: fly, speed, noclip.' };
+      return { handled: true, ok: false, message: 'Unknown privilege. Use: fly, speed, noclip, all.' };
     }
 
     return { handled: true, ok: true, message: `Granted privilege: ${privilege}.` };

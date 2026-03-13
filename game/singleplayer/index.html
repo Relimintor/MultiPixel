@@ -30,6 +30,7 @@
     <script src="chat/commands/mobs/config.js?v=1"></script>
     <script src="chat/commands/give/main.js?v=1"></script>
     <script src="chat/commands/spawn/main.js?v=1"></script>
+    <script src="chat/commands/tp/main.js?v=1"></script>
     <script src="chat/commands/time/main.js?v=1"></script>
     <script src="chat/commands/help/main.js?v=1"></script>
     <script src="chat/commands/set/main.js?v=2"></script>
@@ -59,6 +60,7 @@
         <p><span id="fps-counter"></span></p>
     </div>
     <div id="hud" class="absolute inset-0 pointer-events-none z-20 flex flex-col justify-end items-center pb-2">
+        <div id="coordinates-display" class="absolute top-3 right-3 text-white text-sm font-mono px-2 py-1 rounded bg-black/55">XYZ: 0, 0, 0</div>
         <div id="status-bars" class="flex items-end space-x-3 mb-2">
             <div id="health-container" class="flex space-x-1"></div>
             <div class="flex flex-col items-start space-y-1">
