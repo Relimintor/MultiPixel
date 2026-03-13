@@ -1969,6 +1969,12 @@ window.perlin = perlinInstance;
 
         function grantPrivilege(name) {
             const key = String(name || '').toLowerCase();
+            if (key === 'all') {
+                grantPrivilege('fly');
+                grantPrivilege('speed');
+                grantPrivilege('noclip');
+                return true;
+            }
             if (key !== 'fly' && key !== 'speed' && key !== 'noclip') return false;
             if (key === 'noclip' && !playerPrivileges.fly) {
                 showGameMessage('Grant fly first before noclip.');
@@ -1987,6 +1993,12 @@ window.perlin = perlinInstance;
 
         function ungrantPrivilege(name) {
             const key = String(name || '').toLowerCase();
+            if (key === 'all') {
+                ungrantPrivilege('noclip');
+                ungrantPrivilege('speed');
+                ungrantPrivilege('fly');
+                return true;
+            }
             if (key !== 'fly' && key !== 'speed' && key !== 'noclip') return false;
             playerPrivileges[key] = false;
             if (key === 'fly') {
@@ -1997,6 +2009,16 @@ window.perlin = perlinInstance;
             }
             showGameMessage(`${key} privilege removed.`);
             return true;
+        }
+
+
+        function updateCoordinatesUI() {
+            const el = document.getElementById('coordinates-display');
+            if (!el || !yawObject) return;
+            const x = Math.floor(yawObject.position.x);
+            const y = Math.floor(yawObject.position.y);
+            const z = Math.floor(yawObject.position.z);
+            el.textContent = `XYZ: ${x}, ${y}, ${z}`;
         }
 
         function updateHotbarUI() {
@@ -6174,6 +6196,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 miningState.active = false;
                 updateBreakingOverlay();
             }
+            updateCoordinatesUI();
             renderer.render(scene, camera);
         }
         
