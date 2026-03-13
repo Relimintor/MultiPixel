@@ -4646,6 +4646,26 @@ function buildPartFaceRects(x, y, w, h, d) {
             return false;
         }
 
+
+        function chooseJungleTreeProfile({ topY, wx, wz, seaLevel, hashRand2D, octaveNoise2D }) {
+            const steepSignal = Math.abs(octaveNoise2D(wx, wz, 2, 0.58, 2.0, 0.03, -880, 420));
+            const highlandSignal = topY >= (seaLevel + 16);
+            const mountainJungle = highlandSignal || steepSignal > 0.42;
+            if (mountainJungle) {
+                return {
+                    style: 'jungle_mountain',
+                    trunkHeight: 9 + Math.floor(hashRand2D(wx, wz, 1771) * 4),
+                };
+            }
+            const canopyLarge = hashRand2D(wx, wz, 911) < 0.28;
+            return {
+                style: canopyLarge ? 'jungle_large' : 'jungle_small',
+                trunkHeight: canopyLarge
+                    ? (8 + Math.floor(hashRand2D(wx, wz, 913) * 4))
+                    : (5 + Math.floor(hashRand2D(wx, wz, 157) * 3)),
+            };
+        }
+
         function canPlaceMinecraftLikeTree(data, x, z, topY, trunkHeight, treeStyle = 'oak') {
             if (x < 2 || x > CHUNK_SIZE - 3 || z < 2 || z > CHUNK_SIZE - 3) return false;
             const trunkTopY = topY + trunkHeight;
@@ -4662,11 +4682,13 @@ function buildPartFaceRects(x, y, w, h, d) {
             for (let y = trunkTopY - 2; y <= trunkTopY + 1; y++) {
                 if (y < 1 || y >= CHUNK_HEIGHT) continue;
                 const rel = y - trunkTopY;
-                const radius = treeStyle === 'jungle_large'
+                const radius = treeStyle === 'jungle_mountain'
                     ? (rel >= 1 ? 2 : (rel === 0 ? 3 : (rel === -1 ? 3 : 2)))
-                    : (treeStyle === 'jungle_small'
-                        ? (rel === 1 ? 1 : (rel === 0 ? 2 : (rel === -1 ? 2 : 1)))
-                        : (rel === 1 ? 1 : (rel === 0 ? 2 : (rel === -1 ? 2 : 1))));
+                    : (treeStyle === 'jungle_large'
+                        ? (rel >= 1 ? 2 : (rel === 0 ? 3 : (rel === -1 ? 3 : 2)))
+                        : (treeStyle === 'jungle_small'
+                            ? (rel === 1 ? 1 : (rel === 0 ? 2 : (rel === -1 ? 2 : 1)))
+                            : (rel === 1 ? 1 : (rel === 0 ? 2 : (rel === -1 ? 2 : 1)))));
                 for (let ox = -radius; ox <= radius; ox++) {
                     for (let oz = -radius; oz <= radius; oz++) {
                         const tx = x + ox;
@@ -4686,7 +4708,7 @@ function buildPartFaceRects(x, y, w, h, d) {
 
         function placeMinecraftLikeTree(data, x, z, topY, trunkHeight, wx, wz, treeStyle = 'oak') {
             const trunkTopY = topY + trunkHeight;
-            const isJungleTree = treeStyle === 'jungle_small' || treeStyle === 'jungle_large';
+            const isJungleTree = treeStyle === 'jungle_small' || treeStyle === 'jungle_large' || treeStyle === 'jungle_mountain';
             const trunkType = treeStyle === 'glass_mushroom' ? 80 : (isJungleTree ? 96 : 5);
             const leafType = treeStyle === 'glass_mushroom' ? 26 : (isJungleTree ? 97 : 6);
             for (let i = 1; i <= trunkHeight; i++) {
@@ -4698,9 +4720,11 @@ function buildPartFaceRects(x, y, w, h, d) {
             for (let y = trunkTopY - 2; y <= trunkTopY + 1; y++) {
                 if (y < 1 || y >= CHUNK_HEIGHT) continue;
                 const rel = y - trunkTopY;
-                const radius = treeStyle === 'jungle_large'
+                const radius = treeStyle === 'jungle_mountain'
                     ? (rel >= 1 ? 2 : (rel === 0 ? 3 : (rel === -1 ? 3 : 2)))
-                    : (rel === 1 ? 1 : (rel === 0 ? 2 : (rel === -1 ? 2 : 1)));
+                    : (treeStyle === 'jungle_large'
+                        ? (rel >= 1 ? 2 : (rel === 0 ? 3 : (rel === -1 ? 3 : 2)))
+                        : (rel === 1 ? 1 : (rel === 0 ? 2 : (rel === -1 ? 2 : 1))));
                 for (let ox = -radius; ox <= radius; ox++) {
                     for (let oz = -radius; oz <= radius; oz++) {
                         if (Math.abs(ox) === radius && Math.abs(oz) === radius && hashRand2D(wx + ox * 31, wz + oz * 17 + y * 7, 611) < 0.35) continue;
@@ -4758,13 +4782,15 @@ function buildPartFaceRects(x, y, w, h, d) {
                 }
 
                 const isJungleForest = biome === 'Jungle Forest';
-                const jungleLarge = isJungleForest && hashRand2D(wx, wz, 911) < 0.28;
+                const jungleProfile = isJungleForest
+                    ? chooseJungleTreeProfile({ topY, wx, wz, seaLevel, hashRand2D, octaveNoise2D })
+                    : null;
                 const trunkHeight = isJungleForest
-                    ? (jungleLarge ? 8 + Math.floor(hashRand2D(wx, wz, 913) * 4) : 5 + Math.floor(hashRand2D(wx, wz, 157) * 3))
+                    ? jungleProfile.trunkHeight
                     : (4 + Math.floor(hashRand2D(wx, wz, 157) * 2));
                 const treeStyle = biome === 'Mushroom Fields'
                     ? 'glass_mushroom'
-                    : (isJungleForest ? (jungleLarge ? 'jungle_large' : 'jungle_small') : 'oak');
+                    : (isJungleForest ? jungleProfile.style : 'oak');
                 if (!canPlaceMinecraftLikeTree(data, x, z, topY, trunkHeight, treeStyle)) {
                     fallbackTreeCandidates.push({ x, z, topY, wx, wz, biome });
                     return false;
@@ -4782,13 +4808,15 @@ function buildPartFaceRects(x, y, w, h, d) {
 
                 const { x, z, topY, wx, wz, biome } = candidate;
                 const isJungleForest = biome === 'Jungle Forest';
-                const jungleLarge = isJungleForest && hashRand2D(wx, wz, 911) < 0.28;
+                const jungleProfile = isJungleForest
+                    ? chooseJungleTreeProfile({ topY, wx, wz, seaLevel: SEA_LEVEL, hashRand2D, octaveNoise2D })
+                    : null;
                 const trunkHeight = isJungleForest
-                    ? (jungleLarge ? 8 + Math.floor(hashRand2D(wx, wz, 913) * 4) : 5 + Math.floor(hashRand2D(wx, wz, 157) * 3))
+                    ? jungleProfile.trunkHeight
                     : (4 + Math.floor(hashRand2D(wx, wz, 157) * 2));
                 const treeStyle = biome === 'Mushroom Fields'
                     ? 'glass_mushroom'
-                    : (isJungleForest ? (jungleLarge ? 'jungle_large' : 'jungle_small') : 'oak');
+                    : (isJungleForest ? jungleProfile.style : 'oak');
                 if (!canPlaceMinecraftLikeTree(data, x, z, topY, trunkHeight, treeStyle)) return false;
 
                 const topIdx = x + topY * chunkSize + z * chunkSize * CHUNK_HEIGHT;
