@@ -3676,10 +3676,30 @@ window.perlin = perlinInstance;
             const maxBand = Math.min(3, spawnBiomeBand + maxBandDelta);
             band = Math.max(minBand, Math.min(maxBand, band));
 
-            if (band <= 0) return 'Snowy Plains';
-            if (band === 1) return climate.humidity > 0.24 ? 'Forest' : 'Plains';
-            if (band === 2) return climate.humidity > 0.42 ? 'Forest' : 'Plains';
-            return climate.humidity > 0.78 ? 'Forest' : 'Desert';
+            const bandCandidates = {
+                0: ['Snowy Plains'],
+                1: ['Plains', 'Forest'],
+                2: ['Plains', 'Forest', 'Jungle Forest', 'Desert'],
+                3: ['Desert', 'Forest', 'Jungle Forest', 'Plains']
+            };
+
+            const fallbackByBand = { 0: 'Snowy Plains', 1: 'Forest', 2: 'Plains', 3: 'Desert' };
+            const candidates = bandCandidates[band] || bandCandidates[2];
+            let bestBiome = fallbackByBand[band] || 'Plains';
+            let bestScore = -Infinity;
+
+            for (const name of candidates) {
+                const base = Number(weights[name] || 0);
+                const tempFit = Math.max(0, 1 - Math.abs(climate.temp - (BIOME_CLIMATE_TARGETS.find(t => t.name === name)?.temp ?? 0)) * 0.8);
+                const humidityFit = Math.max(0, 1 - Math.abs(climate.humidity - (BIOME_CLIMATE_TARGETS.find(t => t.name === name)?.humidity ?? 0)) * 0.8);
+                const score = base + tempFit * 0.18 + humidityFit * 0.14;
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestBiome = name;
+                }
+            }
+
+            return bestBiome;
         }
 
         function getRavineMask(wx, wz) {
