@@ -11,8 +11,7 @@
     version: '1.17-inspired-v1',
     seedStorageKey: 'singleplayer.worldSeed',
     wasm: {
-      enabled: true,
-      modulePath: 'worldgen/wasm/worldgen.wasm.base64',
+      enabled: false,
       preferCaveSampling: true,
     },
     terrainCarving: {
