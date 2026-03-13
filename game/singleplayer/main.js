@@ -565,27 +565,8 @@ window.perlin = perlinInstance;
             if (typeof PerlinNoise !== 'undefined') {
                 worldSeed = resolveWorldSeed();
                 perlin = new PerlinNoise(worldSeed);
-                const GeneratorClass = window.WorldgenCore?.InfiniteWorldGenerator || window.InfiniteWorldGenerator;
-                if (!GeneratorClass) {
-                    console.error('World generator implementation is missing (WorldgenCore.InfiniteWorldGenerator / InfiniteWorldGenerator).');
-                    return;
-                }
-
-                worldGenerator = new GeneratorClass({
-                    seed: worldSeed,
-                    perlin,
-                    seaLevel: SEA_LEVEL,
-                    baseLandY: BASE_LAND_Y,
-                    chunkSize: CHUNK_SIZE,
-                    chunkHeight: CHUNK_HEIGHT,
-                    worldGenSettings,
-                });
-                if (wasmRuntime?.init) {
-                    wasmRuntime.init({
-                        enabled: Boolean(wasmSettings.enabled),
-                        modulePath: wasmSettings.modulePath || 'worldgen/wasm/worldgen.wasm.base64',
-                    }).catch(() => {});
-                }
+                // Intentionally avoid worldgen/* runtime and use terrain/* + noise/* flow.
+                worldGenerator = null;
                 console.info('[World seed]', worldSeed);
                 lightingSystem = SpawnLighting.create ? SpawnLighting.create({ getBlockType, isLiquid, CHUNK_HEIGHT, getSkyLightCap: getCurrentSkyLightCap }) : null;
             } else {
@@ -4691,9 +4672,89 @@ function buildPartFaceRects(x, y, w, h, d) {
             }
         }
         
+        const oakTreeDecoration = {
+            tryGenerateTreeAtColumn({ data, x, z, wx, wz, biome, isRiver, riverInfluence, worldGenSettings, seaLevel, chunkSize, chunkHeight, octaveNoise2D, hashRand2D, fallbackTreeCandidates }) {
+                if (!isTreeBiome(biome) || isRiver) return false;
+
+                let topY = -1;
+                for (let yy = chunkHeight - 2; yy >= 1; yy--) {
+                    const tidx = x + yy * chunkSize + z * chunkSize * chunkHeight;
+                    const ttype = data[tidx];
+                    if (ttype !== 0 && ttype !== 4 && ttype !== 6 && ttype !== 97) {
+                        topY = yy;
+                        break;
+                    }
+                }
+
+                const minTreeY = Math.max(seaLevel - 2, 2);
+                const maxTreeY = Math.min(chunkHeight - 8, seaLevel + 68);
+                if (topY < minTreeY || topY > maxTreeY) return false;
+
+                const topIdx = x + topY * chunkSize + z * chunkSize * chunkHeight;
+                const topType = data[topIdx];
+                const validGround = (topType === 1 || topType === 2 || topType === 3 || topType === 7 || topType === 28);
+                if (!validGround) return false;
+
+                const treeNoise = octaveNoise2D(wx, wz, 2, 0.56, 2.0, 0.028, 700, -350) * 0.5 + 0.5;
+                const scatter = hashRand2D(wx, wz, 99);
+                const density = treeNoise * 0.6 + scatter * 0.4;
+                const chance = getTreeSpawnChanceForBiome(biome, topY);
+                const clusterBonus = Number(worldGenSettings.treeClusterBonus ?? 0.12);
+                const nearbyTree = hasNearbyTreeTrunk(data, x, z, 3);
+                const spacingGate = Number(worldGenSettings.treeMinSpacingChance ?? 0.65);
+                const spawnRoll = hashRand2D(wx, wz, 431);
+                const shouldTrySpawn = (spawnRoll < (chance + density * clusterBonus)) && (!nearbyTree || spawnRoll < spacingGate * 0.75);
+                if (!shouldTrySpawn) {
+                    fallbackTreeCandidates.push({ x, z, topY, wx, wz, biome });
+                    return false;
+                }
+
+                const isJungleForest = biome === 'Jungle Forest';
+                const jungleLarge = isJungleForest && hashRand2D(wx, wz, 911) < 0.28;
+                const trunkHeight = isJungleForest
+                    ? (jungleLarge ? 8 + Math.floor(hashRand2D(wx, wz, 913) * 4) : 5 + Math.floor(hashRand2D(wx, wz, 157) * 3))
+                    : (4 + Math.floor(hashRand2D(wx, wz, 157) * 2));
+                const treeStyle = biome === 'Mushroom Fields'
+                    ? 'glass_mushroom'
+                    : (isJungleForest ? (jungleLarge ? 'jungle_large' : 'jungle_small') : 'oak');
+                if (!canPlaceMinecraftLikeTree(data, x, z, topY, trunkHeight, treeStyle)) {
+                    fallbackTreeCandidates.push({ x, z, topY, wx, wz, biome });
+                    return false;
+                }
+
+                if (data[topIdx] === 2) data[topIdx] = 1;
+                placeMinecraftLikeTree(data, x, z, topY, trunkHeight, wx, wz, treeStyle);
+                return true;
+            },
+            placeFallbackTree({ data, cx, cz, fallbackTreeCandidates, hashRand2D, chunkSize }) {
+                if (!fallbackTreeCandidates.length) return false;
+                const pick = Math.floor(hashRand2D(cx, cz, 6083) * fallbackTreeCandidates.length);
+                const candidate = fallbackTreeCandidates[Math.max(0, Math.min(fallbackTreeCandidates.length - 1, pick))];
+                if (!candidate) return false;
+
+                const { x, z, topY, wx, wz, biome } = candidate;
+                const isJungleForest = biome === 'Jungle Forest';
+                const jungleLarge = isJungleForest && hashRand2D(wx, wz, 911) < 0.28;
+                const trunkHeight = isJungleForest
+                    ? (jungleLarge ? 8 + Math.floor(hashRand2D(wx, wz, 913) * 4) : 5 + Math.floor(hashRand2D(wx, wz, 157) * 3))
+                    : (4 + Math.floor(hashRand2D(wx, wz, 157) * 2));
+                const treeStyle = biome === 'Mushroom Fields'
+                    ? 'glass_mushroom'
+                    : (isJungleForest ? (jungleLarge ? 'jungle_large' : 'jungle_small') : 'oak');
+                if (!canPlaceMinecraftLikeTree(data, x, z, topY, trunkHeight, treeStyle)) return false;
+
+                const topIdx = x + topY * chunkSize + z * chunkSize * CHUNK_HEIGHT;
+                if (data[topIdx] === 2) data[topIdx] = 1;
+                placeMinecraftLikeTree(data, x, z, topY, trunkHeight, wx, wz, treeStyle);
+                return true;
+            }
+        };
+
         function generateChunkData(cx, cz) {
              const data = new Array(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
              const spawnedGnomes = [];
+             const fallbackTreeCandidates = [];
+             let treesPlacedInChunk = 0;
              
              for (let x = 0; x < CHUNK_SIZE; x++) {
                  for (let z = 0; z < CHUNK_SIZE; z++) {
@@ -4895,70 +4956,49 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                      }
                   
                      // --- Tree Generation (Minecraft-like oaks on natural low/mid elevations) ---
-                     // Keep trees off the active river channel, but don't let the generic river mask
-                     // suppress all vegetation in normal plains/forest/jungle columns.
-                     const isRiverBiomeColumn = !!worldSample && (worldSample.biome === 'River' || worldSample.biome === 'Frozen River');
-                     const treeRiverBlockThreshold = biome === 'Plains' ? 0.62 : 0.56;
-                     const isTreeBlockedByRiver = isRiverBiomeColumn && riverInfluence > treeRiverBlockThreshold;
-                     if (!isTreeBlockedByRiver && isTreeBiome(biome)) {
-                         let topY = -1;
-                         for (let yy = CHUNK_HEIGHT - 2; yy >= 1; yy--) {
-                             const tidx = x + yy * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
-                             const ttype = data[tidx];
-                             if (ttype !== 0 && ttype !== 4 && ttype !== 6 && ttype !== 97) {
-                                 topY = yy;
-                                 break;
-                             }
-                         }
-
-                         // Allow trees across the full playable surface band for non-mountain biomes.
-                         // The previous hard cap was too low for newer terrain profiles, preventing tree spawns.
-                         const minTreeY = Math.max(SEA_LEVEL - 2, 2);
-                         const maxTreeY = Math.min(CHUNK_HEIGHT - 8, SEA_LEVEL + 68);
-                         if (topY >= minTreeY && topY <= maxTreeY) {
-                             const topIdx = x + topY * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
-                             const topType = data[topIdx];
-                             const validGround = (topType === 1 || topType === 2 || topType === 3 || topType === 7 || topType === 28);
-                             if (validGround) {
-                                 const treeNoise = octaveNoise2D(wx, wz, 2, 0.56, 2.0, 0.028, 700, -350) * 0.5 + 0.5;
-                                 const scatter = hashRand2D(wx, wz, 99);
-                                 const density = treeNoise * 0.6 + scatter * 0.4;
-                                 const chance = getTreeSpawnChanceForBiome(biome, topY);
-                                 const clusterBonus = Number(worldGenSettings.treeClusterBonus ?? 0.12);
-                                 const nearbyTree = hasNearbyTreeTrunk(data, x, z, 3);
-                                 const spacingGate = Number(worldGenSettings.treeMinSpacingChance ?? 0.65);
-                                 const spawnRoll = hashRand2D(wx, wz, 431);
-                                 const shouldTrySpawn = (spawnRoll < (chance + density * clusterBonus)) && (!nearbyTree || spawnRoll < spacingGate * 0.75);
-
-                                 if (shouldTrySpawn) {
-                                     const isJungleForest = biome === 'Jungle Forest';
-                                     const jungleLarge = isJungleForest && hashRand2D(wx, wz, 911) < 0.28;
-                                     const trunkHeight = isJungleForest
-                                         ? (jungleLarge ? 8 + Math.floor(hashRand2D(wx, wz, 913) * 4) : 5 + Math.floor(hashRand2D(wx, wz, 157) * 3))
-                                         : (4 + Math.floor(hashRand2D(wx, wz, 157) * 2));
-                                     if (canPlaceMinecraftLikeTree(data, x, z, topY, trunkHeight, (isJungleForest ? (jungleLarge ? 'jungle_large' : 'jungle_small') : 'oak'))) {
-                                         if (data[topIdx] === 2) data[topIdx] = 1;
-                                         const treeStyle = biome === 'Mushroom Fields'
-                                             ? 'glass_mushroom'
-                                             : (isJungleForest ? (jungleLarge ? 'jungle_large' : 'jungle_small') : 'oak');
-                                         placeMinecraftLikeTree(data, x, z, topY, trunkHeight, wx, wz, treeStyle);
-                                     }
-                                 }
-                             }
-                         }
+                     if (oakTreeDecoration?.tryGenerateTreeAtColumn?.({
+                         data,
+                         x,
+                         z,
+                         wx,
+                         wz,
+                         biome,
+                         isRiver,
+                         riverInfluence,
+                         worldGenSettings,
+                         seaLevel: SEA_LEVEL,
+                         chunkSize: CHUNK_SIZE,
+                         chunkHeight: CHUNK_HEIGHT,
+                         octaveNoise2D,
+                         hashRand2D,
+                         fallbackTreeCandidates
+                     })) {
+                         treesPlacedInChunk++;
                      }
                  }
              }
+             if (treesPlacedInChunk === 0) {
+                 oakTreeDecoration?.placeFallbackTree?.({
+                     data,
+                     cx,
+                     cz,
+                     fallbackTreeCandidates,
+                     hashRand2D,
+                     chunkSize: CHUNK_SIZE,
+                     chunkHeight: CHUNK_HEIGHT
+                 });
+             }
+
              const heightmap = buildChunkHeightmap(data);
              const spawnedPigs = [];
              const spawnedWolves = [];
-             placeIglooInChunk(data, heightmap, cx, cz, spawnedGnomes);
-             placeDesertWellInChunk(data, heightmap, cx, cz, spawnedPigs);
+             placeIglooInChunk(data, cx, cz, spawnedGnomes);
+             placeDesertWellInChunk(data, cx, cz, spawnedPigs);
              placeWolfPackInChunk(data, heightmap, cx, cz, spawnedWolves);
              return { data, heightmap, spawnedGnomes, spawnedPigs, spawnedWolves };
         }
 
-        function placeIglooInChunk(data, heightmap, cx, cz, spawnedGnomes) {
+        function placeIglooInChunk(data, cx, cz, spawnedGnomes) {
             const snowyTerrain = window.SnowyPlainsTerrain || {};
             const iglooRules = snowyTerrain.structures?.igloo;
             if (!iglooRules || !iglooStructureDef) return;
@@ -5037,7 +5077,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             spawnedGnomes.push({ wx: worldX, wy: gnomeY, wz: worldZ });
         }
 
-        function placeDesertWellInChunk(data, heightmap, cx, cz, spawnedPigs) {
+        function placeDesertWellInChunk(data, cx, cz, spawnedPigs) {
             const centerX = Math.floor(CHUNK_SIZE / 2);
             const centerZ = Math.floor(CHUNK_SIZE / 2);
             const worldX = cx * CHUNK_SIZE + centerX;
