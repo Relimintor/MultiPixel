@@ -570,11 +570,10 @@ window.perlin = perlinInstance;
                 perlin = new PerlinNoise(worldSeed);
                 // Intentionally avoid worldgen/* runtime and use terrain/* + noise/* flow.
                 worldGenerator = null;
-                const spawnBiomePool = ['Snowy Plains', 'Plains', 'Forest', 'Desert', 'Mountains', 'Jungle Forest'];
-                const seedPickNoise = Math.abs(perlin.noise2D(worldSeed * 0.013 + 17.3, worldSeed * 0.017 - 9.1));
-                const spawnPick = Math.floor(seedPickNoise * spawnBiomePool.length);
+                const spawnBiomePool = ['Snowy Plains', 'Plains', 'Forest', 'Desert'];
+                const spawnPick = Math.floor(Math.random() * spawnBiomePool.length);
                 spawnBiomeName = spawnBiomePool[Math.max(0, Math.min(spawnBiomePool.length - 1, spawnPick))] || 'Plains';
-                spawnBiomeBand = ({ 'Snowy Plains': 0, Plains: 2, Forest: 2, Desert: 3, Mountains: 2, 'Jungle Forest': 3 }[spawnBiomeName] ?? 2);
+                spawnBiomeBand = ({ 'Snowy Plains': 0, Plains: 2, Forest: 2, Desert: 3 }[spawnBiomeName] ?? 2);
                 console.info('[World seed]', worldSeed, '[Spawn biome]', spawnBiomeName);
                 lightingSystem = SpawnLighting.create ? SpawnLighting.create({ getBlockType, isLiquid, CHUNK_HEIGHT, getSkyLightCap: getCurrentSkyLightCap }) : null;
             } else {
@@ -3658,6 +3657,8 @@ window.perlin = perlinInstance;
             if (worldGenerator) return worldGenerator.sampleBiome(wx, wz);
 
             const { climate, weights } = biomeWeights(wx, wz);
+            if ((weights['Ocean'] || 0) > 0.55) return 'Ocean';
+            if ((weights['Mountains'] || 0) > 0.6) return 'Mountains';
 
             // Biome-first temperature graph:
             // icecold (0) -> cold (1) -> temperate (2) -> hot (3)
@@ -3675,43 +3676,10 @@ window.perlin = perlinInstance;
             const maxBand = Math.min(3, spawnBiomeBand + maxBandDelta);
             band = Math.max(minBand, Math.min(maxBand, band));
 
-            // Build weighted candidates so all biomes can appear (instead of humidity threshold hard-switching to forest).
-            const candidates = [];
-            const push = (name, w) => { if (w > 0.0001) candidates.push({ name, w }); };
-
-            // Ocean/mountains can still appear naturally, but never as forced player spawn points.
-            push('Ocean', weights['Ocean'] || 0);
-            push('Mountains', weights['Mountains'] || 0);
-
-            if (band <= 0) {
-                push('Snowy Plains', (weights['Snowy Plains'] || 0) + 0.5);
-                push('Plains', (weights['Plains'] || 0) * 0.25);
-            } else if (band === 1) {
-                push('Snowy Plains', (weights['Snowy Plains'] || 0) * 0.55);
-                push('Plains', (weights['Plains'] || 0) + 0.28);
-                push('Forest', (weights['Forest'] || 0) + 0.18);
-            } else if (band === 2) {
-                push('Plains', (weights['Plains'] || 0) + 0.34);
-                push('Forest', (weights['Forest'] || 0) + 0.24);
-                push('Desert', (weights['Desert'] || 0) * 0.35);
-                push('Snowy Plains', (weights['Snowy Plains'] || 0) * 0.25);
-                push('Jungle Forest', (weights['Jungle Forest'] || 0) * 0.55);
-            } else {
-                push('Desert', (weights['Desert'] || 0) + 0.32);
-                push('Jungle Forest', (weights['Jungle Forest'] || 0) + 0.24);
-                push('Forest', (weights['Forest'] || 0) * 0.45);
-                push('Plains', (weights['Plains'] || 0) * 0.3);
-            }
-
-            if (!candidates.length) return 'Plains';
-            let total = 0;
-            for (const c of candidates) total += c.w;
-            let pick = hashRand2D(wx, wz, 7349) * total;
-            for (const c of candidates) {
-                pick -= c.w;
-                if (pick <= 0) return c.name;
-            }
-            return candidates[candidates.length - 1].name;
+            if (band <= 0) return 'Snowy Plains';
+            if (band === 1) return climate.humidity > 0.24 ? 'Forest' : 'Plains';
+            if (band === 2) return climate.humidity > 0.42 ? 'Forest' : 'Plains';
+            return climate.humidity > 0.78 ? 'Forest' : 'Desert';
         }
 
         function getRavineMask(wx, wz) {
@@ -5861,15 +5829,6 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
                 if (!isSolid(under) || isLiquid(under) || under === 6) continue;
                 if (feet !== 0 || head !== 0) continue;
-                const biomeAtSpawn = getBiome(wx, wz);
-                if (biomeAtSpawn === 'Ocean') continue;
-
-                let supportCount = 0;
-                for (const [dx, dz] of [[1,0],[-1,0],[0,1],[0,-1]]) {
-                    const nUnder = getBlockType(wx + dx, y - 1, wz + dz);
-                    if (isSolid(nUnder) && !isLiquid(nUnder) && nUnder !== 6) supportCount++;
-                }
-                if (supportCount < 2) continue;
 
                 let blocked = false;
                 for (let dx = -1; dx <= 1 && !blocked; dx++) {
@@ -5902,8 +5861,6 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                         const safe = isSafeSpawnSpot(x, z);
                         if (safe) {
                             yawObject.position.set(x, safe.y, z);
-                            spawnBiomeOrigin.wx = x;
-                            spawnBiomeOrigin.wz = z;
                             showGameMessage(`Spawned at light level ${safe.lightLevel}`);
                             return;
                         }
@@ -5917,8 +5874,6 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                         const safe = isSafeSpawnSpot(x, z);
                         if (safe) {
                             yawObject.position.set(x, safe.y, z);
-                            spawnBiomeOrigin.wx = x;
-                            spawnBiomeOrigin.wz = z;
                             showGameMessage(`Spawned at light level ${safe.lightLevel}`);
                             return;
                         }
@@ -5927,8 +5882,6 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             }
 
             yawObject.position.set(0.5, SEA_LEVEL + 8, 0.5);
-            spawnBiomeOrigin.wx = 0.5;
-            spawnBiomeOrigin.wz = 0.5;
         }
 
 
