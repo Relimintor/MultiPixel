@@ -1844,6 +1844,8 @@ window.perlin = perlinInstance;
                 closeCreativeMenu,
                 grantPrivilege,
                 ungrantPrivilege,
+                teleportToCoordinates,
+                teleportToBiome,
                 openCommandHelp: () => window.SingleplayerChat?.openCommandHelp?.(),
                 mobileAssetBase: MOBILE_ASSET_BASE,
                 onOpen: () => {
@@ -5919,6 +5921,107 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 return { y, lightLevel };
             }
             return null;
+        }
+
+        function teleportToCoordinates(x, y, z) {
+            if (!yawObject) return { ok: false, message: 'Player not ready.' };
+            const tx = Number(x);
+            const ty = Number(y);
+            const tz = Number(z);
+            if (!Number.isFinite(tx) || !Number.isFinite(ty) || !Number.isFinite(tz)) {
+                return { ok: false, message: 'Invalid coordinates.' };
+            }
+            const safeY = Math.max(2, Math.min(CHUNK_HEIGHT - 2, Math.floor(ty)));
+            yawObject.position.set(tx, safeY, tz);
+            player.velocity.set(0, 0, 0);
+            player.isJumping = false;
+            ensureChunksAroundPlayer(true);
+            return { ok: true, message: `Teleported to ${Math.floor(tx)}, ${Math.floor(safeY)}, ${Math.floor(tz)}.` };
+        }
+
+        function normalizeBiomeCommandName(raw) {
+            const key = String(raw || '').toLowerCase().trim().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
+            const map = {
+                plains: 'Plains',
+                forest: 'Forest',
+                'oak forest': 'Forest',
+                oak_forest: 'Forest',
+                desert: 'Desert',
+                mountains: 'Mountains',
+                mountain: 'Mountains',
+                snowy: 'Snowy Plains',
+                'snowy plains': 'Snowy Plains',
+                snow: 'Snowy Plains',
+                jungle: 'Jungle Forest',
+                'jungle forest': 'Jungle Forest',
+                ocean: 'Ocean',
+            };
+            return map[key] || '';
+        }
+
+        function teleportToBiome(rawBiomeName) {
+            const targetBiome = normalizeBiomeCommandName(rawBiomeName);
+            if (!targetBiome) return { ok: false, message: 'Unknown biome. Try plains, forest, oak_forest, desert, mountains, snowy_plains, jungle.' };
+            const biomeAnchorSearchRadius = 2400;
+            const biomeAnchorStep = 6;
+            const localSpawnSearchRadius = 96;
+
+            function tryFindSpawnAround(originX, originZ, matchBiome) {
+                for (let r = 0; r <= localSpawnSearchRadius; r++) {
+                    for (let dx = -r; dx <= r; dx++) {
+                        const edgeZ = r;
+                        for (const dz of [-edgeZ, edgeZ]) {
+                            const x = originX + dx;
+                            const z = originZ + dz;
+                            const wx = Math.floor(x);
+                            const wz = Math.floor(z);
+                            const biome = getBiome(wx, wz);
+                            if (matchBiome && biome !== matchBiome) continue;
+                            if (biome === 'Ocean' || biome === 'Frozen River') continue;
+                            if (getRiverMask(wx, wz) > 0.45) continue;
+                            const safe = isSafeSpawnSpot(x, z);
+                            if (safe) return { x, z, safe, biome };
+                        }
+                    }
+                    for (let dz = -r + 1; dz <= r - 1; dz++) {
+                        const edgeX = r;
+                        for (const dx of [-edgeX, edgeX]) {
+                            const x = originX + dx;
+                            const z = originZ + dz;
+                            const wx = Math.floor(x);
+                            const wz = Math.floor(z);
+                            const biome = getBiome(wx, wz);
+                            if (matchBiome && biome !== matchBiome) continue;
+                            if (biome === 'Ocean' || biome === 'Frozen River') continue;
+                            if (getRiverMask(wx, wz) > 0.45) continue;
+                            const safe = isSafeSpawnSpot(x, z);
+                            if (safe) return { x, z, safe, biome };
+                        }
+                    }
+                }
+                return null;
+            }
+
+            for (let r = 0; r <= biomeAnchorSearchRadius; r += biomeAnchorStep) {
+                for (let d = -r; d <= r; d += biomeAnchorStep) {
+                    const candidates = [[d, r], [d, -r], [r, d], [-r, d]];
+                    for (const [x, z] of candidates) {
+                        if (Math.abs(x) > biomeAnchorSearchRadius || Math.abs(z) > biomeAnchorSearchRadius) continue;
+                        const wx = Math.floor(x);
+                        const wz = Math.floor(z);
+                        if (getBiome(wx, wz) !== targetBiome) continue;
+                        const spawn = tryFindSpawnAround(wx + 0.5, wz + 0.5, targetBiome);
+                        if (!spawn) continue;
+                        yawObject.position.set(spawn.x, spawn.safe.y, spawn.z);
+                        player.velocity.set(0, 0, 0);
+                        player.isJumping = false;
+                        ensureChunksAroundPlayer(true);
+                        return { ok: true, biome: targetBiome, message: `Teleported to ${targetBiome} at ${Math.floor(spawn.x)}, ${Math.floor(spawn.safe.y)}, ${Math.floor(spawn.z)}.` };
+                    }
+                }
+            }
+
+            return { ok: false, message: `Could not find nearby ${targetBiome}.` };
         }
 
         function setInitialPlayerPosition() {
