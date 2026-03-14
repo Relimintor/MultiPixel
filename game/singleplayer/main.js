@@ -724,11 +724,6 @@ window.perlin = perlinInstance;
                 }
             });
             
-            // Dummy items for testing inventory fix
-            addToInventory(5, 5); // Wood Log (for crafting)
-            addToInventory(59, 64),
-
-            
             // Set initial sky state
             updateSkyAndSun(); 
             
