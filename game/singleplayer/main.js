@@ -3741,6 +3741,7 @@ window.perlin = perlinInstance;
 
         function clamp01(v) { return Math.max(0, Math.min(1, v)); }
         function smoothstep(edge0, edge1, x) {
+            if (edge0 === edge1) return x < edge0 ? 0 : 1;
             const t = clamp01((x - edge0) / (edge1 - edge0));
             return t * t * (3 - 2 * t);
         }
@@ -3761,7 +3762,14 @@ window.perlin = perlinInstance;
             const forestW = smoothstep(-0.12, 0.44, climate.humidity) * smoothstep(-0.28, 0.40, climate.temp) * (1 - desertW * 0.72) * (1 - jungleW * 0.7);
             const plainsW = (0.16 + smoothstep(0.14, 0.66, continentalNoise) * 0.14) * (1 - jungleW * 0.5);
 
-            const total = oceanW + mountainW + desertW + snowyW + forestW + plainsW + jungleW;
+            const adaptiveDesertFloor = climate.temp > 0.26 && climate.humidity < 0.12 ? 0.018 : 0;
+            const adaptiveSnowyFloor = climate.temp < -0.30 ? 0.018 : 0;
+            const adaptiveJungleFloor = climate.temp > 0.52 && climate.humidity > 0.40 ? 0.018 : 0;
+            const desertBlendW = Math.max(desertW, adaptiveDesertFloor);
+            const snowyBlendW = Math.max(snowyW, adaptiveSnowyFloor);
+            const jungleBlendW = Math.max(jungleW, adaptiveJungleFloor);
+
+            const total = oceanW + mountainW + desertBlendW + snowyBlendW + forestW + plainsW + jungleBlendW;
             if (total <= 0) {
                 return {
                     tv,
@@ -3776,11 +3784,11 @@ window.perlin = perlinInstance;
                 weights: {
                     Ocean: oceanW / total,
                     Mountains: mountainW / total,
-                    Desert: desertW / total,
+                    Desert: desertBlendW / total,
                     Forest: forestW / total,
-                    'Jungle Forest': jungleW / total,
+                    'Jungle Forest': jungleBlendW / total,
                     Plains: plainsW / total,
-                    'Snowy Plains': snowyW / total,
+                    'Snowy Plains': snowyBlendW / total,
                 }
             };
         }
@@ -3789,8 +3797,8 @@ window.perlin = perlinInstance;
             if (worldGenerator) return worldGenerator.sampleBiome(wx, wz);
 
             const { climate, weights } = biomeWeights(wx, wz);
-            if ((weights['Ocean'] || 0) > 0.55) return 'Ocean';
-            if ((weights['Mountains'] || 0) > 0.6) return 'Mountains';
+            if ((weights['Ocean'] || 0) > 0.68) return 'Ocean';
+            if ((weights['Mountains'] || 0) > 0.72) return 'Mountains';
 
             // Let every land biome compete directly from climate + weighted noise.
             // This removes spawn-band gating so hot/cold/wet/dry borders can touch naturally.
