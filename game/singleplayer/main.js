@@ -104,6 +104,11 @@
             getHeight: function (ctx) { return ctx.BASE_LAND_Y + ctx.continentalMask * 6 + ctx.terrainNoise * 2 - ctx.erosionNoise; }
         };
 
+        TerrainModules['jungleForest'] = window.JungleForestTerrain || {
+            isBiome: function (ctx) { return ctx.tempNoise > 0.45 && ctx.humidityNoise > 0.35 && ctx.mountainNoise < 0.78; },
+            getHeight: function (ctx) { return ctx.BASE_LAND_Y + 2 + ctx.continentalMask * 9.5 + ctx.terrainNoise * 6.6 - ctx.erosionNoise * 0.9; }
+        };
+
         TerrainModules['mountains'] = window.MountainsTerrain || {
             isBiome: function (ctx) { return ctx.mountainNoise > 0.62 && ctx.climateNoise > -0.15; },
             getHeight: function (ctx) { return ctx.BASE_LAND_Y + 10 + ctx.continentalMask * 14 + ctx.terrainNoise * 14 + ctx.ridgeNoise * 8; }
@@ -3805,7 +3810,7 @@ window.perlin = perlinInstance;
                 Desert: TerrainModules['desert'].getHeight({ BASE_LAND_Y, continentalMask, bigDuneNoise, duneDetailNoise, rockMaskNoise }),
                 'Snowy Plains': TerrainModules['snowyPlains'].getHeight({ BASE_LAND_Y, continentalMask, terrainNoise, erosionNoise }),
                 Forest: TerrainModules['oakForest'].getHeight({ BASE_LAND_Y, continentalMask, terrainNoise, erosionNoise }),
-                'Jungle Forest': TerrainModules['oakForest'].getHeight({ BASE_LAND_Y, continentalMask, terrainNoise, erosionNoise }) + 2,
+                'Jungle Forest': TerrainModules['jungleForest'].getHeight({ BASE_LAND_Y, continentalMask, terrainNoise, erosionNoise }),
                 Plains: TerrainModules['plains'].getHeight({ BASE_LAND_Y, continentalMask, terrainNoise, erosionNoise }),
             };
 
@@ -4671,23 +4676,33 @@ function buildPartFaceRects(x, y, w, h, d) {
         }
 
 
-        function chooseJungleTreeProfile({ topY, wx, wz, seaLevel, hashRand2D, octaveNoise2D }) {
-            const steepSignal = Math.abs(octaveNoise2D(wx, wz, 2, 0.58, 2.0, 0.03, -880, 420));
-            const highlandSignal = topY >= (seaLevel + 16);
-            const mountainJungle = highlandSignal || steepSignal > 0.42;
-            if (mountainJungle) {
-                return {
-                    style: 'jungle_mountain',
-                    trunkHeight: 9 + Math.floor(hashRand2D(wx, wz, 1771) * 4),
-                };
-            }
-            const canopyLarge = hashRand2D(wx, wz, 911) < 0.28;
+        function chooseJungleTreeProfile({ topY, wx, wz, seaLevel, hashRand2D }) {
+            const useLarge = hashRand2D(wx, wz, 911) < 0.28;
             return {
-                style: canopyLarge ? 'jungle_large' : 'jungle_small',
-                trunkHeight: canopyLarge
+                style: useLarge ? 'jungle_large' : 'jungle_small',
+                trunkHeight: useLarge
                     ? (8 + Math.floor(hashRand2D(wx, wz, 913) * 4))
                     : (5 + Math.floor(hashRand2D(wx, wz, 157) * 3)),
             };
+        }
+
+        function jungleTreeLayout(treeStyle, relY) {
+            if (treeStyle === 'jungle_large') {
+                const profile = window.JungleLargeTree;
+                if (profile?.canopyRadius) return { radius: profile.canopyRadius(relY), trunkOffsets: profile.trunkOffsets || [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 }, { x: 1, z: 1 }] };
+                if (relY >= 2) return { radius: 2, trunkOffsets: [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 }, { x: 1, z: 1 }] };
+                if (relY >= 1) return { radius: 3, trunkOffsets: [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 }, { x: 1, z: 1 }] };
+                if (relY >= 0) return { radius: 4, trunkOffsets: [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 }, { x: 1, z: 1 }] };
+                if (relY >= -1) return { radius: 4, trunkOffsets: [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 }, { x: 1, z: 1 }] };
+                return { radius: 3, trunkOffsets: [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 }, { x: 1, z: 1 }] };
+            }
+
+            const profile = window.JungleSmallTree;
+            if (profile?.canopyRadius) return { radius: profile.canopyRadius(relY), trunkOffsets: profile.trunkOffsets || [{ x: 0, z: 0 }] };
+            if (relY >= 1) return { radius: 1, trunkOffsets: [{ x: 0, z: 0 }] };
+            if (relY >= 0) return { radius: 2, trunkOffsets: [{ x: 0, z: 0 }] };
+            if (relY >= -1) return { radius: 2, trunkOffsets: [{ x: 0, z: 0 }] };
+            return { radius: 1, trunkOffsets: [{ x: 0, z: 0 }] };
         }
 
         function canPlaceMinecraftLikeTree(data, x, z, topY, trunkHeight, treeStyle = 'oak') {
@@ -4695,11 +4710,17 @@ function buildPartFaceRects(x, y, w, h, d) {
             const trunkTopY = topY + trunkHeight;
             if (trunkTopY + 2 >= CHUNK_HEIGHT) return false;
 
-            // Trunk clearance: only the center column must be empty/replacable.
+            // Trunk clearance: validate every trunk column.
+            const trunkOffsets = treeStyle === 'jungle_mountain' ? [{ x: 0, z: 0 }] : jungleTreeLayout(treeStyle, 0).trunkOffsets;
             for (let y = topY + 1; y <= trunkTopY; y++) {
-                const idx = x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
-                const b = data[idx];
-                if (b !== 0 && b !== 6 && b !== 97) return false;
+                for (const offset of trunkOffsets) {
+                    const tx = x + offset.x;
+                    const tz = z + offset.z;
+                    if (tx < 0 || tx >= CHUNK_SIZE || tz < 0 || tz >= CHUNK_SIZE) return false;
+                    const idx = tx + y * CHUNK_SIZE + tz * CHUNK_SIZE * CHUNK_HEIGHT;
+                    const b = data[idx];
+                    if (b !== 0 && b !== 6 && b !== 97) return false;
+                }
             }
 
             // Crown clearance: validate just the canopy layers that we actually place.
@@ -4708,11 +4729,7 @@ function buildPartFaceRects(x, y, w, h, d) {
                 const rel = y - trunkTopY;
                 const radius = treeStyle === 'jungle_mountain'
                     ? (rel >= 1 ? 2 : (rel === 0 ? 3 : (rel === -1 ? 3 : 2)))
-                    : (treeStyle === 'jungle_large'
-                        ? (rel >= 1 ? 2 : (rel === 0 ? 3 : (rel === -1 ? 3 : 2)))
-                        : (treeStyle === 'jungle_small'
-                            ? (rel === 1 ? 1 : (rel === 0 ? 2 : (rel === -1 ? 2 : 1)))
-                            : (rel === 1 ? 1 : (rel === 0 ? 2 : (rel === -1 ? 2 : 1)))));
+                    : jungleTreeLayout(treeStyle, rel).radius;
                 for (let ox = -radius; ox <= radius; ox++) {
                     for (let oz = -radius; oz <= radius; oz++) {
                         const tx = x + ox;
@@ -4735,10 +4752,16 @@ function buildPartFaceRects(x, y, w, h, d) {
             const isJungleTree = treeStyle === 'jungle_small' || treeStyle === 'jungle_large' || treeStyle === 'jungle_mountain';
             const trunkType = treeStyle === 'glass_mushroom' ? 80 : (isJungleTree ? 96 : 5);
             const leafType = treeStyle === 'glass_mushroom' ? 26 : (isJungleTree ? 97 : 6);
+            const trunkOffsets = treeStyle === 'jungle_mountain' ? [{ x: 0, z: 0 }] : jungleTreeLayout(treeStyle, 0).trunkOffsets;
             for (let i = 1; i <= trunkHeight; i++) {
                 const ty = topY + i;
-                const idx = x + ty * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
-                data[idx] = trunkType;
+                for (const offset of trunkOffsets) {
+                    const tx = x + offset.x;
+                    const tz = z + offset.z;
+                    if (tx < 0 || tx >= CHUNK_SIZE || tz < 0 || tz >= CHUNK_SIZE) continue;
+                    const idx = tx + ty * CHUNK_SIZE + tz * CHUNK_SIZE * CHUNK_HEIGHT;
+                    data[idx] = trunkType;
+                }
             }
 
             for (let y = trunkTopY - 2; y <= trunkTopY + 1; y++) {
@@ -4746,9 +4769,7 @@ function buildPartFaceRects(x, y, w, h, d) {
                 const rel = y - trunkTopY;
                 const radius = treeStyle === 'jungle_mountain'
                     ? (rel >= 1 ? 2 : (rel === 0 ? 3 : (rel === -1 ? 3 : 2)))
-                    : (treeStyle === 'jungle_large'
-                        ? (rel >= 1 ? 2 : (rel === 0 ? 3 : (rel === -1 ? 3 : 2)))
-                        : (rel === 1 ? 1 : (rel === 0 ? 2 : (rel === -1 ? 2 : 1))));
+                    : jungleTreeLayout(treeStyle, rel).radius;
                 for (let ox = -radius; ox <= radius; ox++) {
                     for (let oz = -radius; oz <= radius; oz++) {
                         if (Math.abs(ox) === radius && Math.abs(oz) === radius && hashRand2D(wx + ox * 31, wz + oz * 17 + y * 7, 611) < 0.35) continue;
@@ -4807,7 +4828,7 @@ function buildPartFaceRects(x, y, w, h, d) {
 
                 const isJungleForest = biome === 'Jungle Forest';
                 const jungleProfile = isJungleForest
-                    ? chooseJungleTreeProfile({ topY, wx, wz, seaLevel, hashRand2D, octaveNoise2D })
+                    ? chooseJungleTreeProfile({ topY, wx, wz, seaLevel, hashRand2D })
                     : null;
                 const trunkHeight = isJungleForest
                     ? jungleProfile.trunkHeight
@@ -4833,7 +4854,7 @@ function buildPartFaceRects(x, y, w, h, d) {
                 const { x, z, topY, wx, wz, biome } = candidate;
                 const isJungleForest = biome === 'Jungle Forest';
                 const jungleProfile = isJungleForest
-                    ? chooseJungleTreeProfile({ topY, wx, wz, seaLevel: SEA_LEVEL, hashRand2D, octaveNoise2D })
+                    ? chooseJungleTreeProfile({ topY, wx, wz, seaLevel: SEA_LEVEL, hashRand2D })
                     : null;
                 const trunkHeight = isJungleForest
                     ? jungleProfile.trunkHeight
