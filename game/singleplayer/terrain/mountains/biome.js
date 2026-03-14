@@ -1,15 +1,15 @@
 (function () {
   function lerp(a, b, t) { return a + (b - a) * t; }
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
   function smoothstep(edge0, edge1, x) {
-    let t = Math.clamp((x - edge0) / (edge1 - edge0), 0, 1);
+    let t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
     return t * t * (3 - 2 * t);
   }
-  Math.clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
   function mountainFactor(cont, erosion, ridges) {
-    const inland = Math.clamp((cont + 0.2) / 0.9, 0, 1);
-    const erosionInv = Math.clamp(1 - (erosion + 1) * 0.5, 0, 1);
-    const ridgeShape = Math.clamp(ridges, 0, 1);
+    const inland = clamp((cont + 0.2) / 0.9, 0, 1);
+    const erosionInv = clamp(1 - (erosion + 1) * 0.5, 0, 1);
+    const ridgeShape = clamp(ridges, 0, 1);
 
     const continentalLift = lerp(15, 75, Math.pow(inland, 1.2));
     const erosionSharpness = lerp(0.35, 1.35, Math.pow(erosionInv, 1.2));
