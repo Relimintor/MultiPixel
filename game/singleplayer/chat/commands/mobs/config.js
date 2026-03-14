@@ -1,9 +1,20 @@
 (function () {
-  const byId = {
-    1: { id: 1, key: 'pig', name: 'Pig' },
-    2: { id: 2, key: 'zombie', name: 'Zombie' },
-    3: { id: 3, key: 'wolf', name: 'Wolf' },
-  };
+  const categories = window.SingleplayerMobData?.categories || {};
+  const byId = {};
 
-  window.SingleplayerMobConfig = { byId };
+  for (const categoryName of Object.keys(categories)) {
+    const categoryEntries = categories[categoryName] || {};
+    for (const mobKey of Object.keys(categoryEntries)) {
+      const mob = categoryEntries[mobKey];
+      if (!mob || !Number.isFinite(mob.id)) continue;
+      byId[mob.id] = {
+        id: mob.id,
+        key: mob.key,
+        name: mob.name,
+        category: mob.category,
+      };
+    }
+  }
+
+  window.SingleplayerMobConfig = { byId, categories };
 })();

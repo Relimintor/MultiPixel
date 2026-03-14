@@ -388,6 +388,10 @@ window.perlin = perlinInstance;
         const pigEntities = [];
         const zombieEntities = [];
         const wolfEntities = [];
+        const pigMobDef = window.SingleplayerMobData?.categories?.passive?.pig || null;
+        const pigGoalPriority = Array.isArray(pigMobDef?.behavior?.goals)
+            ? [...pigMobDef.behavior.goals].sort((a, b) => a.priority - b.priority)
+            : [];
         let pigTexture = null;
         let zombieTexture = null;
         let zombieSpawnTimerMs = 0;
@@ -1290,11 +1294,17 @@ window.perlin = perlinInstance;
             pigEntities.push({
                 root: pigRoot,
                 hp: 8,
+                panicUntilMs: 0,
                 dir: new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize(),
                 changeDirMs: 900 + Math.random() * 1800,
                 groundProbeMs: 0,
                 targetY: y,
                 bobPhase: Math.random() * Math.PI * 2,
+                lookYaw: 0,
+                lookPitch: 0,
+                lookTargetYaw: 0,
+                lookTargetPitch: 0,
+                nextLookChangeMs: 0,
             });
             return true;
         }
@@ -1334,18 +1344,80 @@ window.perlin = perlinInstance;
             return spawned;
         }
 
+        function getHeldItemMobKey() {
+            const held = inventory[selectedHotbarIndex];
+            if (!held) return '';
+            const mat = blockMaterials[held.id] || {};
+            return String(mat.key || mat.name || '').toLowerCase().replace(/\s+/g, '_');
+        }
+
+        function findPigTemptDirection(pig) {
+            const temptItems = new Set((pigMobDef?.behavior?.temptItems || []).map((item) => String(item).toLowerCase()));
+            if (!temptItems.size) return null;
+            const heldKey = getHeldItemMobKey();
+            if (!heldKey || !temptItems.has(heldKey)) return null;
+            const toPlayer = new THREE.Vector3(yawObject.position.x - pig.root.position.x, 0, yawObject.position.z - pig.root.position.z);
+            const dist = toPlayer.length();
+            if (dist < 1.2 || dist > 14) return null;
+            return toPlayer.normalize();
+        }
+
+        function choosePigPriorityGoal(pig, nowMs, nx, nz) {
+            const inLiquid = isLiquid(getBlockType(Math.floor(pig.root.position.x), Math.floor(pig.root.position.y), Math.floor(pig.root.position.z)));
+            const panicActive = pig.panicUntilMs > nowMs;
+            const temptDir = findPigTemptDirection(pig);
+
+            for (const goal of pigGoalPriority) {
+                if (goal.key === 'float' && inLiquid) {
+                    return { key: goal.key, speed: 1.2, dir: pig.dir.clone(), forceRaise: true, avoidWater: false };
+                }
+                if (goal.key === 'panic' && panicActive) {
+                    return { key: goal.key, speed: 1.35, dir: pig.dir.clone(), forceRaise: false, avoidWater: true };
+                }
+                if (goal.key === 'tempt' && temptDir) {
+                    return { key: goal.key, speed: 0.95, dir: temptDir, forceRaise: false, avoidWater: true };
+                }
+                if (goal.key === 'stroll') {
+                    const nextBlock = getBlockType(Math.floor(nx), Math.floor(pig.root.position.y), Math.floor(nz));
+                    if (isLiquid(nextBlock)) {
+                        const turnDir = new THREE.Vector3(-pig.dir.z, 0, pig.dir.x);
+                        if (turnDir.lengthSq() > 0.000001) turnDir.normalize();
+                        return { key: goal.key, speed: 0.75, dir: turnDir, forceRaise: false, avoidWater: true };
+                    }
+                    return { key: goal.key, speed: 0.75, dir: pig.dir.clone(), forceRaise: false, avoidWater: true };
+                }
+                if (goal.key === 'lookAtPlayer') {
+                    const toPlayer = new THREE.Vector3(yawObject.position.x - pig.root.position.x, 0, yawObject.position.z - pig.root.position.z);
+                    if (toPlayer.lengthSq() > 0.000001 && toPlayer.length() < 8) {
+                        return { key: goal.key, speed: 0.6, dir: toPlayer.normalize(), forceRaise: false, avoidWater: true, lookAtPlayer: true };
+                    }
+                }
+                if (goal.key === 'idleLook') {
+                    return { key: goal.key, speed: 0.55, dir: pig.dir.clone(), forceRaise: false, avoidWater: true, idleLook: true };
+                }
+            }
+            return { key: 'default', speed: 0.75, dir: pig.dir.clone(), forceRaise: false, avoidWater: true };
+        }
+
         function updatePigs(time, deltaMs) {
             if (!pigEntities.length) return;
             const dt = Math.max(0.001, Math.min(0.05, deltaMs / 1000));
+            const nowMs = performance.now();
             for (const pig of pigEntities) {
                 if (!isEntityActiveAt(pig.root.position)) continue;
+
                 pig.changeDirMs -= deltaMs;
                 if (pig.changeDirMs <= 0) {
                     pig.changeDirMs = 900 + Math.random() * 1800;
                     pig.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
                 }
 
-                const speed = 0.75;
+                const probeNx = pig.root.position.x + pig.dir.x * 0.75 * dt;
+                const probeNz = pig.root.position.z + pig.dir.z * 0.75 * dt;
+                const activeGoal = choosePigPriorityGoal(pig, nowMs, probeNx, probeNz);
+                if (activeGoal?.dir?.lengthSq() > 0.000001) pig.dir.copy(activeGoal.dir.normalize());
+
+                const speed = activeGoal?.speed || 0.75;
                 const nx = pig.root.position.x + pig.dir.x * speed * dt;
                 const nz = pig.root.position.z + pig.dir.z * speed * dt;
 
@@ -1355,14 +1427,44 @@ window.perlin = perlinInstance;
                     pig.targetY = getSurfaceYForEntity(nx, nz, pig.targetY);
                 }
 
+                if (activeGoal?.forceRaise) {
+                    pig.targetY = Math.max(pig.targetY, pig.root.position.y + 0.065);
+                }
+
                 if (pig.targetY > 0) {
                     pig.root.position.x = nx;
                     pig.root.position.z = nz;
-                    pig.root.position.y += (pig.targetY - pig.root.position.y) * Math.min(1, dt * 10);
+                    pig.root.position.y += (pig.targetY - pig.root.position.y) * Math.min(1, dt * (activeGoal?.forceRaise ? 14 : 10));
                 }
                 pig.root.rotation.y = Math.atan2(pig.dir.x, pig.dir.z);
 
-                const swing = Math.sin(time * 0.008 + pig.bobPhase) * 0.17;
+                if (activeGoal?.lookAtPlayer) {
+                    const toPlayer = new THREE.Vector3(yawObject.position.x - pig.root.position.x, yawObject.position.y + 1.4 - pig.root.position.y, yawObject.position.z - pig.root.position.z);
+                    const yaw = Math.atan2(toPlayer.x, toPlayer.z) - pig.root.rotation.y;
+                    const pitch = Math.atan2(toPlayer.y, Math.max(0.01, Math.hypot(toPlayer.x, toPlayer.z)));
+                    pig.lookTargetYaw = Math.max(-0.55, Math.min(0.55, yaw));
+                    pig.lookTargetPitch = Math.max(-0.3, Math.min(0.3, pitch));
+                    pig.nextLookChangeMs = 0;
+                } else {
+                    pig.nextLookChangeMs -= deltaMs;
+                    if (pig.nextLookChangeMs <= 0) {
+                        pig.nextLookChangeMs = 700 + Math.random() * 1400;
+                        pig.lookTargetYaw = (Math.random() - 0.5) * 0.8;
+                        pig.lookTargetPitch = (Math.random() - 0.5) * 0.26;
+                    }
+                }
+
+                pig.lookYaw += (pig.lookTargetYaw - pig.lookYaw) * Math.min(1, dt * 6);
+                pig.lookPitch += (pig.lookTargetPitch - pig.lookPitch) * Math.min(1, dt * 6);
+
+                const head = pig.root.userData.pigHead;
+                if (head) {
+                    head.rotation.y = pig.lookYaw;
+                    head.rotation.x = pig.lookPitch;
+                }
+
+                const moving = speed > 0.62 || activeGoal?.forceRaise;
+                const swing = moving ? Math.sin(time * 0.008 + pig.bobPhase) * 0.17 : 0;
                 const legs = pig.root.userData.pigLegs || [];
                 if (legs[0]) legs[0].rotation.x = swing;
                 if (legs[1]) legs[1].rotation.x = -swing;
@@ -1386,6 +1488,7 @@ window.perlin = perlinInstance;
             pig.hp -= amount;
             if (pig.hp > 0) {
                 pig.changeDirMs = 0;
+                pig.panicUntilMs = performance.now() + 3800;
                 pig.dir.set((Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2).normalize();
                 if (source === 'player') showGameMessage('Pig: oink!');
                 return;
