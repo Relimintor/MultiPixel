@@ -1,0 +1,28 @@
+{
+  "id": "farm_patch",
+  "biome": "desert",
+  "style": "pyramid_village",
+  "category": "farm",
+  "weight": 3,
+  "footprint": {
+    "width": 9,
+    "depth": 7
+  },
+  "connectors": [
+    {
+      "x": 0,
+      "z": -4,
+      "dir": "N",
+      "type": "path"
+    }
+  ],
+  "materials": {
+    "path": "cobblestone",
+    "primary": "sandstone",
+    "accent": "cut_sandstone",
+    "roof": "smooth_sandstone"
+  },
+  "loot": {
+    "chestChance": 0.15
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "id": "street_straight",
+  "biome": "ocean",
+  "style": "coral_village",
+  "category": "street",
+  "weight": 6,
+  "footprint": {
+    "width": 3,
+    "depth": 9
+  },
+  "connectors": [
+    {
+      "x": 0,
+      "z": -5,
+      "dir": "N",
+      "type": "path"
+    },
+    {
+      "x": 0,
+      "z": 5,
+      "dir": "S",
+      "type": "path"
+    }
+  ],
+  "materials": {
+    "path": "cobblestone",
+    "primary": "prismarine",
+    "accent": "coral_block",
+    "roof": "sea_lantern"
+  },
+  "loot": {
+    "chestChance": 0.15
+  }
+}

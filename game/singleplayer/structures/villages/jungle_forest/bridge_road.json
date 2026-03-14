@@ -1,0 +1,31 @@
+{
+  "id": "bridge_road",
+  "biome": "jungle_forest",
+  "style": "tree_village",
+  "category": "street",
+  "weight": 8,
+  "footprint": {
+    "width": 3,
+    "depth": 13
+  },
+  "connectors": [
+    {
+      "x": 0,
+      "z": -7,
+      "dir": "N",
+      "type": "path"
+    },
+    {
+      "x": 0,
+      "z": 7,
+      "dir": "S",
+      "type": "path"
+    }
+  ],
+  "materials": {
+    "deck": "jungle_planks",
+    "rails": "fence",
+    "supports": "jungle_log"
+  },
+  "notes": "Roads in jungle are bridges between trees."
+}

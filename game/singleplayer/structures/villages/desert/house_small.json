@@ -1,0 +1,28 @@
+{
+  "id": "house_small",
+  "biome": "desert",
+  "style": "pyramid_village",
+  "category": "house",
+  "weight": 5,
+  "footprint": {
+    "width": 7,
+    "depth": 7
+  },
+  "connectors": [
+    {
+      "x": 0,
+      "z": -4,
+      "dir": "N",
+      "type": "path"
+    }
+  ],
+  "materials": {
+    "path": "cobblestone",
+    "primary": "sandstone",
+    "accent": "cut_sandstone",
+    "roof": "smooth_sandstone"
+  },
+  "loot": {
+    "chestChance": 0.55
+  }
+}
