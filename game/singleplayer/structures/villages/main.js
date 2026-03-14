@@ -127,6 +127,15 @@
     }
   };
 
+  const DEFAULT_LOOT_TABLE = [
+    { item: 'bread', min: 1, max: 5, weight: 10 },
+    { item: 'apple', min: 1, max: 4, weight: 9 },
+    { item: 'iron_ingot', min: 1, max: 3, weight: 5 },
+    { item: 'emerald', min: 1, max: 2, weight: 3 },
+    { item: 'torch', min: 2, max: 8, weight: 8 },
+    { item: 'coal', min: 2, max: 6, weight: 7 }
+  ];
+
   const DIR_TO_VEC = {
     N: { x: 0, z: -1 },
     E: { x: 1, z: 0 },
@@ -652,6 +661,91 @@
     };
   }
 
+
+  function chooseLootEntry(hashRand2D, seedX, seedZ, salt, lootTable = DEFAULT_LOOT_TABLE) {
+    const totalWeight = lootTable.reduce((sum, e) => sum + Math.max(0.0001, e.weight || 1), 0);
+    let roll = hashRand2D(seedX + salt * 5, seedZ - salt * 7, 33000 + salt) * totalWeight;
+    for (const entry of lootTable) {
+      roll -= Math.max(0.0001, entry.weight || 1);
+      if (roll <= 0) return entry;
+    }
+    return lootTable[lootTable.length - 1] || null;
+  }
+
+  function generateChestLoot({ hashRand2D, seedX, seedZ, chestIndex, lootTable = DEFAULT_LOOT_TABLE, slots = 3 }) {
+    if (typeof hashRand2D !== 'function') return [];
+    const out = [];
+    for (let i = 0; i < slots; i++) {
+      const entry = chooseLootEntry(hashRand2D, seedX + chestIndex * 13, seedZ - chestIndex * 11, i + 1, lootTable);
+      if (!entry) continue;
+      const amountRoll = hashRand2D(seedX + chestIndex * 17, seedZ - chestIndex * 19, 33100 + i);
+      const minAmount = Math.max(1, entry.min || 1);
+      const maxAmount = Math.max(minAmount, entry.max || minAmount);
+      const amount = minAmount + Math.floor(amountRoll * (maxAmount - minAmount + 1));
+      out.push({ item: entry.item, amount });
+    }
+    return out;
+  }
+
+  function getPathCellsFromStructures(structures) {
+    const cells = new Map();
+    for (const piece of structures || []) {
+      const connectors = getTransformedConnectors(piece).filter((c) => c.type === 'path');
+      for (const c of connectors) {
+        const k = `${c.x},${c.z}`;
+        if (!cells.has(k)) cells.set(k, { x: c.x, z: c.z });
+      }
+    }
+    return Array.from(cells.values());
+  }
+
+  function getVillageChestAnchors(structures) {
+    const anchors = [];
+    for (const piece of structures || []) {
+      if (piece.category === 'house' || piece.category === 'church') {
+        anchors.push({ x: piece.worldX, z: piece.worldZ, pieceId: piece.id, category: piece.category });
+      }
+    }
+    return anchors;
+  }
+
+  function getVillageTorchAnchors(pathCells, hashRand2D, seedX, seedZ) {
+    const torches = [];
+    for (let i = 0; i < pathCells.length; i++) {
+      const p = pathCells[i];
+      const roll = hashRand2D(seedX + p.x * 3, seedZ + p.z * 5, 33200 + i);
+      if (roll < 0.22) torches.push({ x: p.x, z: p.z });
+    }
+    return torches;
+  }
+
+  function finalizeVillageLayout({ layout, hashRand2D, seedX, seedZ, pathBlock = 'cobblestone', lootTable = DEFAULT_LOOT_TABLE }) {
+    if (!layout || !layout.ok) return { ok: false, reason: 'invalid_layout' };
+    if (typeof hashRand2D !== 'function') return { ok: false, reason: 'missing_hash' };
+
+    const pathCells = getPathCellsFromStructures(layout.structures);
+    const chestAnchors = getVillageChestAnchors(layout.structures);
+    const chests = chestAnchors.map((anchor, i) => ({
+      ...anchor,
+      loot: generateChestLoot({ hashRand2D, seedX, seedZ, chestIndex: i, lootTable })
+    }));
+    const torches = getVillageTorchAnchors(pathCells, hashRand2D, seedX, seedZ);
+
+    return {
+      ok: true,
+      finalized: true,
+      pathBlock,
+      pathReplacements: pathCells.map((p) => ({ x: p.x, z: p.z, block: pathBlock })),
+      chests,
+      torches,
+      stats: {
+        pathCount: pathCells.length,
+        chestCount: chests.length,
+        torchCount: torches.length
+      }
+    };
+  }
+
   window.VillageGeneration = {
     VALID_VILLAGE_BIOMES: Array.from(VALID_VILLAGE_BIOMES),
     DEFAULT_STRUCTURE_REGION_SIZE,
@@ -663,6 +757,7 @@
     VILLAGE_STYLE_PROFILES,
     BASE_TEMPLATE_SET,
     STYLE_TEMPLATE_OVERRIDES,
+    DEFAULT_LOOT_TABLE,
     normalizeBiomeName,
     isVillageBiome,
     canGenerateVillageAt,
@@ -680,6 +775,12 @@
     getBoundingBox2D,
     boxesOverlap2D,
     resolveTerrainPlacement,
+    chooseLootEntry,
+    generateChestLoot,
+    getPathCellsFromStructures,
+    getVillageChestAnchors,
+    getVillageTorchAnchors,
+    finalizeVillageLayout,
     generateVillageLayout
   };
 })();
