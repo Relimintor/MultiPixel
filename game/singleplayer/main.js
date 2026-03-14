@@ -3793,11 +3793,30 @@ window.perlin = perlinInstance;
             };
         }
 
+        function isOceanBiomeName(biomeName) {
+            return biomeName === 'Ocean'
+                || biomeName === 'Coast Ocean'
+                || biomeName === 'Warm Ocean'
+                || biomeName === 'Lukewarm Ocean'
+                || biomeName === 'Cold Ocean'
+                || biomeName === 'Frozen Ocean';
+        }
+
         function getBiome(wx, wz) {
             if (worldGenerator) return worldGenerator.sampleBiome(wx, wz);
 
             const { climate, weights } = biomeWeights(wx, wz);
-            if ((weights['Ocean'] || 0) > 0.68) return 'Ocean';
+            if ((weights['Ocean'] || 0) > 0.68) {
+                const coastalBand = (weights['Ocean'] || 0) < 0.84;
+                if (coastalBand) return 'Coast Ocean';
+
+                const temp = Number(climate.temp) || 0;
+                if (temp >= 0.62) return 'Warm Ocean';
+                if (temp >= 0.28) return 'Lukewarm Ocean';
+                if (temp <= -0.60) return 'Frozen Ocean';
+                if (temp <= -0.24) return 'Cold Ocean';
+                return 'Ocean';
+            }
             if ((weights['Mountains'] || 0) > 0.72) return 'Mountains';
 
             // Let every land biome compete directly from climate + weighted noise.
@@ -5002,10 +5021,13 @@ function buildPartFaceRects(x, y, w, h, d) {
                      const isFrozenRiver = !!worldSample && (worldSample.biome === 'Frozen River' || worldSample.tempBand === (window.WorldgenLayers?.Constants?.FREEZING ?? 13));
                      const RIVER_WIDTH_THRESHOLD = 0.1;
                      const isRiver = !worldSample?.noRiver && riverInfluence > RIVER_WIDTH_THRESHOLD;
-                     const isOcean = biome === 'Ocean';
+                     const isOcean = isOceanBiomeName(biome);
                      const hasAquaticFloor = isRiver || isOcean;
                      const gravelPatchNoise = octaveNoise2D(wx, wz, 3, 0.5, 2.0, 0.08, 1642, 977);
                      const hasGravelPatch = hasAquaticFloor && gravelPatchNoise > 0.58;
+                     const isWarmOcean = biome === 'Warm Ocean';
+                     const isColdOcean = biome === 'Cold Ocean';
+                     const isCoastOcean = biome === 'Coast Ocean';
                      const ravineMask = getRavineMask(wx, wz);
                      const ravineTopCap = Math.max(3, h - RAVINE_SURFACE_SAFETY_DEPTH);
                      const canCarveRavine = ravineMask > RAVINE_ACTIVATION_THRESHOLD && ravineTopCap > 3;
@@ -5053,10 +5075,26 @@ function buildPartFaceRects(x, y, w, h, d) {
                              
                             // --- OCEAN/RIVER BED OVERRIDE ---
                             if (hasAquaticFloor && y < SEA_LEVEL - 1) {
-                                // Add a sandy cap over underwater stone and sprinkle in gravel patches.
-                                if (distFromSurface === 0) t = hasGravelPatch ? 28 : 7;
-                                else if (distFromSurface < 3) t = hasGravelPatch && distFromSurface < 2 ? 28 : 7;
-                                else t = 3;
+                                // Ocean floor material profile by biome:
+                                // - Coast Ocean: sand
+                                // - Cold Ocean: gravel
+                                // - Warm Ocean: sand with gravel patches
+                                // Rivers/default oceans keep a sandy cap over stone.
+                                if (isColdOcean) {
+                                    t = 28;
+                                } else if (isCoastOcean) {
+                                    t = 7;
+                                } else if (isWarmOcean) {
+                                    if (distFromSurface <= 1) t = hasGravelPatch ? 28 : 7;
+                                    else if (distFromSurface < 3) t = hasGravelPatch ? 28 : 7;
+                                    else t = 3;
+                                } else if (distFromSurface === 0) {
+                                    t = hasGravelPatch ? 28 : 7;
+                                } else if (distFromSurface < 3) {
+                                    t = hasGravelPatch && distFromSurface < 2 ? 28 : 7;
+                                } else {
+                                    t = 3;
+                                }
                             }
                             
                          } else if (y < SEA_LEVEL) {
@@ -6091,6 +6129,16 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 jungle: 'Jungle Forest',
                 'jungle forest': 'Jungle Forest',
                 ocean: 'Ocean',
+                coast_ocean: 'Coast Ocean',
+                'coast ocean': 'Coast Ocean',
+                warm_ocean: 'Warm Ocean',
+                'warm ocean': 'Warm Ocean',
+                lukewarm_ocean: 'Lukewarm Ocean',
+                'lukewarm ocean': 'Lukewarm Ocean',
+                cold_ocean: 'Cold Ocean',
+                'cold ocean': 'Cold Ocean',
+                frozen_ocean: 'Frozen Ocean',
+                'frozen ocean': 'Frozen Ocean',
             };
             return map[key] || '';
         }
@@ -6113,7 +6161,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                             const wz = Math.floor(z);
                             const biome = getBiome(wx, wz);
                             if (matchBiome && biome !== matchBiome) continue;
-                            if (biome === 'Ocean' || biome === 'Frozen River') continue;
+                            if (isOceanBiomeName(biome) || biome === 'Frozen River') continue;
                             if (getRiverMask(wx, wz) > 0.45) continue;
                             const safe = isSafeSpawnSpot(x, z);
                             if (safe) return { x, z, safe, biome };
@@ -6128,7 +6176,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                             const wz = Math.floor(z);
                             const biome = getBiome(wx, wz);
                             if (matchBiome && biome !== matchBiome) continue;
-                            if (biome === 'Ocean' || biome === 'Frozen River') continue;
+                            if (isOceanBiomeName(biome) || biome === 'Frozen River') continue;
                             if (getRiverMask(wx, wz) > 0.45) continue;
                             const safe = isSafeSpawnSpot(x, z);
                             if (safe) return { x, z, safe, biome };
@@ -6181,7 +6229,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                             const wz = Math.floor(z);
                             const biome = getBiome(wx, wz);
                             if (biome !== targetBiome) continue;
-                            if (biome === 'Ocean' || biome === 'Frozen River') continue;
+                            if (isOceanBiomeName(biome) || biome === 'Frozen River') continue;
                             if (getRiverMask(wx, wz) > 0.58) continue;
                             return { x: wx + 0.5, z: wz + 0.5, biome };
                         }
@@ -6201,7 +6249,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                             const wz = Math.floor(z);
                             const biome = getBiome(wx, wz);
                             if (matchBiome && biome !== matchBiome) continue;
-                            if (biome === 'Ocean' || biome === 'Frozen River') continue;
+                            if (isOceanBiomeName(biome) || biome === 'Frozen River') continue;
                             if (getRiverMask(wx, wz) > 0.45) continue;
                             const safe = isSafeSpawnSpot(x, z);
                             if (safe) return { x, z, safe, biome };
@@ -6216,7 +6264,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                             const wz = Math.floor(z);
                             const biome = getBiome(wx, wz);
                             if (matchBiome && biome !== matchBiome) continue;
-                            if (biome === 'Ocean' || biome === 'Frozen River') continue;
+                            if (isOceanBiomeName(biome) || biome === 'Frozen River') continue;
                             if (getRiverMask(wx, wz) > 0.45) continue;
                             const safe = isSafeSpawnSpot(x, z);
                             if (safe) return { x, z, safe, biome };
