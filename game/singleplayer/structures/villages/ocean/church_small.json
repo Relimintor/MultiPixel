@@ -1,0 +1,28 @@
+{
+  "id": "church_small",
+  "biome": "ocean",
+  "style": "coral_village",
+  "category": "church",
+  "weight": 2,
+  "footprint": {
+    "width": 9,
+    "depth": 11
+  },
+  "connectors": [
+    {
+      "x": 0,
+      "z": -6,
+      "dir": "N",
+      "type": "path"
+    }
+  ],
+  "materials": {
+    "path": "cobblestone",
+    "primary": "prismarine",
+    "accent": "coral_block",
+    "roof": "sea_lantern"
+  },
+  "loot": {
+    "chestChance": 0.55
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "id": "village_template",
+  "biome": "snowy_plains",
+  "style": "igloo_village",
+  "center": "well",
+  "pathBlock": "cobblestone",
+  "generation": {
+    "maxStructures": 26,
+    "maxPlacementAttempts": 220,
+    "deterministicPerSeed": true
+  },
+  "pieces": [
+    "well",
+    "house_small",
+    "farm_patch",
+    "church_small",
+    "street_straight",
+    "igloo"
+  ]
+}

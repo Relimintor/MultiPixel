@@ -1,0 +1,34 @@
+{
+  "id": "street_straight",
+  "biome": "desert",
+  "style": "pyramid_village",
+  "category": "street",
+  "weight": 6,
+  "footprint": {
+    "width": 3,
+    "depth": 9
+  },
+  "connectors": [
+    {
+      "x": 0,
+      "z": -5,
+      "dir": "N",
+      "type": "path"
+    },
+    {
+      "x": 0,
+      "z": 5,
+      "dir": "S",
+      "type": "path"
+    }
+  ],
+  "materials": {
+    "path": "cobblestone",
+    "primary": "sandstone",
+    "accent": "cut_sandstone",
+    "roof": "smooth_sandstone"
+  },
+  "loot": {
+    "chestChance": 0.15
+  }
+}

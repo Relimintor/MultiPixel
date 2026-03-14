@@ -1,0 +1,28 @@
+{
+  "id": "church_small",
+  "biome": "jungle_forest",
+  "style": "tree_village",
+  "category": "church",
+  "weight": 2,
+  "footprint": {
+    "width": 9,
+    "depth": 11
+  },
+  "connectors": [
+    {
+      "x": 0,
+      "z": -6,
+      "dir": "N",
+      "type": "path"
+    }
+  ],
+  "materials": {
+    "path": "bridge_planks",
+    "primary": "jungle_planks",
+    "accent": "bamboo",
+    "roof": "jungle_stairs"
+  },
+  "loot": {
+    "chestChance": 0.55
+  }
+}
