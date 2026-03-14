@@ -7,6 +7,8 @@
       25: 80,
       5: 15,
       8: 15,
+      96: 15,
+      98: 15,
       10: 5,
     },
     recipes: {
@@ -16,6 +18,7 @@
       35: { out: 69, cookTimeSec: 10 },
       40: { out: 70, cookTimeSec: 10 },
       5: { out: 25, cookTimeSec: 8 },
+      96: { out: 25, cookTimeSec: 8 },
       31: { out: 67, cookTimeSec: 10 },
       42: { out: 70, cookTimeSec: 10 },
       38: { out: 69, cookTimeSec: 10 },

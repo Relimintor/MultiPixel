@@ -1,0 +1,20 @@
+(function () {
+  const JungleLargeTree = {
+    style: 'jungle_large',
+    trunkOffsets: [
+      { x: 0, z: 0 },
+      { x: 1, z: 0 },
+      { x: 0, z: 1 },
+      { x: 1, z: 1 },
+    ],
+    canopyRadius(relYToTop) {
+      if (relYToTop >= 2) return 2;
+      if (relYToTop >= 1) return 3;
+      if (relYToTop >= 0) return 4;
+      if (relYToTop >= -1) return 4;
+      return 3;
+    },
+  };
+
+  window.JungleLargeTree = JungleLargeTree;
+})();
