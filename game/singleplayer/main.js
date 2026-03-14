@@ -5002,6 +5002,10 @@ function buildPartFaceRects(x, y, w, h, d) {
                      const isFrozenRiver = !!worldSample && (worldSample.biome === 'Frozen River' || worldSample.tempBand === (window.WorldgenLayers?.Constants?.FREEZING ?? 13));
                      const RIVER_WIDTH_THRESHOLD = 0.1;
                      const isRiver = !worldSample?.noRiver && riverInfluence > RIVER_WIDTH_THRESHOLD;
+                     const isOcean = biome === 'Ocean';
+                     const hasAquaticFloor = isRiver || isOcean;
+                     const gravelPatchNoise = octaveNoise2D(wx, wz, 3, 0.5, 2.0, 0.08, 1642, 977);
+                     const hasGravelPatch = hasAquaticFloor && gravelPatchNoise > 0.58;
                      const ravineMask = getRavineMask(wx, wz);
                      const ravineTopCap = Math.max(3, h - RAVINE_SURFACE_SAFETY_DEPTH);
                      const canCarveRavine = ravineMask > RAVINE_ACTIVATION_THRESHOLD && ravineTopCap > 3;
@@ -5047,12 +5051,12 @@ function buildPartFaceRects(x, y, w, h, d) {
                                 if (shouldCarve) t = 0;
                             }
                              
-                            // --- RIVER BED OVERRIDE ---
-                            if (isRiver && y < SEA_LEVEL - 1) { 
-                                // If it's part of the river path and below the water line, make it stone/dirt bed
-                                // Use sand/dirt near the surface of the riverbed
-                                if (y > SEA_LEVEL - 3) t = (biome === 'Desert' ? 7 : 2); // Sand/Dirt bed near top
-                                else t = 3; // Stone bed deep down
+                            // --- OCEAN/RIVER BED OVERRIDE ---
+                            if (hasAquaticFloor && y < SEA_LEVEL - 1) {
+                                // Add a sandy cap over underwater stone and sprinkle in gravel patches.
+                                if (distFromSurface === 0) t = hasGravelPatch ? 28 : 7;
+                                else if (distFromSurface < 3) t = hasGravelPatch && distFromSurface < 2 ? 28 : 7;
+                                else t = 3;
                             }
                             
                          } else if (y < SEA_LEVEL) {
@@ -5063,7 +5067,7 @@ function buildPartFaceRects(x, y, w, h, d) {
                                  t = isFrozenRiver ? 59 : 4; // River water / ice
                              } 
                              // If it's the ocean biome, fill the area above ground and below sea level with water
-                             else if (biome === 'Ocean') {
+                             else if (isOcean) {
                                  t = 4;
                              }
                              // Otherwise (on dry land, above h, below sea level, not river) it remains air (t=0)
