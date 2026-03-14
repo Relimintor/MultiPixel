@@ -916,7 +916,7 @@ window.perlin = perlinInstance;
         }
 
         async function loadIglooStructure() {
-            const path = './terrain/snowy_plains/structures/igloo.json';
+            const path = './structures/villages/snowy_plains/igloo.json';
             try {
                 const res = await fetch(path, { cache: 'no-store' });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
