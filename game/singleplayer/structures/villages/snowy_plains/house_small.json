@@ -1,0 +1,28 @@
+{
+  "id": "house_small",
+  "biome": "snowy_plains",
+  "style": "igloo_village",
+  "category": "house",
+  "weight": 5,
+  "footprint": {
+    "width": 7,
+    "depth": 7
+  },
+  "connectors": [
+    {
+      "x": 0,
+      "z": -4,
+      "dir": "N",
+      "type": "path"
+    }
+  ],
+  "materials": {
+    "path": "cobblestone",
+    "primary": "snow_block",
+    "accent": "packed_ice",
+    "roof": "spruce_stairs"
+  },
+  "loot": {
+    "chestChance": 0.55
+  }
+}

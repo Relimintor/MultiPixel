@@ -1,0 +1,34 @@
+{
+  "id": "street_straight",
+  "biome": "jungle_forest",
+  "style": "tree_village",
+  "category": "street",
+  "weight": 6,
+  "footprint": {
+    "width": 3,
+    "depth": 9
+  },
+  "connectors": [
+    {
+      "x": 0,
+      "z": -5,
+      "dir": "N",
+      "type": "path"
+    },
+    {
+      "x": 0,
+      "z": 5,
+      "dir": "S",
+      "type": "path"
+    }
+  ],
+  "materials": {
+    "path": "bridge_planks",
+    "primary": "jungle_planks",
+    "accent": "bamboo",
+    "roof": "jungle_stairs"
+  },
+  "loot": {
+    "chestChance": 0.15
+  }
+}

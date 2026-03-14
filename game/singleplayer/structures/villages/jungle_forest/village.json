@@ -1,0 +1,26 @@
+{
+  "id": "village_template",
+  "biome": "jungle_forest",
+  "style": "tree_village",
+  "center": "well",
+  "pathBlock": "bridge_planks",
+  "generation": {
+    "maxStructures": 26,
+    "maxPlacementAttempts": 220,
+    "deterministicPerSeed": true
+  },
+  "pieces": [
+    "well",
+    "house_small",
+    "farm_patch",
+    "church_small",
+    "street_straight",
+    "tree_platform",
+    "bridge_road"
+  ],
+  "jungleRules": {
+    "roadsAreBridges": true,
+    "treeIsRequiredStructurePiece": true,
+    "attachBridgesTo": "tree_platform"
+  }
+}
