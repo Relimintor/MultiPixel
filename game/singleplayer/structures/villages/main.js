@@ -20,6 +20,54 @@
     validSurfaceBlocks: new Set(['grass', 'sand', 'snow', 'dirt', 'stone'])
   };
 
+
+  const VILLAGE_STYLE_BY_BIOME = {
+    plains: 'plains_village',
+    desert: 'pyramid_village',
+    oak_forest: 'plains_village',
+    jungle_forest: 'tree_village',
+    snowy_plains: 'igloo_village',
+    ocean: 'coral_village'
+  };
+
+  const VILLAGE_STYLE_PROFILES = {
+    plains_village: {
+      label: 'Plains village',
+      buildingMaterials: ['oak_planks', 'cobblestone', 'glass'],
+      roofShapes: ['gable', 'hip'],
+      pathBlocks: ['dirt_path', 'gravel'],
+      decorativeElements: ['lantern', 'fence', 'flowers']
+    },
+    pyramid_village: {
+      label: 'Pyramid village',
+      buildingMaterials: ['sandstone', 'cut_sandstone', 'smooth_sandstone'],
+      roofShapes: ['flat', 'stepped_pyramid'],
+      pathBlocks: ['sandstone_tiles', 'packed_sand'],
+      decorativeElements: ['banner', 'palm_planter', 'chiseled_sandstone']
+    },
+    tree_village: {
+      label: 'Tree village',
+      buildingMaterials: ['jungle_planks', 'bamboo', 'leaf_blocks'],
+      roofShapes: ['canopy', 'curved_thatch'],
+      pathBlocks: ['jungle_roots', 'wood_walkway'],
+      decorativeElements: ['vines', 'hanging_lanterns', 'totems']
+    },
+    igloo_village: {
+      label: 'Igloo village',
+      buildingMaterials: ['snow_block', 'packed_ice', 'spruce_planks'],
+      roofShapes: ['dome', 'half_dome'],
+      pathBlocks: ['packed_snow_path', 'ice_brick'],
+      decorativeElements: ['ice_lantern', 'fur_banner', 'snow_pile']
+    },
+    coral_village: {
+      label: 'Coral village',
+      buildingMaterials: ['coral_block', 'prismarine', 'sea_lantern'],
+      roofShapes: ['shell_dome', 'reef_arch'],
+      pathBlocks: ['coral_tiles', 'wet_stone'],
+      decorativeElements: ['kelp_garden', 'bubble_column', 'coral_fan']
+    }
+  };
+
   function normalizeBiomeName(biomeName) {
     if (typeof biomeName !== 'string') return '';
     return biomeName.trim().toLowerCase();
@@ -115,6 +163,31 @@
     };
   }
 
+
+
+  function getVillageStyleForBiome(biomeName) {
+    const normalized = normalizeBiomeName(biomeName);
+    return VILLAGE_STYLE_BY_BIOME[normalized] || null;
+  }
+
+  function getVillageStyleProfile(styleName) {
+    if (typeof styleName !== 'string') return null;
+    const profile = VILLAGE_STYLE_PROFILES[styleName];
+    return profile ? { style: styleName, ...profile } : null;
+  }
+
+  function selectVillageStyle(candidate) {
+    const biomeName = typeof candidate === 'string' ? candidate : candidate?.biome;
+    const style = getVillageStyleForBiome(biomeName);
+    if (!style) return { ok: false, reason: 'unsupported_village_style', biome: biomeName };
+    return {
+      ok: true,
+      biome: normalizeBiomeName(biomeName),
+      style,
+      profile: getVillageStyleProfile(style)
+    };
+  }
+
   function normalizeSurfaceBlockName(blockName) {
     if (typeof blockName !== 'string') return '';
     return blockName.trim().toLowerCase();
@@ -202,6 +275,9 @@
     DEFAULT_REGION_PADDING,
     DEFAULT_VILLAGE_CHANCE_PER_REGION,
     DEFAULT_TERRAIN_RULES,
+
+    VILLAGE_STYLE_BY_BIOME,
+    VILLAGE_STYLE_PROFILES,
     normalizeBiomeName,
     isVillageBiome,
     canGenerateVillageAt,
@@ -209,6 +285,9 @@
     shouldAllowVillageInRegion,
     getVillageCandidateInRegion,
     getVillageRegionCandidate,
+    getVillageStyleForBiome,
+    getVillageStyleProfile,
+    selectVillageStyle,
     normalizeSurfaceBlockName,
     isValidVillageSurfaceBlock,
     evaluateTerrainSuitability
