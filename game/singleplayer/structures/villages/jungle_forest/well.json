@@ -1,0 +1,78 @@
+{
+  "structure": "well",
+  "spawnChancePerChunk": 0.08,
+  "radius": 2,
+  "minYFromSeaLevel": -1,
+  "validSurfaceBlockIds": [
+    7
+  ],
+  "validGroundBlockIds": [
+    7,
+    13
+  ],
+  "maxSurfaceDelta": 1,
+  "blocks": {
+    "base": 13,
+    "water": 4,
+    "underCenter": 34
+  },
+  "layout": {
+    "baseSize": [
+      5,
+      5
+    ],
+    "waterCrossOffsets": [
+      [
+        0,
+        0
+      ],
+      [
+        1,
+        0
+      ],
+      [
+        -1,
+        0
+      ],
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        -1
+      ]
+    ],
+    "pillarOffsets": [
+      [
+        -1,
+        -1
+      ],
+      [
+        -1,
+        1
+      ],
+      [
+        1,
+        -1
+      ],
+      [
+        1,
+        1
+      ]
+    ],
+    "pillarHeight": 3,
+    "roofSize": [
+      3,
+      3
+    ]
+  },
+  "spawnEntity": "pig",
+  "spawnOffset": [
+    0.5,
+    1,
+    0.5
+  ],
+  "biome": "jungle_forest",
+  "requiredBiome": "JungleForest"
+}
