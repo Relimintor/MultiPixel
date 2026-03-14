@@ -5263,7 +5263,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
              const spawnedPigs = [];
              const spawnedWolves = [];
              placeIglooInChunk(data, cx, cz, spawnedGnomes);
-             placeDesertWellInChunk(data, cx, cz, spawnedPigs);
+             const placedVillage = placeVillageInChunk(data, cx, cz);
+             if (!placedVillage) placeDesertWellInChunk(data, cx, cz, spawnedPigs);
              placeWolfPackInChunk(data, heightmap, cx, cz, spawnedWolves);
              return { data, heightmap, spawnedGnomes, spawnedPigs, spawnedWolves };
         }
@@ -5345,6 +5346,146 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             const worldZ = cz * CHUNK_SIZE + centerZ;
             const gnomeY = centerTopY + (Number(iglooStructureDef.gnomeSpawnOffsetY) || 1);
             spawnedGnomes.push({ wx: worldX, wy: gnomeY, wz: worldZ });
+        }
+
+        function placeVillageInChunk(data, cx, cz) {
+            const vg = window.VillageGeneration || {};
+            if (!vg.getVillageRegionCandidate) return false;
+
+            const regionSize = Number(vg.DEFAULT_STRUCTURE_REGION_SIZE) || 384;
+            const chance = Number(vg.DEFAULT_VILLAGE_CHANCE_PER_REGION) || 0.36;
+            const pathHalfLen = 22;
+            const chunkMinX = cx * CHUNK_SIZE;
+            const chunkMinZ = cz * CHUNK_SIZE;
+            const chunkMaxX = chunkMinX + CHUNK_SIZE - 1;
+            const chunkMaxZ = chunkMinZ + CHUNK_SIZE - 1;
+            const influenceRadius = pathHalfLen + 10;
+
+            const regionMinX = Math.floor((chunkMinX - influenceRadius) / regionSize);
+            const regionMaxX = Math.floor((chunkMaxX + influenceRadius) / regionSize);
+            const regionMinZ = Math.floor((chunkMinZ - influenceRadius) / regionSize);
+            const regionMaxZ = Math.floor((chunkMaxZ + influenceRadius) / regionSize);
+
+            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
+            const getColumnTop = (lx, lz) => {
+                for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
+                    const t = data[idx(lx, y, lz)];
+                    if (t !== 0 && t !== 4) return y;
+                }
+                return -1;
+            };
+
+            let placedAny = false;
+
+            function setSurfaceBlock(wx, wz, blockId) {
+                if (wx < chunkMinX || wx > chunkMaxX || wz < chunkMinZ || wz > chunkMaxZ) return;
+                const lx = wx - chunkMinX;
+                const lz = wz - chunkMinZ;
+                const top = getColumnTop(lx, lz);
+                if (top < 1 || top >= CHUNK_HEIGHT - 2) return;
+                data[idx(lx, top, lz)] = blockId;
+            }
+
+            function placeSolid(wx, wy, wz, blockId) {
+                if (wx < chunkMinX || wx > chunkMaxX || wz < chunkMinZ || wz > chunkMaxZ) return;
+                if (wy < 1 || wy >= CHUNK_HEIGHT - 1) return;
+                const lx = wx - chunkMinX;
+                const lz = wz - chunkMinZ;
+                data[idx(lx, wy, lz)] = blockId;
+            }
+
+            function getGroundYAt(wx, wz) {
+                if (wx < chunkMinX || wx > chunkMaxX || wz < chunkMinZ || wz > chunkMaxZ) return null;
+                const lx = wx - chunkMinX;
+                const lz = wz - chunkMinZ;
+                const top = getColumnTop(lx, lz);
+                return top > 0 ? top : null;
+            }
+
+            function placeHouse(centerX, centerZ, size, wallId, roofId) {
+                const half = Math.floor(size / 2);
+                for (let x = centerX - half; x <= centerX + half; x++) {
+                    for (let z = centerZ - half; z <= centerZ + half; z++) {
+                        const groundY = getGroundYAt(x, z);
+                        if (!Number.isFinite(groundY)) continue;
+                        placeSolid(x, groundY + 1, z, wallId);
+                        const edge = x === centerX - half || x === centerX + half || z === centerZ - half || z === centerZ + half;
+                        if (edge) {
+                            placeSolid(x, groundY + 2, z, wallId);
+                            placeSolid(x, groundY + 3, z, wallId);
+                        } else {
+                            placeSolid(x, groundY + 2, z, 0);
+                            placeSolid(x, groundY + 3, z, 0);
+                        }
+                        placeSolid(x, groundY + 4, z, roofId);
+                    }
+                }
+            }
+
+            for (let rx = regionMinX; rx <= regionMaxX; rx++) {
+                for (let rz = regionMinZ; rz <= regionMaxZ; rz++) {
+                    const candidateInfo = vg.getVillageRegionCandidate({
+                        regionX: rx,
+                        regionZ: rz,
+                        hashRand2D,
+                        getBiomeAt: (x, z) => getBiome(Math.floor(x), Math.floor(z)),
+                        chance,
+                        regionSize
+                    });
+                    if (!candidateInfo?.allowed || !candidateInfo.candidate) continue;
+
+                    const coreX = Math.floor(candidateInfo.candidate.worldX);
+                    const coreZ = Math.floor(candidateInfo.candidate.worldZ);
+
+                    if (coreX + influenceRadius < chunkMinX || coreX - influenceRadius > chunkMaxX || coreZ + influenceRadius < chunkMinZ || coreZ - influenceRadius > chunkMaxZ) {
+                        continue;
+                    }
+
+                    const biome = getBiome(coreX, coreZ);
+                    const isDesert = biome === 'Desert';
+                    const wellBlock = isDesert ? 13 : 17;
+                    const pathBlock = 17; // cobblestone paths by design
+                    const houseWall = isDesert ? 13 : 8;
+                    const houseRoof = 17;
+                    const water = 4;
+
+                    for (let wx = Math.max(chunkMinX, coreX - pathHalfLen); wx <= Math.min(chunkMaxX, coreX + pathHalfLen); wx++) {
+                        setSurfaceBlock(wx, coreZ, pathBlock);
+                        if (coreZ - 1 >= chunkMinZ && coreZ - 1 <= chunkMaxZ) setSurfaceBlock(wx, coreZ - 1, pathBlock);
+                        if (coreZ + 1 >= chunkMinZ && coreZ + 1 <= chunkMaxZ) setSurfaceBlock(wx, coreZ + 1, pathBlock);
+                    }
+                    for (let wz = Math.max(chunkMinZ, coreZ - pathHalfLen); wz <= Math.min(chunkMaxZ, coreZ + pathHalfLen); wz++) {
+                        setSurfaceBlock(coreX, wz, pathBlock);
+                        if (coreX - 1 >= chunkMinX && coreX - 1 <= chunkMaxX) setSurfaceBlock(coreX - 1, wz, pathBlock);
+                        if (coreX + 1 >= chunkMinX && coreX + 1 <= chunkMaxX) setSurfaceBlock(coreX + 1, wz, pathBlock);
+                    }
+
+                    for (let wx = coreX - 2; wx <= coreX + 2; wx++) {
+                        for (let wz = coreZ - 2; wz <= coreZ + 2; wz++) {
+                            const gy = getGroundYAt(wx, wz);
+                            if (!Number.isFinite(gy)) continue;
+                            placeSolid(wx, gy + 1, wz, wellBlock);
+                        }
+                    }
+                    const centerY = getGroundYAt(coreX, coreZ);
+                    if (Number.isFinite(centerY)) {
+                        placeSolid(coreX, centerY + 1, coreZ, water);
+                        placeSolid(coreX - 1, centerY + 1, coreZ, water);
+                        placeSolid(coreX + 1, centerY + 1, coreZ, water);
+                        placeSolid(coreX, centerY + 1, coreZ - 1, water);
+                        placeSolid(coreX, centerY + 1, coreZ + 1, water);
+                    }
+
+                    placeHouse(coreX + 10, coreZ + 8, 5, houseWall, houseRoof);
+                    placeHouse(coreX - 10, coreZ + 8, 5, houseWall, houseRoof);
+                    placeHouse(coreX + 10, coreZ - 8, 5, houseWall, houseRoof);
+                    placeHouse(coreX - 10, coreZ - 8, 5, houseWall, houseRoof);
+
+                    placedAny = true;
+                }
+            }
+
+            return placedAny;
         }
 
         function placeDesertWellInChunk(data, cx, cz, spawnedPigs) {
@@ -6251,13 +6392,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                         const biome = getBiome(wx, wz);
                         if (!biomeMatchesVillageTarget(biome)) continue;
 
-                        let y = null;
-                        const safe = isSafeSpawnSpot(wx + 0.5, wz + 0.5);
-                        if (safe) y = safe.y;
-                        if (!Number.isFinite(y)) {
-                            const h = getNoiseGroundHeight(wx, wz, biome);
-                            y = isOceanBiomeName(biome) ? Math.max(2, Math.floor(h) + 2) : Math.max(2, Math.floor(h) + 1);
-                        }
+                        const h = getNoiseGroundHeight(wx, wz, biome);
+                        const y = isOceanBiomeName(biome) ? Math.max(4, Math.floor(h) + 4) : Math.max(4, Math.floor(h) + 3);
 
                         yawObject.position.set(wx + 0.5, y, wz + 0.5);
                         player.velocity.set(0, 0, 0);
@@ -6267,7 +6403,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                             ok: true,
                             structure: 'village',
                             biome: targetBiome,
-                            message: `Teleported to village anchor in ${targetBiome} at ${wx}, ${Math.floor(y)}, ${wz}.`
+                            message: `Teleported to village core well in ${targetBiome} at ${wx}, ${Math.floor(y)}, ${wz}.`
                         };
                     }
                 }
@@ -6292,13 +6428,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                         const biome = getBiome(wx, wz);
                         if (!biomeMatchesVillageTarget(biome)) continue;
 
-                        let y = null;
-                        const safe = isSafeSpawnSpot(wx + 0.5, wz + 0.5);
-                        if (safe) y = safe.y;
-                        if (!Number.isFinite(y)) {
-                            const h = getNoiseGroundHeight(wx, wz, biome);
-                            y = isOceanBiomeName(biome) ? Math.max(2, Math.floor(h) + 2) : Math.max(2, Math.floor(h) + 1);
-                        }
+                        const h = getNoiseGroundHeight(wx, wz, biome);
+                        const y = isOceanBiomeName(biome) ? Math.max(4, Math.floor(h) + 4) : Math.max(4, Math.floor(h) + 3);
 
                         yawObject.position.set(wx + 0.5, y, wz + 0.5);
                         player.velocity.set(0, 0, 0);
@@ -6308,7 +6439,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                             ok: true,
                             structure: 'village',
                             biome: targetBiome,
-                            message: `Teleported to village anchor in ${targetBiome} at ${wx}, ${Math.floor(y)}, ${wz}.`
+                            message: `Teleported to village core well in ${targetBiome} at ${wx}, ${Math.floor(y)}, ${wz}.`
                         };
                     }
                 }
