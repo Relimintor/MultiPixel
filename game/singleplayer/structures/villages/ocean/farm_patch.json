@@ -1,0 +1,28 @@
+{
+  "id": "farm_patch",
+  "biome": "ocean",
+  "style": "coral_village",
+  "category": "farm",
+  "weight": 3,
+  "footprint": {
+    "width": 9,
+    "depth": 7
+  },
+  "connectors": [
+    {
+      "x": 0,
+      "z": -4,
+      "dir": "N",
+      "type": "path"
+    }
+  ],
+  "materials": {
+    "path": "cobblestone",
+    "primary": "prismarine",
+    "accent": "coral_block",
+    "roof": "sea_lantern"
+  },
+  "loot": {
+    "chestChance": 0.15
+  }
+}

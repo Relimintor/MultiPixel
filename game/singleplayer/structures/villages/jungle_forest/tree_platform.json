@@ -1,0 +1,43 @@
+{
+  "id": "tree_platform",
+  "biome": "jungle_forest",
+  "style": "tree_village",
+  "category": "tree",
+  "weight": 6,
+  "footprint": {
+    "width": 11,
+    "depth": 11
+  },
+  "connectors": [
+    {
+      "x": 0,
+      "z": -6,
+      "dir": "N",
+      "type": "path"
+    },
+    {
+      "x": 6,
+      "z": 0,
+      "dir": "E",
+      "type": "path"
+    },
+    {
+      "x": 0,
+      "z": 6,
+      "dir": "S",
+      "type": "path"
+    },
+    {
+      "x": -6,
+      "z": 0,
+      "dir": "W",
+      "type": "path"
+    }
+  ],
+  "materials": {
+    "trunk": "jungle_log",
+    "platform": "jungle_planks",
+    "supports": "fence"
+  },
+  "notes": "Total jungle structure includes tree body + platform volume."
+}

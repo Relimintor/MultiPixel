@@ -916,7 +916,7 @@ window.perlin = perlinInstance;
         }
 
         async function loadIglooStructure() {
-            const path = './terrain/snowy_plains/structures/igloo.json';
+            const path = './structures/villages/snowy_plains/igloo.json';
             try {
                 const res = await fetch(path, { cache: 'no-store' });
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -1954,6 +1954,7 @@ window.perlin = perlinInstance;
                 ungrantPrivilege,
                 teleportToCoordinates,
                 teleportToBiome,
+                teleportToVillageStructure,
                 openCommandHelp: () => window.SingleplayerChat?.openCommandHelp?.(),
                 mobileAssetBase: MOBILE_ASSET_BASE,
                 onOpen: () => {
@@ -6206,6 +6207,119 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             }
 
             return { ok: false, message: `Could not find nearby ${targetBiome}.` };
+        }
+
+
+        function normalizeVillageBiomeName(rawBiomeName) {
+            const normalized = normalizeBiomeCommandName(rawBiomeName);
+            if (!normalized) return '';
+            const allowed = new Set(['Plains', 'Desert', 'Jungle Forest', 'Forest', 'Ocean', 'Snowy Plains']);
+            return allowed.has(normalized) ? normalized : '';
+        }
+
+        function teleportToVillageStructure(rawBiomeName) {
+            const targetBiome = normalizeVillageBiomeName(rawBiomeName);
+            if (!targetBiome) {
+                return { ok: false, message: 'Village biome must be one of: plains, desert, jungle_forest, oak_forest, ocean, snowy_plains.' };
+            }
+
+            const vg = window.VillageGeneration || {};
+            const regionSize = Number(vg.DEFAULT_STRUCTURE_REGION_SIZE) || 384;
+            const chance = Number(vg.DEFAULT_VILLAGE_CHANCE_PER_REGION) || 0.36;
+            const searchRegionRadius = 22;
+
+            const oceanBiomeSet = new Set(['Ocean', 'Coast Ocean', 'Warm Ocean', 'Lukewarm Ocean', 'Cold Ocean', 'Frozen Ocean']);
+            function biomeMatchesVillageTarget(actualBiome) {
+                if (targetBiome === 'Ocean') return oceanBiomeSet.has(actualBiome);
+                return actualBiome === targetBiome;
+            }
+
+            for (let r = 0; r <= searchRegionRadius; r++) {
+                for (let rx = -r; rx <= r; rx++) {
+                    for (const rz of [-r, r]) {
+                        const cx = rx;
+                        const cz = rz;
+                        const candidateInfo = vg.getVillageRegionCandidate
+                            ? vg.getVillageRegionCandidate({
+                                regionX: cx,
+                                regionZ: cz,
+                                hashRand2D,
+                                getBiomeAt: (x, z) => getBiome(Math.floor(x), Math.floor(z)),
+                                chance,
+                                regionSize
+                            })
+                            : null;
+                        if (!candidateInfo?.allowed || !candidateInfo.candidate) continue;
+
+                        const wx = Math.floor(candidateInfo.candidate.worldX);
+                        const wz = Math.floor(candidateInfo.candidate.worldZ);
+                        const biome = getBiome(wx, wz);
+                        if (!biomeMatchesVillageTarget(biome)) continue;
+
+                        let y = null;
+                        const safe = isSafeSpawnSpot(wx + 0.5, wz + 0.5);
+                        if (safe) y = safe.y;
+                        if (!Number.isFinite(y)) {
+                            const h = getNoiseGroundHeight(wx, wz, biome);
+                            y = isOceanBiomeName(biome) ? Math.max(2, Math.floor(h) + 2) : Math.max(2, Math.floor(h) + 1);
+                        }
+
+                        yawObject.position.set(wx + 0.5, y, wz + 0.5);
+                        player.velocity.set(0, 0, 0);
+                        player.isJumping = false;
+                        ensureChunksAroundPlayer(true);
+                        return {
+                            ok: true,
+                            structure: 'village',
+                            biome: targetBiome,
+                            message: `Teleported to village anchor in ${targetBiome} at ${wx}, ${Math.floor(y)}, ${wz}.`
+                        };
+                    }
+                }
+                for (let rz = -r + 1; rz <= r - 1; rz++) {
+                    for (const rx of [-r, r]) {
+                        const cx = rx;
+                        const cz = rz;
+                        const candidateInfo = vg.getVillageRegionCandidate
+                            ? vg.getVillageRegionCandidate({
+                                regionX: cx,
+                                regionZ: cz,
+                                hashRand2D,
+                                getBiomeAt: (x, z) => getBiome(Math.floor(x), Math.floor(z)),
+                                chance,
+                                regionSize
+                            })
+                            : null;
+                        if (!candidateInfo?.allowed || !candidateInfo.candidate) continue;
+
+                        const wx = Math.floor(candidateInfo.candidate.worldX);
+                        const wz = Math.floor(candidateInfo.candidate.worldZ);
+                        const biome = getBiome(wx, wz);
+                        if (!biomeMatchesVillageTarget(biome)) continue;
+
+                        let y = null;
+                        const safe = isSafeSpawnSpot(wx + 0.5, wz + 0.5);
+                        if (safe) y = safe.y;
+                        if (!Number.isFinite(y)) {
+                            const h = getNoiseGroundHeight(wx, wz, biome);
+                            y = isOceanBiomeName(biome) ? Math.max(2, Math.floor(h) + 2) : Math.max(2, Math.floor(h) + 1);
+                        }
+
+                        yawObject.position.set(wx + 0.5, y, wz + 0.5);
+                        player.velocity.set(0, 0, 0);
+                        player.isJumping = false;
+                        ensureChunksAroundPlayer(true);
+                        return {
+                            ok: true,
+                            structure: 'village',
+                            biome: targetBiome,
+                            message: `Teleported to village anchor in ${targetBiome} at ${wx}, ${Math.floor(y)}, ${wz}.`
+                        };
+                    }
+                }
+            }
+
+            return { ok: false, message: `Could not find village candidate in biome ${targetBiome}.` };
         }
 
         function setInitialPlayerPosition() {

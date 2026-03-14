@@ -1,0 +1,28 @@
+{
+  "id": "church_small",
+  "biome": "oak_forest",
+  "style": "plains_village",
+  "category": "church",
+  "weight": 2,
+  "footprint": {
+    "width": 9,
+    "depth": 11
+  },
+  "connectors": [
+    {
+      "x": 0,
+      "z": -6,
+      "dir": "N",
+      "type": "path"
+    }
+  ],
+  "materials": {
+    "path": "cobblestone",
+    "primary": "oak_planks",
+    "accent": "cobblestone",
+    "roof": "oak_stairs"
+  },
+  "loot": {
+    "chestChance": 0.55
+  }
+}

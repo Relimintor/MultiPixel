@@ -166,7 +166,7 @@
                     <h3>Command Help</h3>
                     <p><strong>/give</strong> &lt;itemId|itemName&gt; &lt;amount&gt; — give item stacks.</p>
                     <p><strong>/spawn</strong> &lt;mobId|mobName&gt; &lt;amount&gt; — spawn mobs (1 = pig, 2 = zombie).</p>
-                    <p><strong>/tp</strong> &lt;x y z&gt; or <strong>/tp biome:&lt;name&gt;</strong> — teleport to coordinates or nearest biome.</p>
+                    <p><strong>/tp</strong> &lt;x y z&gt; or <strong>/tp biome:&lt;name&gt;</strong> or <strong>/tp structure:village biome:&lt;name&gt;</strong> — teleport to coordinates, nearest biome, or village candidate in a village biome.</p>
                     <p><strong>/time</strong> &lt;HH:MM&gt; — set time with military clock (00:00 to 23:59).</p>
                     <p><strong>/set render_distance</strong> &lt;amount&gt; — set chunk render distance (4 to world max).</p>
                     <p><strong>/set fov</strong> &lt;amount&gt; — set camera field of view (50 to 120).</p>
@@ -232,7 +232,7 @@
         context = initContext || {};
         buildUI();
         loadCensorWords();
-        pushMessage('Chat ready. Use /give, /spawn, /tp, /time, /gamemode, /grantme, /ungrantme, /help.', 'chat-info');
+        pushMessage('Chat ready. Use /give, /spawn, /tp, /time, /gamemode, /grantme, /ungrantme, /help. Try /tp structure:village biome:plains', 'chat-info');
     }
 
     window.SingleplayerChat = {
