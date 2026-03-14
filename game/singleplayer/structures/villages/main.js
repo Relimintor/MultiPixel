@@ -20,6 +20,13 @@
     validSurfaceBlocks: new Set(['grass', 'sand', 'snow', 'dirt', 'stone'])
   };
 
+  const DEFAULT_COLLISION_RULES = {
+    maxTerrainCollisionRatio: 0.34,
+    maxHeightDelta: 5,
+    foundationDepthLimit: 3,
+    stiltHeightLimit: 5
+  };
+
   const VILLAGE_STYLE_BY_BIOME = {
     plains: 'plains_village',
     desert: 'pyramid_village',
@@ -410,6 +417,79 @@
     return cells;
   }
 
+  function getBoundingBox2D(centerX, centerZ, footprint) {
+    const halfW = Math.floor((footprint.width || 1) / 2);
+    const halfD = Math.floor((footprint.depth || 1) / 2);
+    return {
+      minX: centerX - halfW,
+      maxX: centerX + halfW,
+      minZ: centerZ - halfD,
+      maxZ: centerZ + halfD
+    };
+  }
+
+  function boxesOverlap2D(a, b) {
+    return !(a.maxX < b.minX || a.minX > b.maxX || a.maxZ < b.minZ || a.minZ > b.maxZ);
+  }
+
+  function resolveTerrainPlacement({ worldX, worldZ, footprint, sampleTerrainHeight, collisionRules = {} }) {
+    if (typeof sampleTerrainHeight !== 'function') {
+      return { ok: true, baseY: 0, elevationMode: 'none', terrainCollisionRatio: 0, heightDelta: 0 };
+    }
+
+    const rules = { ...DEFAULT_COLLISION_RULES, ...collisionRules };
+    const box = getBoundingBox2D(worldX, worldZ, footprint);
+    const heights = [];
+    for (let x = box.minX; x <= box.maxX; x++) {
+      for (let z = box.minZ; z <= box.maxZ; z++) {
+        const h = sampleTerrainHeight(x, z);
+        if (!Number.isFinite(h)) return { ok: false, reason: 'invalid_terrain_height' };
+        heights.push(h);
+      }
+    }
+
+    const minH = Math.min(...heights);
+    const maxH = Math.max(...heights);
+    const heightDelta = maxH - minH;
+    if (heightDelta > rules.maxHeightDelta) {
+      return { ok: false, reason: 'terrain_collision_excessive', heightDelta };
+    }
+
+    const baseY = Math.round(heights.reduce((a, b) => a + b, 0) / heights.length);
+    let collisionCount = 0;
+    let fillNeeded = 0;
+    let stiltNeeded = 0;
+    for (const h of heights) {
+      if (h > baseY) collisionCount++;
+      if (h < baseY) fillNeeded = Math.max(fillNeeded, baseY - h);
+      if (h > baseY) stiltNeeded = Math.max(stiltNeeded, h - baseY);
+    }
+
+    const collisionRatio = heights.length > 0 ? collisionCount / heights.length : 0;
+    if (collisionRatio > rules.maxTerrainCollisionRatio) {
+      return { ok: false, reason: 'terrain_collision_excessive', terrainCollisionRatio: collisionRatio };
+    }
+
+    const needsFoundation = fillNeeded > 0;
+    const needsStilts = stiltNeeded > 0;
+    if (needsFoundation && fillNeeded > rules.foundationDepthLimit) {
+      return { ok: false, reason: 'foundation_too_deep', foundationDepth: fillNeeded };
+    }
+    if (needsStilts && stiltNeeded > rules.stiltHeightLimit) {
+      return { ok: false, reason: 'stilts_too_tall', stiltHeight: stiltNeeded };
+    }
+
+    return {
+      ok: true,
+      baseY,
+      elevationMode: needsFoundation ? 'foundation' : (needsStilts ? 'stilts' : 'none'),
+      terrainCollisionRatio: collisionRatio,
+      heightDelta,
+      foundationDepth: fillNeeded,
+      stiltHeight: stiltNeeded
+    };
+  }
+
   function getTransformedConnectors(piece) {
     const connectors = piece.connectors || [];
     return connectors.map((c) => {
@@ -435,7 +515,9 @@
     hashRand2D,
     maxStructures = 26,
     maxPlacementAttempts = 220,
-    validateArea
+    validateArea,
+    sampleTerrainHeight,
+    collisionRules
   }) {
     if (typeof hashRand2D !== 'function') return { ok: false, reason: 'missing_hash' };
     if (!origin || !Number.isFinite(origin.worldX) || !Number.isFinite(origin.worldZ)) return { ok: false, reason: 'missing_origin' };
@@ -462,6 +544,18 @@
 
     const occupied = new Set();
     for (const c of getFootprintCells(centerPiece.worldX, centerPiece.worldZ, centerPiece.footprint)) occupied.add(c);
+
+    const placedBoxes = [getBoundingBox2D(centerPiece.worldX, centerPiece.worldZ, centerPiece.footprint)];
+    const centerPlacement = resolveTerrainPlacement({
+      worldX: centerPiece.worldX,
+      worldZ: centerPiece.worldZ,
+      footprint: centerPiece.footprint,
+      sampleTerrainHeight,
+      collisionRules
+    });
+    if (!centerPlacement.ok) return { ok: false, reason: centerPlacement.reason || 'center_terrain_invalid' };
+    centerPiece.baseY = centerPlacement.baseY;
+    centerPiece.elevationMode = centerPlacement.elevationMode;
 
     const structures = [centerPiece];
     const openConnections = getTransformedConnectors(centerPiece);
@@ -498,11 +592,21 @@
       const worldZ = openConn.z - attach.localZ;
 
       const footprintCells = getFootprintCells(worldX, worldZ, picked.footprint);
-      const overlaps = footprintCells.some((cell) => occupied.has(cell));
+      const candidateBox = getBoundingBox2D(worldX, worldZ, picked.footprint);
+      const overlaps = footprintCells.some((cell) => occupied.has(cell)) || placedBoxes.some((box) => boxesOverlap2D(box, candidateBox));
       if (overlaps) continue;
       if (typeof validateArea === 'function' && !validateArea({ worldX, worldZ, footprint: picked.footprint, category: picked.category })) {
         continue;
       }
+
+      const terrainPlacement = resolveTerrainPlacement({
+        worldX,
+        worldZ,
+        footprint: picked.footprint,
+        sampleTerrainHeight,
+        collisionRules
+      });
+      if (!terrainPlacement.ok) continue;
 
       const piece = {
         id: picked.id,
@@ -512,10 +616,15 @@
         worldZ,
         transform,
         footprint: picked.footprint,
-        connectors: picked.connectors
+        connectors: picked.connectors,
+        baseY: terrainPlacement.baseY,
+        elevationMode: terrainPlacement.elevationMode,
+        terrainCollisionRatio: terrainPlacement.terrainCollisionRatio,
+        terrainHeightDelta: terrainPlacement.heightDelta
       };
 
       for (const cell of footprintCells) occupied.add(cell);
+      placedBoxes.push(candidateBox);
       structures.push(piece);
       usedConnectionSet.add(connectionKey(openConn));
 
@@ -549,6 +658,7 @@
     DEFAULT_REGION_PADDING,
     DEFAULT_VILLAGE_CHANCE_PER_REGION,
     DEFAULT_TERRAIN_RULES,
+    DEFAULT_COLLISION_RULES,
     VILLAGE_STYLE_BY_BIOME,
     VILLAGE_STYLE_PROFILES,
     BASE_TEMPLATE_SET,
@@ -567,6 +677,9 @@
     normalizeSurfaceBlockName,
     isValidVillageSurfaceBlock,
     evaluateTerrainSuitability,
+    getBoundingBox2D,
+    boxesOverlap2D,
+    resolveTerrainPlacement,
     generateVillageLayout
   };
 })();
