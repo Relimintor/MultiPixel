@@ -2108,7 +2108,7 @@ window.perlin = perlinInstance;
         }
 
 
-        function spawnVillagerAtExact(wx, y, wz, homeCenter = null) {
+        function spawnVillagerAtExact(wx, y, wz, homeCenter = null, villageCenter = null, poiTargets = null) {
             const root = createVillagerMesh();
             root.position.set(Math.floor(wx) + 0.5, y, Math.floor(wz) + 0.5);
             scene.add(root);
@@ -2121,7 +2121,13 @@ window.perlin = perlinInstance;
                 targetY: y,
                 bobPhase: Math.random() * Math.PI * 2,
                 homeCenter: homeCenter ? { x: homeCenter.x, z: homeCenter.z } : null,
+                villageCenter: villageCenter ? { x: villageCenter.x, z: villageCenter.z } : (homeCenter ? { x: homeCenter.x, z: homeCenter.z } : null),
+                poiTargets: Array.isArray(poiTargets) ? poiTargets.map((poi) => ({ x: Number(poi.x) || 0, z: Number(poi.z) || 0, key: String(poi.key || 'poi') })) : [],
                 roamRadius: 1.4 + Math.random() * 1.8,
+                currentMoveTarget: null,
+                currentPoiIndex: -1,
+                nextVillagePathSwitchMs: 0,
+                villagePathPhase: 0,
                 lookYaw: 0,
                 lookPitch: 0,
                 lookTargetYaw: 0,
@@ -2142,7 +2148,7 @@ window.perlin = perlinInstance;
             if (under !== 1 && under !== 2 && under !== 3 && under !== 7 && under !== 15 && under !== 17 && under !== 13 && under !== 8) return false;
             const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(Math.floor(wx), y, Math.floor(wz)) : 15;
             if (lightLevel < 7) return false;
-            return spawnVillagerAtExact(wx, y, wz, { x: Math.floor(wx) + 0.5, z: Math.floor(wz) + 0.5 });
+            return spawnVillagerAtExact(wx, y, wz, { x: Math.floor(wx) + 0.5, z: Math.floor(wz) + 0.5 }, { x: Math.floor(wx) + 0.5, z: Math.floor(wz) + 0.5 }, [{ key: 'well', x: Math.floor(wx) + 0.5, z: Math.floor(wz) + 0.5 }]);
         }
 
 
@@ -2165,23 +2171,89 @@ window.perlin = perlinInstance;
             return nearest;
         }
 
+
+        function isVillagerRainActive() {
+            return Boolean(window.SingleplayerWeather?.isRaining || window.SingleplayerWeather?.rainActive || window.WorldWeather?.isRaining);
+        }
+
+        function getVillagerPoiTargets(villager) {
+            if (Array.isArray(villager?.poiTargets) && villager.poiTargets.length) return villager.poiTargets;
+            if (villager?.villageCenter) {
+                return [{ key: 'well', x: villager.villageCenter.x, z: villager.villageCenter.z }];
+            }
+            if (villager?.homeCenter) {
+                return [{ key: 'home', x: villager.homeCenter.x, z: villager.homeCenter.z }];
+            }
+            return [];
+        }
+
+        function applyVillagerTargetSteer(desiredDir, villager, target, weight = 1) {
+            if (!target) return false;
+            const tx = Number(target.x);
+            const tz = Number(target.z);
+            if (!Number.isFinite(tx) || !Number.isFinite(tz)) return false;
+            const toTarget = new THREE.Vector3(tx - villager.root.position.x, 0, tz - villager.root.position.z);
+            if (toTarget.lengthSq() < 0.0001) return false;
+            desiredDir.add(toTarget.normalize().multiplyScalar(weight));
+            return true;
+        }
+
+        function ensureVillagerVillagePathTarget(villager, nowMs) {
+            if ((villager.nextVillagePathSwitchMs || 0) > nowMs && villager.currentMoveTarget?.source === 'villagePath') return;
+            villager.nextVillagePathSwitchMs = nowMs + 1600 + Math.random() * 2200;
+
+            const home = villager.homeCenter;
+            const center = villager.villageCenter || home;
+            if (!home && !center) return;
+
+            villager.villagePathPhase = ((villager.villagePathPhase || 0) + 1) % 3;
+            if (villager.villagePathPhase === 0 && home) {
+                villager.currentMoveTarget = { x: home.x, z: home.z, source: 'villagePath-home' };
+                return;
+            }
+            if (villager.villagePathPhase === 1 && center) {
+                villager.currentMoveTarget = { x: center.x, z: center.z, source: 'villagePath-center' };
+                return;
+            }
+
+            if (home && center) {
+                const midX = (home.x + center.x) * 0.5;
+                const midZ = (home.z + center.z) * 0.5;
+                const offX = (Math.random() - 0.5) * 5.5;
+                const offZ = (Math.random() - 0.5) * 5.5;
+                villager.currentMoveTarget = { x: midX + offX, z: midZ + offZ, source: 'villagePath-mid' };
+            } else if (center) {
+                villager.currentMoveTarget = { x: center.x + (Math.random() - 0.5) * 6, z: center.z + (Math.random() - 0.5) * 6, source: 'villagePath-center-roam' };
+            }
+        }
+
         function updateVillagers(time, deltaMs) {
             if (!villagerEntities.length) return;
             const dt = Math.max(0.001, Math.min(0.05, deltaMs / 1000));
             const nowMs = performance.now();
+            const raining = isVillagerRainActive();
             for (const villager of villagerEntities) {
                 if (!isEntityActiveAt(villager.root.position)) continue;
                 tickMobHitFeedback(villager, deltaMs);
 
                 villager.changeDirMs -= deltaMs;
                 const home = villager.homeCenter;
+                const center = villager.villageCenter || home;
                 const homeDx = home ? (home.x - villager.root.position.x) : 0;
                 const homeDz = home ? (home.z - villager.root.position.z) : 0;
                 const homeDist = home ? Math.hypot(homeDx, homeDz) : 0;
+                const centerDx = center ? (center.x - villager.root.position.x) : 0;
+                const centerDz = center ? (center.z - villager.root.position.z) : 0;
+                const centerDist = center ? Math.hypot(centerDx, centerDz) : 0;
                 const inLiquid = isLiquid(getBlockType(Math.floor(villager.root.position.x), Math.floor(villager.root.position.y), Math.floor(villager.root.position.z)));
 
                 const threat = findClosestZombieThreat(villager.root.position, 10);
+                const threatPos = threat?.root?.position || null;
+                const threatDist = threatPos
+                    ? Math.hypot(villager.root.position.x - threatPos.x, villager.root.position.z - threatPos.z)
+                    : Number.POSITIVE_INFINITY;
                 const panicActive = (villager.panicUntilMs || 0) > nowMs;
+                const dangerActive = panicActive || threatDist < 8.5;
 
                 if (villager.changeDirMs <= 0) {
                     villager.changeDirMs = 700 + Math.random() * 1300;
@@ -2196,33 +2268,84 @@ window.perlin = perlinInstance;
 
                 let speed = 0.56;
                 const desiredDir = villager.dir.clone();
+                const poiTargets = getVillagerPoiTargets(villager);
 
                 for (const goal of villagerGoalPriority) {
                     if (goal.key === 'float' && inLiquid) {
-                        speed = Math.max(speed, 0.72);
-                        villager.targetY = Math.max(villager.targetY, villager.root.position.y + 0.09);
+                        speed = Math.max(speed, 0.74);
+                        villager.targetY = Math.max(villager.targetY, villager.root.position.y + 0.1);
                         continue;
                     }
 
                     if (goal.key === 'panic' && panicActive) {
-                        speed = Math.max(speed, 1.02);
+                        speed = Math.max(speed, 1.04);
                         const panicVec = new THREE.Vector3((Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2);
-                        if (panicVec.lengthSq() > 0.0001) desiredDir.add(panicVec.normalize().multiplyScalar(1.35));
+                        if (panicVec.lengthSq() > 0.0001) desiredDir.add(panicVec.normalize().multiplyScalar(1.3));
                         continue;
                     }
 
-                    if (goal.key === 'avoidHostile' && threat?.root?.position) {
+                    if (goal.key === 'avoidHostile' && threatPos && threatDist < 9) {
                         const away = new THREE.Vector3(
-                            villager.root.position.x - threat.root.position.x,
+                            villager.root.position.x - threatPos.x,
                             0,
-                            villager.root.position.z - threat.root.position.z
+                            villager.root.position.z - threatPos.z
                         );
-                        const d = away.length();
-                        if (d < 9 && d > 0.001) {
-                            const danger = Math.max(0, (9 - d) / 9);
-                            speed = Math.max(speed, 0.74 + danger * 0.32);
-                            desiredDir.add(away.normalize().multiplyScalar(1.5 + danger * 1.3));
-                            villager.panicUntilMs = Math.max(villager.panicUntilMs || 0, nowMs + 700);
+                        const danger = Math.max(0, (9 - threatDist) / 9);
+                        if (away.lengthSq() > 0.0001) {
+                            desiredDir.add(away.normalize().multiplyScalar(1.7 + danger * 1.5));
+                            speed = Math.max(speed, 0.78 + danger * 0.36);
+                            villager.panicUntilMs = Math.max(villager.panicUntilMs || 0, nowMs + 800);
+                        }
+                        continue;
+                    }
+
+                    if (goal.key === 'moveThroughVillage') {
+                        ensureVillagerVillagePathTarget(villager, nowMs);
+                        if (villager.currentMoveTarget?.source?.startsWith('villagePath')) {
+                            applyVillagerTargetSteer(desiredDir, villager, villager.currentMoveTarget, 0.95);
+                            speed = Math.max(speed, 0.64);
+                        }
+                        continue;
+                    }
+
+                    if (goal.key === 'walkToVillageCenter' && center && centerDist > 5.5) {
+                        applyVillagerTargetSteer(desiredDir, villager, center, 1.12);
+                        villager.currentMoveTarget = { x: center.x, z: center.z, source: 'center' };
+                        speed = Math.max(speed, 0.7);
+                        continue;
+                    }
+
+                    if (goal.key === 'walkToPoi' && poiTargets.length) {
+                        if (!Number.isFinite(villager.currentPoiIndex) || villager.currentPoiIndex < 0) {
+                            villager.currentPoiIndex = Math.floor(Math.random() * poiTargets.length);
+                        }
+                        const poi = poiTargets[(villager.currentPoiIndex % poiTargets.length + poiTargets.length) % poiTargets.length];
+                        const poiDist = poi ? Math.hypot(villager.root.position.x - poi.x, villager.root.position.z - poi.z) : Number.POSITIVE_INFINITY;
+                        if (poi && poiDist < 1.4) {
+                            villager.currentPoiIndex = (villager.currentPoiIndex + 1) % poiTargets.length;
+                        }
+                        const nextPoi = poiTargets[(villager.currentPoiIndex % poiTargets.length + poiTargets.length) % poiTargets.length];
+                        if (nextPoi) {
+                            applyVillagerTargetSteer(desiredDir, villager, nextPoi, 0.72);
+                            speed = Math.max(speed, 0.62);
+                        }
+                        continue;
+                    }
+
+                    if (goal.key === 'moveIndoors' && (raining || dangerActive) && home) {
+                        villager.currentMoveTarget = { x: home.x, z: home.z, source: 'indoors' };
+                        applyVillagerTargetSteer(desiredDir, villager, home, 1.28);
+                        speed = Math.max(speed, 0.76);
+                        continue;
+                    }
+
+                    if (goal.key === 'moveToTargetPosition' && villager.currentMoveTarget) {
+                        const targetDist = Math.hypot(villager.root.position.x - villager.currentMoveTarget.x, villager.root.position.z - villager.currentMoveTarget.z);
+                        if (targetDist < 1.2) {
+                            villager.currentMoveTarget = null;
+                        } else {
+                            applyVillagerTargetSteer(desiredDir, villager, villager.currentMoveTarget, 0.95);
+                            speed = Math.max(speed, 0.65);
                         }
                         continue;
                     }
@@ -2230,7 +2353,7 @@ window.perlin = perlinInstance;
                     if (goal.key === 'wanderHome' && home && homeDist > villager.roamRadius + 0.4) {
                         speed = Math.max(speed, 0.66);
                         const toHome = new THREE.Vector3(homeDx, 0, homeDz);
-                        if (toHome.lengthSq() > 0.0001) desiredDir.add(toHome.normalize().multiplyScalar(0.9));
+                        if (toHome.lengthSq() > 0.0001) desiredDir.add(toHome.normalize().multiplyScalar(0.88));
                         continue;
                     }
 
@@ -6621,7 +6744,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                         const doorDirs = Array.from(new Set([primaryDoorDir, ...extraDoors.map((d) => String(d || '').toUpperCase()).filter((d) => DIR_VECTORS[d]) ]));
 
                         const built = placeGroundedHouse(centerX, centerZ, size, wall, roof, doorDirs, biomeKey);
-                        spawnedVillagers.push({ wx: centerX + 0.5, wy: built.baseY + 1, wz: centerZ + 0.5, homeX: centerX + 0.5, homeZ: centerZ + 0.5 });
+                        spawnedVillagers.push({ wx: centerX + 0.5, wy: built.baseY + 1, wz: centerZ + 0.5, homeX: centerX + 0.5, homeZ: centerZ + 0.5, centerX: coreX + 0.5, centerZ: coreZ + 0.5, poiTargets: [{ key: 'well', x: coreX + 0.5, z: coreZ + 0.5 }] });
                         addBuildingObstacle(centerX, centerZ, size);
                         buildingCenters.push({ x: centerX, z: centerZ, size });
 
@@ -6926,7 +7049,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             }
             if (generated.spawnedVillagers && generated.spawnedVillagers.length) {
                 for (const villager of generated.spawnedVillagers) {
-                    spawnVillagerAtExact(villager.wx, villager.wy, villager.wz, { x: villager.homeX, z: villager.homeZ });
+                    spawnVillagerAtExact(villager.wx, villager.wy, villager.wz, { x: villager.homeX, z: villager.homeZ }, { x: villager.centerX ?? villager.homeX, z: villager.centerZ ?? villager.homeZ }, villager.poiTargets || null);
                 }
             }
             return group;
