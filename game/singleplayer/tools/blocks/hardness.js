@@ -50,6 +50,13 @@
     99: 1,
     100: 1,
     101: 1,
+    102: 11, // Chiseled stone bricks
+    103: 6,  // Bamboo planks
+    104: 12, // Amethyst block
+    105: 5,  // Chalk
+    106: 14, // Basalt
+    107: 2,  // Pumpkin block
+    108: 2,  // Melon block
   };
 
   function getHardness(blockId) {
