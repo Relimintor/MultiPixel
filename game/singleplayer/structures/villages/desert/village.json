@@ -15,5 +15,100 @@
     "farm_patch",
     "church_small",
     "street_straight"
-  ]
+  ],
+  "layout": {
+    "wellConnectors": [
+      {
+        "id": "well-n",
+        "x": 0,
+        "z": -4,
+        "dir": "N"
+      },
+      {
+        "id": "well-e",
+        "x": 4,
+        "z": 0,
+        "dir": "E"
+      },
+      {
+        "id": "well-s",
+        "x": 0,
+        "z": 4,
+        "dir": "S"
+      },
+      {
+        "id": "well-w",
+        "x": -4,
+        "z": 0,
+        "dir": "W"
+      }
+    ],
+    "buildings": [
+      {
+        "id": "house-a",
+        "offsetX": 12,
+        "offsetZ": 9,
+        "size": 5,
+        "doorDirs": [
+          "W"
+        ]
+      },
+      {
+        "id": "house-b",
+        "offsetX": -12,
+        "offsetZ": 9,
+        "size": 5,
+        "doorDirs": [
+          "E"
+        ]
+      },
+      {
+        "id": "house-c",
+        "offsetX": 12,
+        "offsetZ": -9,
+        "size": 5,
+        "doorDirs": [
+          "W",
+          "N"
+        ]
+      },
+      {
+        "id": "house-d",
+        "offsetX": -12,
+        "offsetZ": -9,
+        "size": 5,
+        "doorDirs": [
+          "E"
+        ]
+      },
+      {
+        "id": "house-e",
+        "offsetX": 0,
+        "offsetZ": 15,
+        "size": 5,
+        "doorDirs": [
+          "N",
+          "S"
+        ]
+      },
+      {
+        "id": "house-f",
+        "offsetX": 0,
+        "offsetZ": -15,
+        "size": 5,
+        "doorDirs": [
+          "S"
+        ]
+      }
+    ],
+    "road": {
+      "maxDoorLinkDistance": 26,
+      "wellConnectorExtension": 8,
+      "doorExtension": 5,
+      "width": 1
+    },
+    "wellBlockId": 13,
+    "defaultHouseWallBlockId": 13,
+    "defaultHouseRoofBlockId": 17
+  }
 }

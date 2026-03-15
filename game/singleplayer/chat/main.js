@@ -232,7 +232,7 @@
         context = initContext || {};
         buildUI();
         loadCensorWords();
-        pushMessage('Chat ready. Use /give, /spawn, /tp, /time, /gamemode, /grantme, /ungrantme, /help. Try /tp structure:village biome:plains', 'chat-info');
+        pushMessage('Chat ready. Use /give, /spawn, /tp, /time, /set, /gamemode, /grantme, /ungrantme, /help. Try /tp structure:village biome:plains', 'chat-info');
     }
 
     window.SingleplayerChat = {
