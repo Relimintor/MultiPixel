@@ -164,6 +164,7 @@ window.perlin = perlinInstance;
 
       
         let inventory = new Array(TOTAL_INV_SIZE).fill(null);
+        const knockbackEnchantByItemId = new Map();
         let selectedHotbarIndex = 0; // 0-8
         let isInventoryOpen = false;
         let isCreativeMode = false;
@@ -441,9 +442,11 @@ window.perlin = perlinInstance;
             });
         }
 
-        function applyHitFeedback(entity, sourcePos = null, amount = 4) {
+        function applyHitFeedback(entity, sourcePos = null, amount = 4, extraKnockback = 0) {
             if (!entity?.root) return;
-            const strength = Math.max(0.12, Math.min(0.42, 0.07 + amount * 0.018));
+            const baseStrength = Math.max(0.12, Math.min(0.42, 0.07 + amount * 0.018));
+            const enchantScale = Math.max(0, Number(extraKnockback) || 0);
+            const strength = Math.min(6.0, baseStrength + enchantScale * 0.015);
             const src = sourcePos || yawObject?.position || null;
             if (src) {
                 const away = new THREE.Vector3(entity.root.position.x - src.x, 0, entity.root.position.z - src.z);
@@ -451,6 +454,8 @@ window.perlin = perlinInstance;
                 away.normalize().multiplyScalar(strength);
                 entity.knockbackVX = (entity.knockbackVX || 0) + away.x;
                 entity.knockbackVZ = (entity.knockbackVZ || 0) + away.z;
+                const lift = Math.min(2.6, 0.08 + enchantScale * 0.006);
+                entity.knockbackVY = Math.max(entity.knockbackVY || 0, lift);
             }
             entity.hitFlashMs = Math.max(entity.hitFlashMs || 0, 120);
             applyDamageFlashToRoot(entity.root, true);
@@ -464,14 +469,19 @@ window.perlin = perlinInstance;
 
             const kvx = entity.knockbackVX || 0;
             const kvz = entity.knockbackVZ || 0;
-            if (Math.abs(kvx) + Math.abs(kvz) > 0.0002) {
+            let kvy = entity.knockbackVY || 0;
+            if (Math.abs(kvx) + Math.abs(kvz) + Math.abs(kvy) > 0.0002) {
                 entity.root.position.x += kvx;
                 entity.root.position.z += kvz;
+                entity.root.position.y += kvy;
+                kvy -= dt * 0.42;
                 entity.knockbackVX = kvx * Math.max(0, 1 - dt * 12);
                 entity.knockbackVZ = kvz * Math.max(0, 1 - dt * 12);
+                entity.knockbackVY = kvy * Math.max(0, 1 - dt * 3);
             } else {
                 entity.knockbackVX = 0;
                 entity.knockbackVZ = 0;
+                entity.knockbackVY = 0;
             }
         }
 
@@ -1037,6 +1047,24 @@ window.perlin = perlinInstance;
                 return true;
             }
             return false;
+        }
+
+        function getSelectedItemId() {
+            const held = inventory[selectedHotbarIndex];
+            return held ? held.id : null;
+        }
+
+        function setItemKnockbackEnchant(itemId, amount) {
+            if (!Number.isFinite(itemId) || itemId <= 0) return false;
+            const level = Math.max(1, Math.min(400, Number(amount) || 1));
+            knockbackEnchantByItemId.set(itemId, level);
+            return true;
+        }
+
+        function getHeldKnockbackEnchantLevel() {
+            const held = inventory[selectedHotbarIndex];
+            if (!held) return 0;
+            return Number(knockbackEnchantByItemId.get(held.id) || 0);
         }
 
         function showGameMessage(msg) {
@@ -1982,9 +2010,9 @@ window.perlin = perlinInstance;
             return pigEntities.find((p) => p.root.userData.pigHitbox === hitObj) || null;
         }
 
-        function hurtPig(pig, amount = 4, source = 'player', sourcePos = null) {
+        function hurtPig(pig, amount = 4, source = 'player', sourcePos = null, extraKnockback = 0) {
             if (!pig) return;
-            applyHitFeedback(pig, sourcePos, amount);
+            applyHitFeedback(pig, sourcePos, amount, extraKnockback);
             pig.hp -= amount;
             if (pig.hp > 0) {
                 pig.changeDirMs = 0;
@@ -2498,9 +2526,9 @@ window.perlin = perlinInstance;
             return villagerEntities.find((v) => v.root.userData.villagerHitbox === hitObj) || null;
         }
 
-        function hurtVillager(villager, amount = 4, source = 'player', sourcePos = null) {
+        function hurtVillager(villager, amount = 4, source = 'player', sourcePos = null, extraKnockback = 0) {
             if (!villager) return;
-            applyHitFeedback(villager, sourcePos, amount);
+            applyHitFeedback(villager, sourcePos, amount, extraKnockback);
             villager.hp -= amount;
             villager.changeDirMs = 0;
             villager.panicUntilMs = performance.now() + 3600;
@@ -2521,9 +2549,9 @@ window.perlin = perlinInstance;
             return wolfEntities.find((w) => w.root.userData.wolfHitbox === hitObj) || null;
         }
 
-        function hurtWolf(wolf, amount = 4, sourcePos = null) {
+        function hurtWolf(wolf, amount = 4, sourcePos = null, extraKnockback = 0) {
             if (!wolf) return;
-            applyHitFeedback(wolf, sourcePos, amount);
+            applyHitFeedback(wolf, sourcePos, amount, extraKnockback);
             wolf.hp -= amount;
             if (wolf.hp > 0) {
                 wolf.changeDirMs = 0;
@@ -2660,7 +2688,7 @@ window.perlin = perlinInstance;
             return pandaEntities.find((p) => p.root.userData.pandaHitbox === hitObj) || null;
         }
 
-        function hurtPanda(panda, amount = 4, source = 'player', sourcePos = null) {
+        function hurtPanda(panda, amount = 4, source = 'player', sourcePos = null, extraKnockback = 0) {
             if (!panda) return;
             if (panda.invulnerable) {
                 if (source === 'player') showGameMessage('XREALM is unkillable.');
@@ -2668,7 +2696,7 @@ window.perlin = perlinInstance;
                 panda.angerUntilMs = performance.now() + (window.JungleDecorationConfig?.panda?.angerMsOnHit || 6000);
                 return;
             }
-            applyHitFeedback(panda, sourcePos, amount);
+            applyHitFeedback(panda, sourcePos, amount, extraKnockback);
             panda.hp -= amount;
             if (panda.hp > 0) {
                 panda.changeDirMs = 0;
@@ -2747,9 +2775,9 @@ window.perlin = perlinInstance;
             return zombieEntities.find((z) => z.root.userData.zombieHitbox === hitObj) || null;
         }
 
-        function hurtZombie(zombie, amount = 4, sourcePos = null) {
+        function hurtZombie(zombie, amount = 4, sourcePos = null, extraKnockback = 0) {
             if (!zombie) return;
-            applyHitFeedback(zombie, sourcePos, amount);
+            applyHitFeedback(zombie, sourcePos, amount, extraKnockback);
             zombie.hp -= amount;
             if (zombie.hp > 0) return;
             const idx = zombieEntities.indexOf(zombie);
@@ -3004,6 +3032,8 @@ window.perlin = perlinInstance;
                 showGameMessage,
                 addToInventory,
                 getBlockById: (id) => blockMaterials[id] || null,
+                getSelectedItemId,
+                setItemKnockbackEnchant,
                 getMobById: (id) => window.SingleplayerMobConfig?.byId?.[id] || null,
                 spawnMobById,
                 spawnVillageStructure,
@@ -4204,6 +4234,7 @@ window.perlin = perlinInstance;
             if (!intersects.length) return;
 
             if (event.button === 0) {
+                const attackKnockback = getHeldKnockbackEnchantLevel();
                 const wolfHit = getWolfHitFromCrosshair();
                 if (wolfHit) {
                     const held = inventory[selectedHotbarIndex];
@@ -4218,33 +4249,33 @@ window.perlin = perlinInstance;
                             showGameMessage('The wolf refused the bone.');
                         }
                     } else {
-                        hurtWolf(wolfHit, 4, yawObject.position);
+                        hurtWolf(wolfHit, 4, yawObject.position, attackKnockback);
                     }
                     return;
                 }
 
                 const pandaHit = getPandaHitFromCrosshair();
                 if (pandaHit) {
-                    hurtPanda(pandaHit, 4, 'player', yawObject.position);
+                    hurtPanda(pandaHit, 4, 'player', yawObject.position, attackKnockback);
                     return;
                 }
 
                 const zombieHit = getZombieHitFromCrosshair();
                 if (zombieHit) {
-                    hurtZombie(zombieHit, 4, yawObject.position);
+                    hurtZombie(zombieHit, 4, yawObject.position, attackKnockback);
                     commandTamedWolvesAttack(zombieHit, 'zombie');
                     return;
                 }
 
                 const villagerHit = getVillagerHitFromCrosshair();
                 if (villagerHit) {
-                    hurtVillager(villagerHit, 4, 'player', yawObject.position);
+                    hurtVillager(villagerHit, 4, 'player', yawObject.position, attackKnockback);
                     return;
                 }
 
                 const pigHit = getPigHitFromCrosshair();
                 if (pigHit) {
-                    hurtPig(pigHit, 4, 'player', yawObject.position);
+                    hurtPig(pigHit, 4, 'player', yawObject.position, attackKnockback);
                     commandTamedWolvesAttack(pigHit, 'pig');
                     return;
                 }
