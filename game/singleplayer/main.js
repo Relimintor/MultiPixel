@@ -2569,7 +2569,6 @@ window.perlin = perlinInstance;
             if (!target) return;
             for (const wolf of wolfEntities) {
                 if (!isEntityActiveAt(wolf.root.position)) continue;
-                tickMobHitFeedback(wolf, deltaMs);
                 if (!wolf.tamed) continue;
                 wolf.combatTarget = target;
                 wolf.combatTargetType = targetType;
