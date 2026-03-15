@@ -2266,9 +2266,11 @@ window.perlin = perlinInstance;
                     }
                 }
 
-                let speed = 0.56;
+                let speed = 0.54;
                 const desiredDir = villager.dir.clone();
                 const poiTargets = getVillagerPoiTargets(villager);
+                let movementChosen = false;
+                let lookChosen = false;
 
                 for (const goal of villagerGoalPriority) {
                     if (goal.key === 'float' && inLiquid) {
@@ -2277,14 +2279,22 @@ window.perlin = perlinInstance;
                         continue;
                     }
 
-                    if (goal.key === 'panic' && panicActive) {
-                        speed = Math.max(speed, 1.04);
-                        const panicVec = new THREE.Vector3((Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2);
-                        if (panicVec.lengthSq() > 0.0001) desiredDir.add(panicVec.normalize().multiplyScalar(1.3));
+                    if (!movementChosen && goal.key === 'panic' && panicActive) {
+                        speed = Math.max(speed, 1.0);
+                        villager.nextPanicTurnMs = (villager.nextPanicTurnMs || 0) - deltaMs;
+                        if (villager.nextPanicTurnMs <= 0 || !villager.panicDir || villager.panicDir.lengthSq() < 0.0001) {
+                            villager.nextPanicTurnMs = 260 + Math.random() * 360;
+                            villager.panicDir = new THREE.Vector3((Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2);
+                            if (villager.panicDir.lengthSq() > 0.0001) villager.panicDir.normalize();
+                        }
+                        if (villager.panicDir && villager.panicDir.lengthSq() > 0.0001) {
+                            desiredDir.add(villager.panicDir.clone().multiplyScalar(1.15));
+                        }
+                        movementChosen = true;
                         continue;
                     }
 
-                    if (goal.key === 'avoidHostile' && threatPos && threatDist < 9) {
+                    if (!movementChosen && goal.key === 'avoidHostile' && threatPos && threatDist < 9) {
                         const away = new THREE.Vector3(
                             villager.root.position.x - threatPos.x,
                             0,
@@ -2292,30 +2302,41 @@ window.perlin = perlinInstance;
                         );
                         const danger = Math.max(0, (9 - threatDist) / 9);
                         if (away.lengthSq() > 0.0001) {
-                            desiredDir.add(away.normalize().multiplyScalar(1.7 + danger * 1.5));
-                            speed = Math.max(speed, 0.78 + danger * 0.36);
-                            villager.panicUntilMs = Math.max(villager.panicUntilMs || 0, nowMs + 800);
+                            desiredDir.add(away.normalize().multiplyScalar(1.75 + danger * 1.5));
+                            speed = Math.max(speed, 0.8 + danger * 0.32);
+                            villager.panicUntilMs = Math.max(villager.panicUntilMs || 0, nowMs + 900);
+                            movementChosen = true;
                         }
                         continue;
                     }
 
-                    if (goal.key === 'moveThroughVillage') {
-                        ensureVillagerVillagePathTarget(villager, nowMs);
-                        if (villager.currentMoveTarget?.source?.startsWith('villagePath')) {
-                            applyVillagerTargetSteer(desiredDir, villager, villager.currentMoveTarget, 0.95);
-                            speed = Math.max(speed, 0.64);
-                        }
+                    if (!movementChosen && goal.key === 'moveIndoors' && (raining || dangerActive) && home) {
+                        villager.currentMoveTarget = { x: home.x, z: home.z, source: 'indoors' };
+                        applyVillagerTargetSteer(desiredDir, villager, home, 1.2);
+                        speed = Math.max(speed, 0.74);
+                        movementChosen = true;
                         continue;
                     }
 
-                    if (goal.key === 'walkToVillageCenter' && center && centerDist > 5.5) {
-                        applyVillagerTargetSteer(desiredDir, villager, center, 1.12);
+                    if (!movementChosen && goal.key === 'walkToVillageCenter' && center && centerDist > 5.5) {
+                        applyVillagerTargetSteer(desiredDir, villager, center, 1.06);
                         villager.currentMoveTarget = { x: center.x, z: center.z, source: 'center' };
-                        speed = Math.max(speed, 0.7);
+                        speed = Math.max(speed, 0.68);
+                        movementChosen = true;
                         continue;
                     }
 
-                    if (goal.key === 'walkToPoi' && poiTargets.length) {
+                    if (!movementChosen && (goal.key === 'wanderHome' || goal.key === 'moveToHome') && home && homeDist > villager.roamRadius + 0.4) {
+                        speed = Math.max(speed, 0.66);
+                        const toHome = new THREE.Vector3(homeDx, 0, homeDz);
+                        if (toHome.lengthSq() > 0.0001) {
+                            desiredDir.add(toHome.normalize().multiplyScalar(0.88));
+                            movementChosen = true;
+                        }
+                        continue;
+                    }
+
+                    if (!movementChosen && goal.key === 'walkToPoi' && poiTargets.length) {
                         if (!Number.isFinite(villager.currentPoiIndex) || villager.currentPoiIndex < 0) {
                             villager.currentPoiIndex = Math.floor(Math.random() * poiTargets.length);
                         }
@@ -2328,46 +2349,114 @@ window.perlin = perlinInstance;
                         if (nextPoi) {
                             applyVillagerTargetSteer(desiredDir, villager, nextPoi, 0.72);
                             speed = Math.max(speed, 0.62);
+                            movementChosen = true;
                         }
                         continue;
                     }
 
-                    if (goal.key === 'moveIndoors' && (raining || dangerActive) && home) {
-                        villager.currentMoveTarget = { x: home.x, z: home.z, source: 'indoors' };
-                        applyVillagerTargetSteer(desiredDir, villager, home, 1.28);
-                        speed = Math.max(speed, 0.76);
+                    if (!movementChosen && goal.key === 'moveThroughVillage') {
+                        ensureVillagerVillagePathTarget(villager, nowMs);
+                        if (villager.currentMoveTarget?.source?.startsWith('villagePath')) {
+                            applyVillagerTargetSteer(desiredDir, villager, villager.currentMoveTarget, 0.84);
+                            speed = Math.max(speed, 0.61);
+                            movementChosen = true;
+                        }
                         continue;
                     }
 
-                    if (goal.key === 'moveToTargetPosition' && villager.currentMoveTarget) {
+                    if (!movementChosen && goal.key === 'moveToTargetPosition' && villager.currentMoveTarget) {
                         const targetDist = Math.hypot(villager.root.position.x - villager.currentMoveTarget.x, villager.root.position.z - villager.currentMoveTarget.z);
                         if (targetDist < 1.2) {
                             villager.currentMoveTarget = null;
                         } else {
-                            applyVillagerTargetSteer(desiredDir, villager, villager.currentMoveTarget, 0.95);
-                            speed = Math.max(speed, 0.65);
+                            applyVillagerTargetSteer(desiredDir, villager, villager.currentMoveTarget, 0.92);
+                            speed = Math.max(speed, 0.63);
+                            movementChosen = true;
                         }
                         continue;
                     }
 
-                    if (goal.key === 'wanderHome' && home && homeDist > villager.roamRadius + 0.4) {
-                        speed = Math.max(speed, 0.66);
-                        const toHome = new THREE.Vector3(homeDx, 0, homeDz);
-                        if (toHome.lengthSq() > 0.0001) desiredDir.add(toHome.normalize().multiplyScalar(0.88));
+                    if (!movementChosen && goal.key === 'villageInteractionStroll' && center) {
+                        villager.nextMeetingStrollMs = (villager.nextMeetingStrollMs || 0) - deltaMs;
+                        if (villager.nextMeetingStrollMs <= 0 || !villager.meetingStrollTarget) {
+                            villager.nextMeetingStrollMs = 1600 + Math.random() * 2200;
+                            const angle = Math.random() * Math.PI * 2;
+                            const radius = 1.2 + Math.random() * 2.4;
+                            villager.meetingStrollTarget = {
+                                x: center.x + Math.cos(angle) * radius,
+                                z: center.z + Math.sin(angle) * radius,
+                            };
+                        }
+                        applyVillagerTargetSteer(desiredDir, villager, villager.meetingStrollTarget, 0.4);
+                        speed = Math.max(speed, 0.58);
+                        movementChosen = true;
                         continue;
                     }
 
-                    if (goal.key === 'observe') {
+                    if (!movementChosen && (goal.key === 'randomStroll' || goal.key === 'randomStrollFar') && center) {
+                        const far = goal.key === 'randomStrollFar';
+                        villager.nextStrollPickMs = (villager.nextStrollPickMs || 0) - deltaMs;
+                        if (villager.nextStrollPickMs <= 0 || !villager.randomStrollTarget || villager.randomStrollTarget.far !== far) {
+                            villager.nextStrollPickMs = (far ? 2600 : 1400) + Math.random() * (far ? 2800 : 1700);
+                            const angle = Math.random() * Math.PI * 2;
+                            const radius = (far ? 3.3 : 1.3) + Math.random() * (far ? 4.2 : 2.6);
+                            villager.randomStrollTarget = {
+                                x: center.x + Math.cos(angle) * radius,
+                                z: center.z + Math.sin(angle) * radius,
+                                far,
+                            };
+                        }
+                        applyVillagerTargetSteer(desiredDir, villager, villager.randomStrollTarget, far ? 0.3 : 0.44);
+                        speed = Math.max(speed, far ? 0.62 : 0.6);
+                        movementChosen = true;
+                        continue;
+                    }
+
+                    if (!lookChosen && goal.key === 'lookAtTradingPlayer') {
+                        lookChosen = true;
+                        continue;
+                    }
+
+                    if (!lookChosen && goal.key === 'tradeWithPlayer') {
+                        continue;
+                    }
+
+                    if (!lookChosen && goal.key === 'lookAtPlayer') {
+                        const toPlayer = new THREE.Vector3(yawObject.position.x - villager.root.position.x, 0, yawObject.position.z - villager.root.position.z);
+                        if (toPlayer.length() < 6.5) {
+                            const yaw = Math.atan2(toPlayer.x, toPlayer.z) - villager.root.rotation.y;
+                            villager.lookTargetYaw = THREE.MathUtils.clamp(yaw, -0.85, 0.85);
+                            villager.lookTargetPitch = 0;
+                            lookChosen = true;
+                        }
+                        continue;
+                    }
+
+                    if (!lookChosen && goal.key === 'lookAtEntity' && threatPos && threatDist < 6.8) {
+                        const toThreat = new THREE.Vector3(threatPos.x - villager.root.position.x, 0, threatPos.z - villager.root.position.z);
+                        const yaw = Math.atan2(toThreat.x, toThreat.z) - villager.root.rotation.y;
+                        villager.lookTargetYaw = THREE.MathUtils.clamp(yaw, -0.9, 0.9);
+                        lookChosen = true;
+                        continue;
+                    }
+
+                    if (!lookChosen && (goal.key === 'observe' || goal.key === 'lookAround')) {
                         villager.nextLookChangeMs -= deltaMs;
                         if (villager.nextLookChangeMs <= 0) {
-                            villager.nextLookChangeMs = 700 + Math.random() * 1500;
-                            villager.lookTargetYaw = (Math.random() - 0.5) * 1.1;
-                            villager.lookTargetPitch = (Math.random() - 0.5) * 0.45;
+                            villager.nextLookChangeMs = 900 + Math.random() * 1700;
+                            villager.lookTargetYaw = (Math.random() - 0.5) * 0.75;
+                            villager.lookTargetPitch = (Math.random() - 0.5) * 0.28;
                         }
+                        lookChosen = true;
+                        continue;
                     }
                 }
 
-                if (desiredDir.lengthSq() > 0.00001) villager.dir.copy(desiredDir.normalize());
+                if (desiredDir.lengthSq() > 0.00001) {
+                    const nextDir = desiredDir.normalize();
+                    villager.dir.lerp(nextDir, Math.min(1, dt * 4.2));
+                    if (villager.dir.lengthSq() > 0.00001) villager.dir.normalize();
+                }
 
                 const nx = villager.root.position.x + villager.dir.x * speed * dt;
                 const nz = villager.root.position.z + villager.dir.z * speed * dt;
