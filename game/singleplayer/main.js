@@ -2977,7 +2977,15 @@ window.perlin = perlinInstance;
         function tryEatSelectedItem() {
             const held = inventory[selectedHotbarIndex];
             if (!held) return false;
-            const foodCfg = held.id === 89 ? { hunger: 3 } : (held.id === 90 ? { hunger: 8 } : (held.id === 92 ? { hunger: 4 } : null));
+            const foodByItemId = {
+                89: { hunger: 3 },
+                90: { hunger: 8 },
+                92: { hunger: 4 },
+                109: { hunger: 2 },
+                111: { hunger: 2 },
+                112: { hunger: 6 },
+            };
+            const foodCfg = foodByItemId[held.id] || null;
             if (!foodCfg) return false;
             if (window.HungerSystem && window.HungerSystem.canConsume && !window.HungerSystem.canConsume()) {
                 showGameMessage('You are full.');
@@ -6347,6 +6355,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
              placeWolfPackInChunk(data, heightmap, cx, cz, spawnedWolves);
              placePandaPackInChunk(data, heightmap, cx, cz, spawnedPandas);
              placeBambooInChunk(data, cx, cz);
+             placePumpkinPatchInChunk(data, cx, cz);
+             placeMelonsInChunk(data, cx, cz);
              return { data, heightmap, spawnedGnomes, spawnedPigs, spawnedWolves, spawnedPandas, spawnedVillagers };
         }
 
@@ -7107,6 +7117,65 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             }
         }
 
+
+
+        function placePumpkinPatchInChunk(data, cx, cz) {
+            const chancePerChunk = 1 / 32;
+            if (hashRand2D(cx, cz, 12101) > chancePerChunk) return;
+
+            const PUMPKIN_BLOCK_ID = 107;
+            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
+            const getColumnTop = (lx, lz) => {
+                for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
+                    const t = data[idx(lx, y, lz)];
+                    if (t !== 0 && t !== 4) return y;
+                }
+                return -1;
+            };
+
+            const count = 3 + Math.floor(hashRand2D(cx * 5, cz * 7, 12102) * 5);
+            for (let i = 0; i < count; i++) {
+                const lx = 1 + Math.floor(hashRand2D(cx * 19 + i * 3, cz * 23 - i * 5, 12103) * (CHUNK_SIZE - 2));
+                const lz = 1 + Math.floor(hashRand2D(cx * 29 - i * 7, cz * 31 + i * 11, 12104) * (CHUNK_SIZE - 2));
+                const topY = getColumnTop(lx, lz);
+                if (topY < SEA_LEVEL - 1 || topY >= CHUNK_HEIGHT - 2) continue;
+                const ground = data[idx(lx, topY, lz)];
+                if (ground !== 1 && ground !== 2 && ground !== 7) continue;
+                if (data[idx(lx, topY + 1, lz)] !== 0) continue;
+                data[idx(lx, topY + 1, lz)] = PUMPKIN_BLOCK_ID;
+            }
+        }
+
+        function placeMelonsInChunk(data, cx, cz) {
+            const centerX = Math.floor(CHUNK_SIZE / 2);
+            const centerZ = Math.floor(CHUNK_SIZE / 2);
+            const worldX = cx * CHUNK_SIZE + centerX;
+            const worldZ = cz * CHUNK_SIZE + centerZ;
+            if (getBiome(worldX, worldZ) !== 'Jungle Forest') return;
+            if (hashRand2D(cx, cz, 12201) > 0.25) return;
+
+            const MELON_BLOCK_ID = 108;
+            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
+            const getColumnTop = (lx, lz) => {
+                for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
+                    const t = data[idx(lx, y, lz)];
+                    if (t !== 0 && t !== 4 && t !== 6 && t !== 97) return y;
+                }
+                return -1;
+            };
+
+            const count = 4 + Math.floor(hashRand2D(cx * 13, cz * 17, 12202) * 6);
+            for (let i = 0; i < count; i++) {
+                const lx = 1 + Math.floor(hashRand2D(cx * 37 + i * 13, cz * 41 - i * 9, 12203) * (CHUNK_SIZE - 2));
+                const lz = 1 + Math.floor(hashRand2D(cx * 43 - i * 7, cz * 47 + i * 5, 12204) * (CHUNK_SIZE - 2));
+                const topY = getColumnTop(lx, lz);
+                if (topY < SEA_LEVEL - 1 || topY >= CHUNK_HEIGHT - 2) continue;
+                const ground = data[idx(lx, topY, lz)];
+                if (ground !== 1 && ground !== 2) continue;
+                if (data[idx(lx, topY + 1, lz)] !== 0) continue;
+                data[idx(lx, topY + 1, lz)] = MELON_BLOCK_ID;
+            }
+        }
 
         function placeAmethystGeodesInChunk(data, cx, cz) {
             // Block palette for geodes:

@@ -78,6 +78,8 @@
       return { id: 28, count: 1 };
     }
     if (blockId === 99 || blockId === 100) return { id: 101, count: 1 };
+    if (blockId === 107) return { id: 110, count: 1 };
+    if (blockId === 108) return { id: 109, count: 9 };
     return { id: blockId, count: 1 };
   }
 

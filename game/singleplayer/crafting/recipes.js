@@ -68,6 +68,7 @@
     { name: 'Jungle Planks', output:  { id: 98, count: 4 }, shape: [[96]] },
     { name: 'Bamboo Planks', output:  { id: 103, count: 4 }, shape: [[101]] },
     { name: 'Chiseled Stone Bricks', output: { id: 102, count: 1 }, shape: [[21], [21]] },
+    { name: 'Pumpkin Slices', output: { id: 111, count: 9 }, shape: [[110]] },
   ];
 
   function checkCraftingRecipe(inputSlots, gridWidth) {

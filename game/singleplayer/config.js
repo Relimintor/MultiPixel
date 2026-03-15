@@ -162,6 +162,8 @@
     AMETHYST_BLOCK: getAssetPath('textures/diamond_block.png'),
     CHALK_BLOCK: getAssetPath('textures/smooth_stone.png'),
     BASALT_BLOCK: getAssetPath('textures/obsidian.png'),
+    PUMPKIN_BLOCK: getAssetPath('textures/gold_ore.png'),
+    MELON_BLOCK: getAssetPath('textures/emerald_block.png'),
     BAMBOO_PLANKS_SIDE: getAssetPath('textures/bamboo_block.png'),
     BAMBOO_PLANKS_TOP:getAssetPath('textures/bamboo_block_top.png'),
 
@@ -309,6 +311,8 @@
     104: { name: 'Amethyst Block', id: 104, textured: true, textureKey: 'AMETHYST_BLOCK' },
     105: { name: 'Chalk', id: 105, textured: true, textureKey: 'CHALK_BLOCK' },
     106: { name: 'Basalt', id: 106, textured: true, textureKey: 'BASALT_BLOCK' },
+    107: { name: 'Pumpkin Block', id: 107, textured: true, textureKey: 'PUMPKIN_BLOCK' },
+    108: { name: 'Melon Block', id: 108, textured: true, textureKey: 'MELON_BLOCK' },
     
     /*Glass*/
     26: { name: 'Glass', id: 26, textured: true, textureKey: 'GLASS_BLOCK', transparent: true, opacity: 0.8 },
@@ -497,6 +501,10 @@
     99: { name: 'Bamboo Shoot', id: 99, textured: true, textureKey: 'BAMBOO_STAGE0', transparent: true, opacity: 1 },
     100: { name: 'Bamboo Young', id: 100, textured: true, textureKey: 'BAMBOO_STAGE0', transparent: true, opacity: 1 },
     101: { name: 'Bamboo Stalk', id: 101, textured: true, textureKey: 'BAMBOO_STALK', transparent: true, opacity: 1 },
+    109: { name: 'Melon Slice', id: 109, textured: false, color: 0x7bcf5b },
+    110: { name: 'Pumpkin', id: 110, textured: false, color: 0xd9872a },
+    111: { name: 'Pumpkin Slice', id: 111, textured: false, color: 0xf5a623 },
+    112: { name: 'Cooked Pumpkin Slice', id: 112, textured: false, color: 0xe38b1f },
   }; 
 
   window.SingleplayerConfig = {
@@ -507,7 +515,7 @@
     REPO_BASE_PREFIX,
     WORLD_GEN_SETTINGS,
     ASSET_FILEPATHS, blockMaterials,
-    SOLID_BLOCKS: [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106 ],
+    SOLID_BLOCKS: [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108 ],
     LIQUID_BLOCKS: [4, 33, 47, 48, 49, 50, 51, 52, 53, 60, 61, 62, 63, 64, 65, 66],
     DEFAULT_PLAYER: {
       moveSpeed: 0.12,

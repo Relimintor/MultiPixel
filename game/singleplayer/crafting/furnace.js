@@ -31,6 +31,7 @@
       42: { out: 70, cookTimeSec: 10 },
       38: { out: 69, cookTimeSec: 10 },
       89: { out: 90, cookTimeSec: 7 },
+      111: { out: 112, cookTimeSec: 7 },
     }
   };
 
