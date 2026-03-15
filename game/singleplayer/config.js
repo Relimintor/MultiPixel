@@ -133,6 +133,7 @@
     GLASS_BLOCK: getAssetPath('textures/building/glass_block.png'),
     SMOOTH_STONE_BLOCK: getAssetPath('textures/smooth_stone.png'),
     GRAVEL: getAssetPath('textures/gravel.png'),
+    
     // Reuse the existing sandstone top texture until a dedicated smooth texture asset is added.
     SMOOTH_SANDSTONE_BLOCK: getAssetPath('sand/sandstone/sandstone_top.png'),
     IRON_ORE_BLOCK: getAssetPath('textures/iron_ore.png'),
@@ -157,6 +158,11 @@
     EMERALD_ORE: getAssetPath('textures/emerald_ore.png'),
     EMERALD_BLOCK: getAssetPath('textures/emerald_block.png'),
     EMERALD:  getAssetPath('textures/item/emerald.png'),
+    CHISELED_STONE_BRICK: getAssetPath('textures/chiseled_stone_bricks.png'),
+    BAMBOO_PLANKS_SIDE: getAssetPath('textures/bamboo_block.png'),
+    BAMBOO_PLANKS_TOP:getAssetPath('textures/bamboo_block_top.png'),
+
+    //dyes
     BLACK_DYE: getAssetPath('textures/item/black_dye.png'),
     GREEN_DYE: getAssetPath('textures/item/green_dye.png'),
     
@@ -280,11 +286,23 @@
     },
   97: { name: 'Jungle Leaves', id: 97, textured: true, textureKey: 'LEAVES', transparent: true, opacity: 1 },
   98: { name: 'Jungle Planks', id: 98, textured: true, textureKey: 'JUNGLE_PLANKS' },
+
+  //bamboo
+  103: { name: 'Bamboo planks', id: 103, textured: true, textureKey: 'BAMBOO_PLANKS_SIDE',
+      textureByFace: {
+        top: 'BAMBOO_PLANKS_TOP',
+        bottom: 'BAMBOO_PLANKS_TOP',
+        posX: 'BAMBOO_PLANKS_SIDE',
+        negX: 'BAMBOO_PLANKS_SIDE',
+        posZ: 'BAMBOO_PLANKS_SIDE',
+        negZ: 'BAMBOO_PLANKS_SIDE'
+      }  },
     
     /*Building ig*/
     8: { name: 'Oak Planks', id: 8, textured: true, textureKey: 'OAK_PLANK' },
     17: { name: 'Cobblestone', id: 17, textured: true, textureKey: 'COBBLESTONE' },
     22: { name: 'torch', id: 22, textured: true, textureKey: 'TORCH', transparent: true, opacity: 1 },
+    102: { name: 'chiseled stone bricks', id: 102, textured: true, textureKey: 'CHISELED_STONE_BRICK' },
     
     /*Glass*/
     26: { name: 'Glass', id: 26, textured: true, textureKey: 'GLASS_BLOCK', transparent: true, opacity: 0.8 },
@@ -455,7 +473,7 @@
     73: { name: 'Copper Pickaxe', id: 73, textured: true, textureKey: 'COPPER_PICKAXE', toolType: 'pickaxe', tier: 4 },
     74: { name: 'Iron Pickaxe', id: 74, textured: true, textureKey: 'IRON_PICKAXE', toolType: 'pickaxe', tier: 5 },
     75: { name: 'Diamond Pickaxe', id: 75, textured: true, textureKey: 'DIAMOND_PICKAXE', toolType: 'pickaxe', tier: 6 },
-    93: { name: 'Emerald Pickaxe', id: 93, txtured: true, textureKey: 'EMERALD_PICKAXE', toolType: 'pickaxe', tier: 7 },
+    93: { name: 'Emerald Pickaxe', id: 93, textured: true, textureKey: 'EMERALD_PICKAXE', toolType: 'pickaxe', tier: 7 },
 
     //SHovel
     83: { name: 'Wooden Shovel', id: 83, textured: true, textureKey: 'WOODEN_SHOVEL', toolType: 'shovel', tier: 1 },
@@ -483,7 +501,7 @@
     REPO_BASE_PREFIX,
     WORLD_GEN_SETTINGS,
     ASSET_FILEPATHS, blockMaterials,
-    SOLID_BLOCKS: [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97, 98, 99, 100, 101 ],
+    SOLID_BLOCKS: [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97, 98, 99, 100, 101, 102, 103 ],
     LIQUID_BLOCKS: [4, 33, 47, 48, 49, 50, 51, 52, 53, 60, 61, 62, 63, 64, 65, 66],
     DEFAULT_PLAYER: {
       moveSpeed: 0.12,
