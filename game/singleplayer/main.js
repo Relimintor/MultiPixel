@@ -1065,6 +1065,126 @@ window.perlin = perlinInstance;
             return sprite;
         }
 
+
+        function getVillagePaletteForBiome(rawBiome, template) {
+            const biome = normalizeBiomeCommandName(rawBiome) || getBiome(Math.floor(yawObject?.position?.x || 0), Math.floor(yawObject?.position?.z || 0));
+            const layout = template?.layout || {};
+            const isDesert = biome === 'Desert';
+            return {
+                wall: Number(layout.defaultHouseWallBlockId) || (isDesert ? 13 : 8),
+                roof: Number(layout.defaultHouseRoofBlockId) || 17,
+                path: Number(layout.pathBlockId) || getPathBlockIdFromTemplate(template, 17),
+                water: Number(layout.wellWaterBlockId) || 4,
+            };
+        }
+
+        function placeSimpleVillageHouse(centerX, centerZ, size, wallId, roofId) {
+            const half = Math.max(2, Math.floor(size / 2));
+            const minX = centerX - half;
+            const maxX = centerX + half;
+            const minZ = centerZ - half;
+            const maxZ = centerZ + half;
+
+            const floorY = getSurfaceYForEntity(centerX, centerZ);
+            if (!Number.isFinite(floorY) || floorY < 2 || floorY >= CHUNK_HEIGHT - 5) return { ok: false, message: 'Could not place building on current terrain.' };
+
+            for (let x = minX; x <= maxX; x++) {
+                for (let z = minZ; z <= maxZ; z++) {
+                    setBlockTypeRaw(x, floorY, z, wallId, true);
+                }
+            }
+
+            for (let y = floorY + 1; y <= floorY + 3; y++) {
+                for (let x = minX; x <= maxX; x++) {
+                    for (let z = minZ; z <= maxZ; z++) {
+                        const isWall = x === minX || x === maxX || z === minZ || z === maxZ;
+                        setBlockTypeRaw(x, y, z, isWall ? wallId : 0, true);
+                    }
+                }
+            }
+
+            for (let x = minX - 1; x <= maxX + 1; x++) {
+                for (let z = minZ - 1; z <= maxZ + 1; z++) {
+                    setBlockTypeRaw(x, floorY + 4, z, roofId, true);
+                }
+            }
+
+            const doorX = centerX;
+            const doorZ = minZ;
+            setBlockTypeRaw(doorX, floorY + 1, doorZ, 0, true);
+            setBlockTypeRaw(doorX, floorY + 2, doorZ, 0, true);
+
+            ensureChunksAroundPlayer(true);
+            return { ok: true, x: centerX, y: floorY + 1, z: centerZ };
+        }
+
+        function placeSimpleVillageWell(centerX, centerZ, baseBlockId, waterBlockId) {
+            const floorY = getSurfaceYForEntity(centerX, centerZ);
+            if (!Number.isFinite(floorY) || floorY < 2 || floorY >= CHUNK_HEIGHT - 5) return { ok: false, message: 'Could not place well on current terrain.' };
+
+            for (let x = centerX - 2; x <= centerX + 2; x++) {
+                for (let z = centerZ - 2; z <= centerZ + 2; z++) {
+                    setBlockTypeRaw(x, floorY, z, baseBlockId, true);
+                }
+            }
+
+            setBlockTypeRaw(centerX, floorY + 1, centerZ, waterBlockId, true);
+            const pillars = [[-1,-1],[-1,1],[1,-1],[1,1]];
+            for (const [ox, oz] of pillars) {
+                for (let y = floorY + 1; y <= floorY + 3; y++) {
+                    setBlockTypeRaw(centerX + ox, y, centerZ + oz, baseBlockId, true);
+                }
+            }
+            for (let x = centerX - 1; x <= centerX + 1; x++) {
+                for (let z = centerZ - 1; z <= centerZ + 1; z++) {
+                    setBlockTypeRaw(x, floorY + 4, z, baseBlockId, true);
+                }
+            }
+
+            ensureChunksAroundPlayer(true);
+            return { ok: true, x: centerX, y: floorY + 1, z: centerZ };
+        }
+
+        function spawnVillageStructure(rawBiomeName, rawBuildingName) {
+            if (!yawObject) return { ok: false, message: 'Player not ready.' };
+            const biomeKey = normalizeVillageBiomeKey(rawBiomeName);
+            if (!biomeKey) return { ok: false, message: 'Unknown village biome. Try plains, desert, oak_forest, jungle_forest, ocean, snowy_plains.' };
+
+            const template = villageTemplatesByBiomeKey.get(biomeKey) || getVillageTemplateForBiome(rawBiomeName);
+            if (!template) return { ok: false, message: `Village template for biome ${biomeKey} is not loaded.` };
+
+            const requested = String(rawBuildingName || '').toLowerCase().trim().replace(/\.json$/i, '');
+            if (!requested) return { ok: false, message: 'Please provide building:<json_name>.' };
+
+            const pieces = Array.isArray(template.pieces) ? template.pieces.map((p) => String(p || '').toLowerCase()) : [];
+            if (pieces.length && !pieces.includes(requested)) {
+                return { ok: false, message: `Building ${requested} not found in ${biomeKey} village pieces: ${pieces.join(', ')}.` };
+            }
+
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(yawObject.quaternion);
+            const centerX = Math.floor(yawObject.position.x + forward.x * 12);
+            const centerZ = Math.floor(yawObject.position.z + forward.z * 12);
+            const palette = getVillagePaletteForBiome(rawBiomeName, template);
+
+            if (requested === 'well') {
+                const placed = placeSimpleVillageWell(centerX, centerZ, palette.path, palette.water);
+                if (!placed.ok) return placed;
+                return { ok: true, message: `Spawned village/${requested}.json in ${biomeKey} at ${placed.x}, ${placed.y}, ${placed.z}.` };
+            }
+
+            const layout = template.layout || getDefaultVillageLayout();
+            const layoutEntry = Array.isArray(layout.buildings)
+                ? layout.buildings.find((b) => String(b?.id || '').toLowerCase().includes(requested) || requested.includes('house'))
+                : null;
+            let size = Number(layoutEntry?.size) || 5;
+            if (requested.includes('church')) size = Math.max(size, 7);
+            if (requested.includes('igloo')) size = Math.max(size, Number(iglooStructureDef?.radius) ? Number(iglooStructureDef.radius) * 2 + 1 : 7);
+
+            const placed = placeSimpleVillageHouse(centerX, centerZ, size, palette.wall, palette.roof);
+            if (!placed.ok) return placed;
+            return { ok: true, message: `Spawned village/${requested}.json in ${biomeKey} at ${placed.x}, ${placed.y}, ${placed.z}.` };
+        }
+
         function spawnGnomeAt(wx, wy, wz) {
             const gnome = new THREE.Group();
             gnome.position.set(wx + 0.5, wy, wz + 0.5);
@@ -1742,10 +1862,21 @@ window.perlin = perlinInstance;
         function spawnPandaAtExact(wx, y, wz) {
             const root = createPandaMesh();
             root.position.set(Math.floor(wx) + 0.5, y, Math.floor(wz) + 0.5);
+
+            const isXRealm = Math.random() < 0.001;
+            if (isXRealm) {
+                const nameTag = createNameTagSprite('XREALM');
+                nameTag.position.set(0, 1.95, 0);
+                root.add(nameTag);
+                root.userData.specialNameTag = nameTag;
+            }
+
             scene.add(root);
             pandaEntities.push({
                 root,
-                hp: 20,
+                hp: isXRealm ? Number.POSITIVE_INFINITY : 20,
+                invulnerable: isXRealm,
+                specialName: isXRealm ? 'XREALM' : '',
                 angerUntilMs: 0,
                 attackCooldownMs: 0,
                 dir: new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize(),
@@ -1926,6 +2057,12 @@ window.perlin = perlinInstance;
 
         function hurtPanda(panda, amount = 4, source = 'player') {
             if (!panda) return;
+            if (panda.invulnerable) {
+                if (source === 'player') showGameMessage('XREALM is unkillable.');
+                panda.changeDirMs = 0;
+                panda.angerUntilMs = performance.now() + (window.JungleDecorationConfig?.panda?.angerMsOnHit || 6000);
+                return;
+            }
             panda.hp -= amount;
             if (panda.hp > 0) {
                 panda.changeDirMs = 0;
@@ -2249,6 +2386,7 @@ window.perlin = perlinInstance;
                 getBlockById: (id) => blockMaterials[id] || null,
                 getMobById: (id) => window.SingleplayerMobConfig?.byId?.[id] || null,
                 spawnMobById,
+                spawnVillageStructure,
                 setTimeByClock,
                 setRenderDistance,
                 getRenderDistance: () => currentChunkLoadRadius,
