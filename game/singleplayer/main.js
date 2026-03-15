@@ -390,9 +390,14 @@ window.perlin = perlinInstance;
         const zombieEntities = [];
         const wolfEntities = [];
         const pandaEntities = [];
+        const villagerEntities = [];
         const pigMobDef = window.SingleplayerMobData?.categories?.passive?.pig || null;
         const pigGoalPriority = Array.isArray(pigMobDef?.behavior?.goals)
             ? [...pigMobDef.behavior.goals].sort((a, b) => a.priority - b.priority)
+            : [];
+        const villagerMobDef = window.SingleplayerMobData?.categories?.passive?.villager || null;
+        const villagerGoalPriority = Array.isArray(villagerMobDef?.behavior?.goals)
+            ? [...villagerMobDef.behavior.goals].sort((a, b) => a.priority - b.priority)
             : [];
         let pigTexture = null;
         let pandaTexture = null;
@@ -407,6 +412,118 @@ window.perlin = perlinInstance;
         const WORLD_MAX_COORD = Number.POSITIVE_INFINITY;
         const WORLD_MIN_COORD = Number.NEGATIVE_INFINITY;
         
+
+        const MOB_COLLISION_RADIUS = {
+            pig: 0.4,
+            wolf: 0.46,
+            panda: 0.56,
+            zombie: 0.42,
+            villager: 0.44,
+            gnome: 0.34,
+        };
+
+        function applyDamageFlashToRoot(root, active) {
+            if (!root) return;
+            root.traverse((obj) => {
+                if (!obj?.isMesh || !obj.material) return;
+                const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+                for (const mat of mats) {
+                    if (!mat) continue;
+                    if (typeof mat.emissive !== 'undefined') {
+                        if (mat.userData.baseEmissiveHex == null) mat.userData.baseEmissiveHex = mat.emissive.getHex();
+                        mat.emissive.setHex(active ? 0x7a0000 : mat.userData.baseEmissiveHex);
+                        if (typeof mat.emissiveIntensity === 'number') mat.emissiveIntensity = active ? 1.15 : 1.0;
+                    } else if (mat.color) {
+                        if (mat.userData.baseColorHex == null) mat.userData.baseColorHex = mat.color.getHex();
+                        mat.color.setHex(active ? 0xff4a4a : mat.userData.baseColorHex);
+                    }
+                }
+            });
+        }
+
+        function applyHitFeedback(entity, sourcePos = null, amount = 4) {
+            if (!entity?.root) return;
+            const strength = Math.max(0.12, Math.min(0.42, 0.07 + amount * 0.018));
+            const src = sourcePos || yawObject?.position || null;
+            if (src) {
+                const away = new THREE.Vector3(entity.root.position.x - src.x, 0, entity.root.position.z - src.z);
+                if (away.lengthSq() < 0.0001) away.set(Math.random() - 0.5, 0, Math.random() - 0.5);
+                away.normalize().multiplyScalar(strength);
+                entity.knockbackVX = (entity.knockbackVX || 0) + away.x;
+                entity.knockbackVZ = (entity.knockbackVZ || 0) + away.z;
+            }
+            entity.hitFlashMs = Math.max(entity.hitFlashMs || 0, 120);
+            applyDamageFlashToRoot(entity.root, true);
+        }
+
+        function tickMobHitFeedback(entity, deltaMs) {
+            if (!entity?.root) return;
+            const dt = Math.max(0.001, Math.min(0.05, deltaMs / 1000));
+            entity.hitFlashMs = Math.max(0, (entity.hitFlashMs || 0) - deltaMs);
+            applyDamageFlashToRoot(entity.root, entity.hitFlashMs > 0);
+
+            const kvx = entity.knockbackVX || 0;
+            const kvz = entity.knockbackVZ || 0;
+            if (Math.abs(kvx) + Math.abs(kvz) > 0.0002) {
+                entity.root.position.x += kvx;
+                entity.root.position.z += kvz;
+                entity.knockbackVX = kvx * Math.max(0, 1 - dt * 12);
+                entity.knockbackVZ = kvz * Math.max(0, 1 - dt * 12);
+            } else {
+                entity.knockbackVX = 0;
+                entity.knockbackVZ = 0;
+            }
+        }
+
+        function resolveCircleOverlap(ax, az, ar, bx, bz, br) {
+            const dx = bx - ax;
+            const dz = bz - az;
+            const distSq = dx * dx + dz * dz;
+            const minDist = ar + br;
+            if (distSq >= minDist * minDist) return null;
+            const dist = Math.sqrt(Math.max(0.000001, distSq));
+            const nx = dx / dist;
+            const nz = dz / dist;
+            const push = (minDist - dist);
+            return { nx, nz, push };
+        }
+
+        function resolveMobEntityPushing() {
+            const colliders = [];
+            for (const pig of pigEntities) colliders.push({ kind: 'pig', ref: pig, pos: pig.root.position, radius: MOB_COLLISION_RADIUS.pig });
+            for (const wolf of wolfEntities) colliders.push({ kind: 'wolf', ref: wolf, pos: wolf.root.position, radius: MOB_COLLISION_RADIUS.wolf });
+            for (const panda of pandaEntities) colliders.push({ kind: 'panda', ref: panda, pos: panda.root.position, radius: MOB_COLLISION_RADIUS.panda });
+            for (const zombie of zombieEntities) colliders.push({ kind: 'zombie', ref: zombie, pos: zombie.root.position, radius: MOB_COLLISION_RADIUS.zombie });
+            for (const villager of villagerEntities) colliders.push({ kind: 'villager', ref: villager, pos: villager.root.position, radius: MOB_COLLISION_RADIUS.villager });
+            for (const gnome of gnomeEntities) colliders.push({ kind: 'gnome', ref: gnome, pos: gnome.root.position, radius: MOB_COLLISION_RADIUS.gnome });
+
+            // Player vs mobs
+            for (const c of colliders) {
+                const overlap = resolveCircleOverlap(yawObject.position.x, yawObject.position.z, PLAYER_RADIUS, c.pos.x, c.pos.z, c.radius);
+                if (!overlap) continue;
+                const pushHalf = overlap.push * 0.5 + 0.001;
+                yawObject.position.x -= overlap.nx * pushHalf;
+                yawObject.position.z -= overlap.nz * pushHalf;
+                c.pos.x += overlap.nx * pushHalf;
+                c.pos.z += overlap.nz * pushHalf;
+            }
+
+            // Mob vs mob
+            for (let i = 0; i < colliders.length; i++) {
+                for (let j = i + 1; j < colliders.length; j++) {
+                    const a = colliders[i];
+                    const b = colliders[j];
+                    const overlap = resolveCircleOverlap(a.pos.x, a.pos.z, a.radius, b.pos.x, b.pos.z, b.radius);
+                    if (!overlap) continue;
+                    const pushHalf = overlap.push * 0.5 + 0.001;
+                    a.pos.x -= overlap.nx * pushHalf;
+                    a.pos.z -= overlap.nz * pushHalf;
+                    b.pos.x += overlap.nx * pushHalf;
+                    b.pos.z += overlap.nz * pushHalf;
+                }
+            }
+        }
+
         // --- 3. CORE UTILITIES ---
 
         function isSolid(type) { return SOLID_BLOCKS.includes(type); }
@@ -1345,6 +1462,77 @@ window.perlin = perlinInstance;
             return pig;
         }
 
+
+        function createVillagerMesh() {
+            const villager = new THREE.Group();
+            const U = 1 / 16;
+
+            const head = createStevePartMesh(
+                [8 * U, 8 * U, 8 * U],
+                getSkinPartRects('head', false),
+                getSkinPartRects('head', true)
+            );
+            head.position.y = 28 * U;
+
+            const body = createStevePartMesh(
+                [8 * U, 12 * U, 4 * U],
+                getSkinPartRects('body', false),
+                getSkinPartRects('body', true)
+            );
+            body.position.y = 18 * U;
+
+            const rightArmPivot = new THREE.Group();
+            rightArmPivot.position.set(6 * U, 24 * U, 0);
+            const rightArm = createStevePartMesh(
+                [4 * U, 12 * U, 4 * U],
+                getSkinPartRects('rightArm', false),
+                getSkinPartRects('rightArm', true)
+            );
+            rightArm.position.set(0, -6 * U, 0);
+            rightArmPivot.add(rightArm);
+
+            const leftArmPivot = new THREE.Group();
+            leftArmPivot.position.set(-6 * U, 24 * U, 0);
+            const leftArm = createStevePartMesh(
+                [4 * U, 12 * U, 4 * U],
+                getSkinPartRects('leftArm', false),
+                getSkinPartRects('leftArm', true)
+            );
+            leftArm.position.set(0, -6 * U, 0);
+            leftArmPivot.add(leftArm);
+
+            const rightLegPivot = new THREE.Group();
+            rightLegPivot.position.set(2 * U, 12 * U, 0);
+            const rightLeg = createStevePartMesh(
+                [4 * U, 12 * U, 4 * U],
+                getSkinPartRects('rightLeg', false),
+                getSkinPartRects('rightLeg', true)
+            );
+            rightLeg.position.set(0, -6 * U, 0);
+            rightLegPivot.add(rightLeg);
+
+            const leftLegPivot = new THREE.Group();
+            leftLegPivot.position.set(-2 * U, 12 * U, 0);
+            const leftLeg = createStevePartMesh(
+                [4 * U, 12 * U, 4 * U],
+                getSkinPartRects('leftLeg', false),
+                getSkinPartRects('leftLeg', true)
+            );
+            leftLeg.position.set(0, -6 * U, 0);
+            leftLegPivot.add(leftLeg);
+
+            villager.add(body, head, leftArmPivot, rightArmPivot, leftLegPivot, rightLegPivot);
+            const hitbox = new THREE.Mesh(
+                new THREE.BoxGeometry(0.62, 1.78, 0.62),
+                new THREE.MeshBasicMaterial({ visible: false })
+            );
+            hitbox.position.y = 0.9;
+            villager.add(hitbox);
+            villager.userData.villagerParts = { head, leftArmPivot, rightArmPivot, leftLegPivot, rightLegPivot };
+            villager.userData.villagerHitbox = hitbox;
+            return villager;
+        }
+
         function createWolfMesh() {
             const U = 1 / 16;
             const wolf = new THREE.Group();
@@ -1603,6 +1791,9 @@ window.perlin = perlinInstance;
                 lookTargetYaw: 0,
                 lookTargetPitch: 0,
                 nextLookChangeMs: 0,
+                knockbackVX: 0,
+                knockbackVZ: 0,
+                hitFlashMs: 0,
             });
             return true;
         }
@@ -1645,7 +1836,7 @@ window.perlin = perlinInstance;
                 const dist = 3 + Math.random() * 6;
                 const wx = yawObject.position.x + Math.cos(angle) * dist;
                 const wz = yawObject.position.z + Math.sin(angle) * dist;
-                const ok = id === 1 ? spawnPigAt(wx, wz) : (id === 2 ? spawnZombieAt(wx, wz) : (id === 3 ? spawnWolfForCommand(wx, wz) : (id === 4 ? spawnPandaForCommand(wx, wz) : false)));
+                const ok = id === 1 ? spawnPigAt(wx, wz) : (id === 2 ? spawnZombieAt(wx, wz) : (id === 3 ? spawnWolfForCommand(wx, wz) : (id === 4 ? spawnPandaForCommand(wx, wz) : (id === 5 ? spawnVillagerForCommand(wx, wz) : false))));
                 if (ok) spawned++;
             }
             return spawned;
@@ -1712,6 +1903,7 @@ window.perlin = perlinInstance;
             const nowMs = performance.now();
             for (const pig of pigEntities) {
                 if (!isEntityActiveAt(pig.root.position)) continue;
+                tickMobHitFeedback(pig, deltaMs);
 
                 pig.changeDirMs -= deltaMs;
                 if (pig.changeDirMs <= 0) {
@@ -1790,8 +1982,9 @@ window.perlin = perlinInstance;
             return pigEntities.find((p) => p.root.userData.pigHitbox === hitObj) || null;
         }
 
-        function hurtPig(pig, amount = 4, source = 'player') {
+        function hurtPig(pig, amount = 4, source = 'player', sourcePos = null) {
             if (!pig) return;
+            applyHitFeedback(pig, sourcePos, amount);
             pig.hp -= amount;
             if (pig.hp > 0) {
                 pig.changeDirMs = 0;
@@ -1842,6 +2035,9 @@ window.perlin = perlinInstance;
                 retargetMs: 0,
                 combatTarget: null,
                 combatTargetType: null,
+                knockbackVX: 0,
+                knockbackVZ: 0,
+                hitFlashMs: 0,
             });
             return true;
         }
@@ -1884,6 +2080,9 @@ window.perlin = perlinInstance;
                 groundProbeMs: 0,
                 targetY: y,
                 bobPhase: Math.random() * Math.PI * 2,
+                knockbackVX: 0,
+                knockbackVZ: 0,
+                hitFlashMs: 0,
             });
             return true;
         }
@@ -1908,6 +2107,321 @@ window.perlin = perlinInstance;
             return spawnWolfAtExact(wx, y, wz);
         }
 
+
+        function spawnVillagerAtExact(wx, y, wz, homeCenter = null, villageCenter = null, poiTargets = null) {
+            const root = createVillagerMesh();
+            root.position.set(Math.floor(wx) + 0.5, y, Math.floor(wz) + 0.5);
+            scene.add(root);
+            villagerEntities.push({
+                root,
+                hp: 20,
+                dir: new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize(),
+                changeDirMs: 1000 + Math.random() * 1600,
+                groundProbeMs: 0,
+                targetY: y,
+                bobPhase: Math.random() * Math.PI * 2,
+                homeCenter: homeCenter ? { x: homeCenter.x, z: homeCenter.z } : null,
+                villageCenter: villageCenter ? { x: villageCenter.x, z: villageCenter.z } : (homeCenter ? { x: homeCenter.x, z: homeCenter.z } : null),
+                poiTargets: Array.isArray(poiTargets) ? poiTargets.map((poi) => ({ x: Number(poi.x) || 0, z: Number(poi.z) || 0, key: String(poi.key || 'poi') })) : [],
+                roamRadius: 1.4 + Math.random() * 1.8,
+                currentMoveTarget: null,
+                currentPoiIndex: -1,
+                nextVillagePathSwitchMs: 0,
+                villagePathPhase: 0,
+                lookYaw: 0,
+                lookPitch: 0,
+                lookTargetYaw: 0,
+                lookTargetPitch: 0,
+                nextLookChangeMs: 0,
+                panicUntilMs: 0,
+                knockbackVX: 0,
+                knockbackVZ: 0,
+                hitFlashMs: 0,
+            });
+            return true;
+        }
+
+        function spawnVillagerForCommand(wx, wz) {
+            const y = getSurfaceYForEntity(wx, wz);
+            if (y < SEA_LEVEL || y > SEA_LEVEL + 36) return false;
+            const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
+            if (under !== 1 && under !== 2 && under !== 3 && under !== 7 && under !== 15 && under !== 17 && under !== 13 && under !== 8) return false;
+            const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(Math.floor(wx), y, Math.floor(wz)) : 15;
+            if (lightLevel < 7) return false;
+            return spawnVillagerAtExact(wx, y, wz, { x: Math.floor(wx) + 0.5, z: Math.floor(wz) + 0.5 }, { x: Math.floor(wx) + 0.5, z: Math.floor(wz) + 0.5 }, [{ key: 'well', x: Math.floor(wx) + 0.5, z: Math.floor(wz) + 0.5 }]);
+        }
+
+
+        function findClosestZombieThreat(position, maxDist = 10) {
+            if (!zombieEntities.length) return null;
+            const maxSq = maxDist * maxDist;
+            let nearest = null;
+            let bestSq = maxSq;
+            for (const z of zombieEntities) {
+                const p = z?.root?.position;
+                if (!p) continue;
+                const dx = position.x - p.x;
+                const dz = position.z - p.z;
+                const d2 = dx * dx + dz * dz;
+                if (d2 < bestSq) {
+                    bestSq = d2;
+                    nearest = z;
+                }
+            }
+            return nearest;
+        }
+
+
+        function isVillagerRainActive() {
+            return Boolean(window.SingleplayerWeather?.isRaining || window.SingleplayerWeather?.rainActive || window.WorldWeather?.isRaining);
+        }
+
+        function getVillagerPoiTargets(villager) {
+            if (Array.isArray(villager?.poiTargets) && villager.poiTargets.length) return villager.poiTargets;
+            if (villager?.villageCenter) {
+                return [{ key: 'well', x: villager.villageCenter.x, z: villager.villageCenter.z }];
+            }
+            if (villager?.homeCenter) {
+                return [{ key: 'home', x: villager.homeCenter.x, z: villager.homeCenter.z }];
+            }
+            return [];
+        }
+
+        function applyVillagerTargetSteer(desiredDir, villager, target, weight = 1) {
+            if (!target) return false;
+            const tx = Number(target.x);
+            const tz = Number(target.z);
+            if (!Number.isFinite(tx) || !Number.isFinite(tz)) return false;
+            const toTarget = new THREE.Vector3(tx - villager.root.position.x, 0, tz - villager.root.position.z);
+            if (toTarget.lengthSq() < 0.0001) return false;
+            desiredDir.add(toTarget.normalize().multiplyScalar(weight));
+            return true;
+        }
+
+        function ensureVillagerVillagePathTarget(villager, nowMs) {
+            if ((villager.nextVillagePathSwitchMs || 0) > nowMs && villager.currentMoveTarget?.source === 'villagePath') return;
+            villager.nextVillagePathSwitchMs = nowMs + 1600 + Math.random() * 2200;
+
+            const home = villager.homeCenter;
+            const center = villager.villageCenter || home;
+            if (!home && !center) return;
+
+            villager.villagePathPhase = ((villager.villagePathPhase || 0) + 1) % 3;
+            if (villager.villagePathPhase === 0 && home) {
+                villager.currentMoveTarget = { x: home.x, z: home.z, source: 'villagePath-home' };
+                return;
+            }
+            if (villager.villagePathPhase === 1 && center) {
+                villager.currentMoveTarget = { x: center.x, z: center.z, source: 'villagePath-center' };
+                return;
+            }
+
+            if (home && center) {
+                const midX = (home.x + center.x) * 0.5;
+                const midZ = (home.z + center.z) * 0.5;
+                const offX = (Math.random() - 0.5) * 5.5;
+                const offZ = (Math.random() - 0.5) * 5.5;
+                villager.currentMoveTarget = { x: midX + offX, z: midZ + offZ, source: 'villagePath-mid' };
+            } else if (center) {
+                villager.currentMoveTarget = { x: center.x + (Math.random() - 0.5) * 6, z: center.z + (Math.random() - 0.5) * 6, source: 'villagePath-center-roam' };
+            }
+        }
+
+        function updateVillagers(time, deltaMs) {
+            if (!villagerEntities.length) return;
+            const dt = Math.max(0.001, Math.min(0.05, deltaMs / 1000));
+            const nowMs = performance.now();
+            const raining = isVillagerRainActive();
+            for (const villager of villagerEntities) {
+                if (!isEntityActiveAt(villager.root.position)) continue;
+                tickMobHitFeedback(villager, deltaMs);
+
+                villager.changeDirMs -= deltaMs;
+                const home = villager.homeCenter;
+                const center = villager.villageCenter || home;
+                const homeDx = home ? (home.x - villager.root.position.x) : 0;
+                const homeDz = home ? (home.z - villager.root.position.z) : 0;
+                const homeDist = home ? Math.hypot(homeDx, homeDz) : 0;
+                const centerDx = center ? (center.x - villager.root.position.x) : 0;
+                const centerDz = center ? (center.z - villager.root.position.z) : 0;
+                const centerDist = center ? Math.hypot(centerDx, centerDz) : 0;
+                const inLiquid = isLiquid(getBlockType(Math.floor(villager.root.position.x), Math.floor(villager.root.position.y), Math.floor(villager.root.position.z)));
+
+                const threat = findClosestZombieThreat(villager.root.position, 10);
+                const threatPos = threat?.root?.position || null;
+                const threatDist = threatPos
+                    ? Math.hypot(villager.root.position.x - threatPos.x, villager.root.position.z - threatPos.z)
+                    : Number.POSITIVE_INFINITY;
+                const panicActive = (villager.panicUntilMs || 0) > nowMs;
+                const dangerActive = panicActive || threatDist < 8.5;
+
+                if (villager.changeDirMs <= 0) {
+                    villager.changeDirMs = 700 + Math.random() * 1300;
+                    if (panicActive) {
+                        villager.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
+                    } else if (home && homeDist > villager.roamRadius + 0.75) {
+                        villager.dir.set(homeDx, 0, homeDz).normalize();
+                    } else {
+                        villager.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
+                    }
+                }
+
+                let speed = 0.56;
+                const desiredDir = villager.dir.clone();
+                const poiTargets = getVillagerPoiTargets(villager);
+
+                for (const goal of villagerGoalPriority) {
+                    if (goal.key === 'float' && inLiquid) {
+                        speed = Math.max(speed, 0.74);
+                        villager.targetY = Math.max(villager.targetY, villager.root.position.y + 0.1);
+                        continue;
+                    }
+
+                    if (goal.key === 'panic' && panicActive) {
+                        speed = Math.max(speed, 1.04);
+                        const panicVec = new THREE.Vector3((Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2);
+                        if (panicVec.lengthSq() > 0.0001) desiredDir.add(panicVec.normalize().multiplyScalar(1.3));
+                        continue;
+                    }
+
+                    if (goal.key === 'avoidHostile' && threatPos && threatDist < 9) {
+                        const away = new THREE.Vector3(
+                            villager.root.position.x - threatPos.x,
+                            0,
+                            villager.root.position.z - threatPos.z
+                        );
+                        const danger = Math.max(0, (9 - threatDist) / 9);
+                        if (away.lengthSq() > 0.0001) {
+                            desiredDir.add(away.normalize().multiplyScalar(1.7 + danger * 1.5));
+                            speed = Math.max(speed, 0.78 + danger * 0.36);
+                            villager.panicUntilMs = Math.max(villager.panicUntilMs || 0, nowMs + 800);
+                        }
+                        continue;
+                    }
+
+                    if (goal.key === 'moveThroughVillage') {
+                        ensureVillagerVillagePathTarget(villager, nowMs);
+                        if (villager.currentMoveTarget?.source?.startsWith('villagePath')) {
+                            applyVillagerTargetSteer(desiredDir, villager, villager.currentMoveTarget, 0.95);
+                            speed = Math.max(speed, 0.64);
+                        }
+                        continue;
+                    }
+
+                    if (goal.key === 'walkToVillageCenter' && center && centerDist > 5.5) {
+                        applyVillagerTargetSteer(desiredDir, villager, center, 1.12);
+                        villager.currentMoveTarget = { x: center.x, z: center.z, source: 'center' };
+                        speed = Math.max(speed, 0.7);
+                        continue;
+                    }
+
+                    if (goal.key === 'walkToPoi' && poiTargets.length) {
+                        if (!Number.isFinite(villager.currentPoiIndex) || villager.currentPoiIndex < 0) {
+                            villager.currentPoiIndex = Math.floor(Math.random() * poiTargets.length);
+                        }
+                        const poi = poiTargets[(villager.currentPoiIndex % poiTargets.length + poiTargets.length) % poiTargets.length];
+                        const poiDist = poi ? Math.hypot(villager.root.position.x - poi.x, villager.root.position.z - poi.z) : Number.POSITIVE_INFINITY;
+                        if (poi && poiDist < 1.4) {
+                            villager.currentPoiIndex = (villager.currentPoiIndex + 1) % poiTargets.length;
+                        }
+                        const nextPoi = poiTargets[(villager.currentPoiIndex % poiTargets.length + poiTargets.length) % poiTargets.length];
+                        if (nextPoi) {
+                            applyVillagerTargetSteer(desiredDir, villager, nextPoi, 0.72);
+                            speed = Math.max(speed, 0.62);
+                        }
+                        continue;
+                    }
+
+                    if (goal.key === 'moveIndoors' && (raining || dangerActive) && home) {
+                        villager.currentMoveTarget = { x: home.x, z: home.z, source: 'indoors' };
+                        applyVillagerTargetSteer(desiredDir, villager, home, 1.28);
+                        speed = Math.max(speed, 0.76);
+                        continue;
+                    }
+
+                    if (goal.key === 'moveToTargetPosition' && villager.currentMoveTarget) {
+                        const targetDist = Math.hypot(villager.root.position.x - villager.currentMoveTarget.x, villager.root.position.z - villager.currentMoveTarget.z);
+                        if (targetDist < 1.2) {
+                            villager.currentMoveTarget = null;
+                        } else {
+                            applyVillagerTargetSteer(desiredDir, villager, villager.currentMoveTarget, 0.95);
+                            speed = Math.max(speed, 0.65);
+                        }
+                        continue;
+                    }
+
+                    if (goal.key === 'wanderHome' && home && homeDist > villager.roamRadius + 0.4) {
+                        speed = Math.max(speed, 0.66);
+                        const toHome = new THREE.Vector3(homeDx, 0, homeDz);
+                        if (toHome.lengthSq() > 0.0001) desiredDir.add(toHome.normalize().multiplyScalar(0.88));
+                        continue;
+                    }
+
+                    if (goal.key === 'observe') {
+                        villager.nextLookChangeMs -= deltaMs;
+                        if (villager.nextLookChangeMs <= 0) {
+                            villager.nextLookChangeMs = 700 + Math.random() * 1500;
+                            villager.lookTargetYaw = (Math.random() - 0.5) * 1.1;
+                            villager.lookTargetPitch = (Math.random() - 0.5) * 0.45;
+                        }
+                    }
+                }
+
+                if (desiredDir.lengthSq() > 0.00001) villager.dir.copy(desiredDir.normalize());
+
+                const nx = villager.root.position.x + villager.dir.x * speed * dt;
+                const nz = villager.root.position.z + villager.dir.z * speed * dt;
+                villager.groundProbeMs -= deltaMs;
+                if (villager.groundProbeMs <= 0) {
+                    villager.groundProbeMs = 180 + Math.random() * 120;
+                    villager.targetY = getSurfaceYForEntity(nx, nz, villager.targetY);
+                }
+                if (villager.targetY > 0) {
+                    villager.root.position.x = nx;
+                    villager.root.position.z = nz;
+                    villager.root.position.y += (villager.targetY - villager.root.position.y) * Math.min(1, dt * 10);
+                }
+
+                villager.root.rotation.y = Math.atan2(villager.dir.x, villager.dir.z);
+                villager.lookYaw += (villager.lookTargetYaw - villager.lookYaw) * Math.min(1, dt * 6);
+                villager.lookPitch += (villager.lookTargetPitch - villager.lookPitch) * Math.min(1, dt * 6);
+                const parts = villager.root.userData.villagerParts || {};
+                if (parts.head) {
+                    parts.head.rotation.y = villager.lookYaw;
+                    parts.head.rotation.x = villager.lookPitch;
+                }
+                const walk = Math.sin(time * 0.012 + villager.bobPhase) * 0.32;
+                if (parts.leftLegPivot) parts.leftLegPivot.rotation.x = walk;
+                if (parts.rightLegPivot) parts.rightLegPivot.rotation.x = -walk;
+                if (parts.leftArmPivot) parts.leftArmPivot.rotation.x = -walk * 0.85;
+                if (parts.rightArmPivot) parts.rightArmPivot.rotation.x = walk * 0.85;
+            }
+        }
+
+
+        function getVillagerHitFromCrosshair() {
+            if (!villagerEntities.length) return null;
+            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            const hitboxes = villagerEntities.map(v => v.root.userData.villagerHitbox).filter(Boolean);
+            const hits = raycaster.intersectObjects(hitboxes, false);
+            if (!hits.length) return null;
+            const hitObj = hits[0].object;
+            return villagerEntities.find((v) => v.root.userData.villagerHitbox === hitObj) || null;
+        }
+
+        function hurtVillager(villager, amount = 4, source = 'player', sourcePos = null) {
+            if (!villager) return;
+            applyHitFeedback(villager, sourcePos, amount);
+            villager.hp -= amount;
+            villager.changeDirMs = 0;
+            villager.panicUntilMs = performance.now() + 3600;
+            if (source === 'player') showGameMessage('Villager: hrmm...');
+            if (villager.hp > 0) return;
+            const idx = villagerEntities.indexOf(villager);
+            if (idx >= 0) villagerEntities.splice(idx, 1);
+            scene.remove(villager.root);
+        }
+
         function getWolfHitFromCrosshair() {
             if (!wolfEntities.length) return null;
             raycaster.setFromCamera({ x: 0, y: 0 }, camera);
@@ -1918,8 +2432,9 @@ window.perlin = perlinInstance;
             return wolfEntities.find((w) => w.root.userData.wolfHitbox === hitObj) || null;
         }
 
-        function hurtWolf(wolf, amount = 4) {
+        function hurtWolf(wolf, amount = 4, sourcePos = null) {
             if (!wolf) return;
+            applyHitFeedback(wolf, sourcePos, amount);
             wolf.hp -= amount;
             if (wolf.hp > 0) {
                 wolf.changeDirMs = 0;
@@ -1937,6 +2452,7 @@ window.perlin = perlinInstance;
             if (!target) return;
             for (const wolf of wolfEntities) {
                 if (!isEntityActiveAt(wolf.root.position)) continue;
+                tickMobHitFeedback(wolf, deltaMs);
                 if (!wolf.tamed) continue;
                 wolf.combatTarget = target;
                 wolf.combatTargetType = targetType;
@@ -2026,8 +2542,8 @@ window.perlin = perlinInstance;
 
                 if (wolf.combatTarget && targetDist < 1.35 && wolf.attackCooldownMs <= 0) {
                     wolf.attackCooldownMs = 650;
-                    if (wolf.combatTargetType === 'pig') hurtPig(wolf.combatTarget, 4, 'wolf');
-                    else if (wolf.combatTargetType === 'zombie') hurtZombie(wolf.combatTarget, 3);
+                    if (wolf.combatTargetType === 'pig') hurtPig(wolf.combatTarget, 4, 'wolf', wolf.root.position);
+                    else if (wolf.combatTargetType === 'zombie') hurtZombie(wolf.combatTarget, 3, wolf.root.position);
                 }
 
                 const parts = wolf.root.userData.wolfParts || {};
@@ -2055,7 +2571,7 @@ window.perlin = perlinInstance;
             return pandaEntities.find((p) => p.root.userData.pandaHitbox === hitObj) || null;
         }
 
-        function hurtPanda(panda, amount = 4, source = 'player') {
+        function hurtPanda(panda, amount = 4, source = 'player', sourcePos = null) {
             if (!panda) return;
             if (panda.invulnerable) {
                 if (source === 'player') showGameMessage('XREALM is unkillable.');
@@ -2063,6 +2579,7 @@ window.perlin = perlinInstance;
                 panda.angerUntilMs = performance.now() + (window.JungleDecorationConfig?.panda?.angerMsOnHit || 6000);
                 return;
             }
+            applyHitFeedback(panda, sourcePos, amount);
             panda.hp -= amount;
             if (panda.hp > 0) {
                 panda.changeDirMs = 0;
@@ -2085,6 +2602,7 @@ window.perlin = perlinInstance;
             for (let i = pandaEntities.length - 1; i >= 0; i--) {
                 const panda = pandaEntities[i];
                 if (!isEntityActiveAt(panda.root.position)) continue;
+                tickMobHitFeedback(panda, deltaMs);
                 panda.changeDirMs -= deltaMs;
                 panda.attackCooldownMs = Math.max(0, panda.attackCooldownMs - deltaMs);
                 const angry = performance.now() < panda.angerUntilMs;
@@ -2140,8 +2658,9 @@ window.perlin = perlinInstance;
             return zombieEntities.find((z) => z.root.userData.zombieHitbox === hitObj) || null;
         }
 
-        function hurtZombie(zombie, amount = 4) {
+        function hurtZombie(zombie, amount = 4, sourcePos = null) {
             if (!zombie) return;
+            applyHitFeedback(zombie, sourcePos, amount);
             zombie.hp -= amount;
             if (zombie.hp > 0) return;
             const idx = zombieEntities.indexOf(zombie);
@@ -2198,6 +2717,9 @@ window.perlin = perlinInstance;
                 sunProbeMs: 0,
                 targetY: y,
                 groundProbeMs: 0,
+                knockbackVX: 0,
+                knockbackVZ: 0,
+                hitFlashMs: 0,
             });
             return true;
         }
@@ -2235,6 +2757,7 @@ window.perlin = perlinInstance;
             for (let i = zombieEntities.length - 1; i >= 0; i--) {
                 const z = zombieEntities[i];
                 if (!isEntityActiveAt(z.root.position)) continue;
+                tickMobHitFeedback(z, deltaMs);
                 const toPlayerFlat = new THREE.Vector3(playerPos.x - z.root.position.x, 0, playerPos.z - z.root.position.z);
                 const distFlat = toPlayerFlat.length();
                 if (distFlat > 0.001) toPlayerFlat.normalize();
@@ -2292,7 +2815,7 @@ window.perlin = perlinInstance;
                     z.burnTickMs += deltaMs;
                     if (z.burnTickMs >= 900) {
                         z.burnTickMs = 0;
-                        hurtZombie(z, 2);
+                        hurtZombie(z, 2, null);
                     }
                 } else {
                     z.burnTickMs = 0;
@@ -3598,26 +4121,33 @@ window.perlin = perlinInstance;
                             showGameMessage('The wolf refused the bone.');
                         }
                     } else {
-                        hurtWolf(wolfHit, 4);
+                        hurtWolf(wolfHit, 4, yawObject.position);
                     }
                     return;
                 }
 
                 const pandaHit = getPandaHitFromCrosshair();
                 if (pandaHit) {
-                    hurtPanda(pandaHit, 4, 'player');
+                    hurtPanda(pandaHit, 4, 'player', yawObject.position);
                     return;
                 }
 
                 const zombieHit = getZombieHitFromCrosshair();
                 if (zombieHit) {
-                    hurtZombie(zombieHit, 4);
+                    hurtZombie(zombieHit, 4, yawObject.position);
                     commandTamedWolvesAttack(zombieHit, 'zombie');
                     return;
                 }
+
+                const villagerHit = getVillagerHitFromCrosshair();
+                if (villagerHit) {
+                    hurtVillager(villagerHit, 4, 'player', yawObject.position);
+                    return;
+                }
+
                 const pigHit = getPigHitFromCrosshair();
                 if (pigHit) {
-                    hurtPig(pigHit, 4, 'player');
+                    hurtPig(pigHit, 4, 'player', yawObject.position);
                     commandTamedWolvesAttack(pigHit, 'pig');
                     return;
                 }
@@ -5720,13 +6250,14 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
              const spawnedPigs = [];
              const spawnedWolves = [];
              const spawnedPandas = [];
+             const spawnedVillagers = [];
              placeIglooInChunk(data, cx, cz, spawnedGnomes);
-             const placedVillage = placeVillageInChunk(data, cx, cz);
+             const placedVillage = placeVillageInChunk(data, cx, cz, spawnedVillagers);
              if (!placedVillage) placeDesertWellInChunk(data, cx, cz, spawnedPigs);
              placeWolfPackInChunk(data, heightmap, cx, cz, spawnedWolves);
              placePandaPackInChunk(data, heightmap, cx, cz, spawnedPandas);
              placeBambooInChunk(data, cx, cz);
-             return { data, heightmap, spawnedGnomes, spawnedPigs, spawnedWolves, spawnedPandas };
+             return { data, heightmap, spawnedGnomes, spawnedPigs, spawnedWolves, spawnedPandas, spawnedVillagers };
         }
 
         function placeIglooInChunk(data, cx, cz, spawnedGnomes) {
@@ -5808,7 +6339,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             spawnedGnomes.push({ wx: worldX, wy: gnomeY, wz: worldZ });
         }
 
-        function placeVillageInChunk(data, cx, cz) {
+        function placeVillageInChunk(data, cx, cz, spawnedVillagers = []) {
             const vg = window.VillageGeneration || {};
             if (!vg.getVillageRegionCandidate) return false;
 
@@ -6213,6 +6744,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                         const doorDirs = Array.from(new Set([primaryDoorDir, ...extraDoors.map((d) => String(d || '').toUpperCase()).filter((d) => DIR_VECTORS[d]) ]));
 
                         const built = placeGroundedHouse(centerX, centerZ, size, wall, roof, doorDirs, biomeKey);
+                        spawnedVillagers.push({ wx: centerX + 0.5, wy: built.baseY + 1, wz: centerZ + 0.5, homeX: centerX + 0.5, homeZ: centerZ + 0.5, centerX: coreX + 0.5, centerZ: coreZ + 0.5, poiTargets: [{ key: 'well', x: coreX + 0.5, z: coreZ + 0.5 }] });
                         addBuildingObstacle(centerX, centerZ, size);
                         buildingCenters.push({ x: centerX, z: centerZ, size });
 
@@ -6514,6 +7046,11 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             }
             if (generated.spawnedPandas && generated.spawnedPandas.length) {
                 for (const panda of generated.spawnedPandas) spawnPandaAtExact(panda.wx, panda.wy, panda.wz);
+            }
+            if (generated.spawnedVillagers && generated.spawnedVillagers.length) {
+                for (const villager of generated.spawnedVillagers) {
+                    spawnVillagerAtExact(villager.wx, villager.wy, villager.wz, { x: villager.homeX, z: villager.homeZ }, { x: villager.centerX ?? villager.homeX, z: villager.centerZ ?? villager.homeZ }, villager.poiTargets || null);
+                }
             }
             return group;
         }
@@ -7653,9 +8190,11 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 updatePigs(time, delta);
                 updateWolves(time, delta);
                 updatePandas(time, delta);
+                updateVillagers(time, delta);
                 updateBambooGrowth(delta);
                 trySpawnNightZombie(delta);
                 updateZombies(time, delta);
+                resolveMobEntityPushing();
                 updateEatingAnimation(delta, time);
                 updatePlayerAvatarVisuals(time);
                 updateFirstPersonHand(time);
@@ -7671,7 +8210,9 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 updatePigs(time, delta);
                 updateWolves(time, delta);
                 updatePandas(time, delta);
+                updateVillagers(time, delta);
                 updateZombies(time, delta);
+                resolveMobEntityPushing();
                 updateEatingAnimation(delta, time);
                 maybeSpawnLavaParticles(delta);
                 updateWorldParticles(delta);
