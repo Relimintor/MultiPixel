@@ -206,10 +206,9 @@
     JUNGLE_LOG: getAssetPath('textures/jungle/jungle_log.png'),
     JUNGLE_LOG_TOP: getAssetPath('textures/jungle/jungle_log_top.png'),
     JUNGLE_PLANKS: getAssetPath('textures/jungle/jungle_planks.png'),
-    // Fetched vanilla-like textures (do not use hand-made local replacements).
-    PANDA_TEXTURE: 'https://mcasset.cloud/1.20.4/assets/minecraft/textures/entity/panda/panda.png',
-    BAMBOO_STAGE0: 'https://mcasset.cloud/1.20.4/assets/minecraft/textures/block/bamboo_stage0.png',
-    BAMBOO_STALK: 'https://mcasset.cloud/1.20.4/assets/minecraft/textures/block/bamboo_stalk.png',
+    PANDA_TEXTURE: getAssetPath('textures/mobs/neutral/panda.png'),
+    BAMBOO_STAGE0: getAssetPath('textures/halfblock/bamboo/bamboo_stage0.png'),
+    BAMBOO_STALK: getAssetPath('textures/halfblock/bamboo/bamboo_stalk.png'),
   };
 
   const blockMaterials = {
