@@ -206,6 +206,10 @@
     JUNGLE_LOG: getAssetPath('textures/jungle/jungle_log.png'),
     JUNGLE_LOG_TOP: getAssetPath('textures/jungle/jungle_log_top.png'),
     JUNGLE_PLANKS: getAssetPath('textures/jungle/jungle_planks.png'),
+    // Fetched vanilla-like textures (do not use hand-made local replacements).
+    PANDA_TEXTURE: 'https://mcasset.cloud/1.20.4/assets/minecraft/textures/entity/panda/panda.png',
+    BAMBOO_STAGE0: 'https://mcasset.cloud/1.20.4/assets/minecraft/textures/block/bamboo_stage0.png',
+    BAMBOO_STALK: 'https://mcasset.cloud/1.20.4/assets/minecraft/textures/block/bamboo_stalk.png',
   };
 
   const blockMaterials = {
@@ -467,6 +471,9 @@
     90: { name: 'Cooked Porkchop', id: 90, textured: true, textureKey: 'PORKCHOP_COOKED' },
     92: { name: 'Rotten Flesh', id: 92, textured: true, textureKey: 'ROTTEN_FLESH' },
     95: { name: 'Bone', id: 95, textured: false, color: 0xe7e6dd },
+    99: { name: 'Bamboo Shoot', id: 99, textured: true, textureKey: 'BAMBOO_STAGE0', transparent: true, opacity: 1 },
+    100: { name: 'Bamboo Young', id: 100, textured: true, textureKey: 'BAMBOO_STAGE0', transparent: true, opacity: 1 },
+    101: { name: 'Bamboo Stalk', id: 101, textured: true, textureKey: 'BAMBOO_STALK', transparent: true, opacity: 1 },
   }; 
 
   window.SingleplayerConfig = {
@@ -477,7 +484,7 @@
     REPO_BASE_PREFIX,
     WORLD_GEN_SETTINGS,
     ASSET_FILEPATHS, blockMaterials,
-    SOLID_BLOCKS: [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97, 98 ],
+    SOLID_BLOCKS: [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97, 98, 99, 100, 101 ],
     LIQUID_BLOCKS: [4, 33, 47, 48, 49, 50, 51, 52, 53, 60, 61, 62, 63, 64, 65, 66],
     DEFAULT_PLAYER: {
       moveSpeed: 0.12,
