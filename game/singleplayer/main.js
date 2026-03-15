@@ -390,9 +390,14 @@ window.perlin = perlinInstance;
         const zombieEntities = [];
         const wolfEntities = [];
         const pandaEntities = [];
+        const villagerEntities = [];
         const pigMobDef = window.SingleplayerMobData?.categories?.passive?.pig || null;
         const pigGoalPriority = Array.isArray(pigMobDef?.behavior?.goals)
             ? [...pigMobDef.behavior.goals].sort((a, b) => a.priority - b.priority)
+            : [];
+        const villagerMobDef = window.SingleplayerMobData?.categories?.passive?.villager || null;
+        const villagerGoalPriority = Array.isArray(villagerMobDef?.behavior?.goals)
+            ? [...villagerMobDef.behavior.goals].sort((a, b) => a.priority - b.priority)
             : [];
         let pigTexture = null;
         let pandaTexture = null;
@@ -1345,6 +1350,77 @@ window.perlin = perlinInstance;
             return pig;
         }
 
+
+        function createVillagerMesh() {
+            const villager = new THREE.Group();
+            const U = 1 / 16;
+
+            const head = createStevePartMesh(
+                [8 * U, 8 * U, 8 * U],
+                getSkinPartRects('head', false),
+                getSkinPartRects('head', true)
+            );
+            head.position.y = 28 * U;
+
+            const body = createStevePartMesh(
+                [8 * U, 12 * U, 4 * U],
+                getSkinPartRects('body', false),
+                getSkinPartRects('body', true)
+            );
+            body.position.y = 18 * U;
+
+            const rightArmPivot = new THREE.Group();
+            rightArmPivot.position.set(6 * U, 24 * U, 0);
+            const rightArm = createStevePartMesh(
+                [4 * U, 12 * U, 4 * U],
+                getSkinPartRects('rightArm', false),
+                getSkinPartRects('rightArm', true)
+            );
+            rightArm.position.set(0, -6 * U, 0);
+            rightArmPivot.add(rightArm);
+
+            const leftArmPivot = new THREE.Group();
+            leftArmPivot.position.set(-6 * U, 24 * U, 0);
+            const leftArm = createStevePartMesh(
+                [4 * U, 12 * U, 4 * U],
+                getSkinPartRects('leftArm', false),
+                getSkinPartRects('leftArm', true)
+            );
+            leftArm.position.set(0, -6 * U, 0);
+            leftArmPivot.add(leftArm);
+
+            const rightLegPivot = new THREE.Group();
+            rightLegPivot.position.set(2 * U, 12 * U, 0);
+            const rightLeg = createStevePartMesh(
+                [4 * U, 12 * U, 4 * U],
+                getSkinPartRects('rightLeg', false),
+                getSkinPartRects('rightLeg', true)
+            );
+            rightLeg.position.set(0, -6 * U, 0);
+            rightLegPivot.add(rightLeg);
+
+            const leftLegPivot = new THREE.Group();
+            leftLegPivot.position.set(-2 * U, 12 * U, 0);
+            const leftLeg = createStevePartMesh(
+                [4 * U, 12 * U, 4 * U],
+                getSkinPartRects('leftLeg', false),
+                getSkinPartRects('leftLeg', true)
+            );
+            leftLeg.position.set(0, -6 * U, 0);
+            leftLegPivot.add(leftLeg);
+
+            villager.add(body, head, leftArmPivot, rightArmPivot, leftLegPivot, rightLegPivot);
+            const hitbox = new THREE.Mesh(
+                new THREE.BoxGeometry(0.62, 1.78, 0.62),
+                new THREE.MeshBasicMaterial({ visible: false })
+            );
+            hitbox.position.y = 0.9;
+            villager.add(hitbox);
+            villager.userData.villagerParts = { head, leftArmPivot, rightArmPivot, leftLegPivot, rightLegPivot };
+            villager.userData.villagerHitbox = hitbox;
+            return villager;
+        }
+
         function createWolfMesh() {
             const U = 1 / 16;
             const wolf = new THREE.Group();
@@ -1645,7 +1721,7 @@ window.perlin = perlinInstance;
                 const dist = 3 + Math.random() * 6;
                 const wx = yawObject.position.x + Math.cos(angle) * dist;
                 const wz = yawObject.position.z + Math.sin(angle) * dist;
-                const ok = id === 1 ? spawnPigAt(wx, wz) : (id === 2 ? spawnZombieAt(wx, wz) : (id === 3 ? spawnWolfForCommand(wx, wz) : (id === 4 ? spawnPandaForCommand(wx, wz) : false)));
+                const ok = id === 1 ? spawnPigAt(wx, wz) : (id === 2 ? spawnZombieAt(wx, wz) : (id === 3 ? spawnWolfForCommand(wx, wz) : (id === 4 ? spawnPandaForCommand(wx, wz) : (id === 5 ? spawnVillagerForCommand(wx, wz) : false))));
                 if (ok) spawned++;
             }
             return spawned;
@@ -1906,6 +1982,115 @@ window.perlin = perlinInstance;
             const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(Math.floor(wx), y, Math.floor(wz)) : 15;
             if (lightLevel < 7) return false;
             return spawnWolfAtExact(wx, y, wz);
+        }
+
+
+        function spawnVillagerAtExact(wx, y, wz, homeCenter = null) {
+            const root = createVillagerMesh();
+            root.position.set(Math.floor(wx) + 0.5, y, Math.floor(wz) + 0.5);
+            scene.add(root);
+            villagerEntities.push({
+                root,
+                hp: 20,
+                dir: new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize(),
+                changeDirMs: 1000 + Math.random() * 1600,
+                groundProbeMs: 0,
+                targetY: y,
+                bobPhase: Math.random() * Math.PI * 2,
+                homeCenter: homeCenter ? { x: homeCenter.x, z: homeCenter.z } : null,
+                roamRadius: 1.4 + Math.random() * 1.8,
+                lookYaw: 0,
+                lookPitch: 0,
+                lookTargetYaw: 0,
+                lookTargetPitch: 0,
+                nextLookChangeMs: 0,
+            });
+            return true;
+        }
+
+        function spawnVillagerForCommand(wx, wz) {
+            const y = getSurfaceYForEntity(wx, wz);
+            if (y < SEA_LEVEL || y > SEA_LEVEL + 36) return false;
+            const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
+            if (under !== 1 && under !== 2 && under !== 3 && under !== 7 && under !== 15 && under !== 17 && under !== 13 && under !== 8) return false;
+            const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(Math.floor(wx), y, Math.floor(wz)) : 15;
+            if (lightLevel < 7) return false;
+            return spawnVillagerAtExact(wx, y, wz, { x: Math.floor(wx) + 0.5, z: Math.floor(wz) + 0.5 });
+        }
+
+        function updateVillagers(time, deltaMs) {
+            if (!villagerEntities.length) return;
+            const dt = Math.max(0.001, Math.min(0.05, deltaMs / 1000));
+            for (const villager of villagerEntities) {
+                if (!isEntityActiveAt(villager.root.position)) continue;
+
+                villager.changeDirMs -= deltaMs;
+                const home = villager.homeCenter;
+                const homeDx = home ? (home.x - villager.root.position.x) : 0;
+                const homeDz = home ? (home.z - villager.root.position.z) : 0;
+                const homeDist = home ? Math.hypot(homeDx, homeDz) : 0;
+
+                if (villager.changeDirMs <= 0) {
+                    villager.changeDirMs = 800 + Math.random() * 1400;
+                    if (home && homeDist > villager.roamRadius + 0.75) {
+                        villager.dir.set(homeDx, 0, homeDz).normalize();
+                    } else {
+                        villager.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
+                    }
+                }
+
+                let speed = 0.56;
+                for (const goal of villagerGoalPriority) {
+                    if (goal.key === 'float') {
+                        const inLiquid = isLiquid(getBlockType(Math.floor(villager.root.position.x), Math.floor(villager.root.position.y), Math.floor(villager.root.position.z)));
+                        if (inLiquid) {
+                            speed = 0.68;
+                            villager.targetY = Math.max(villager.targetY, villager.root.position.y + 0.08);
+                            break;
+                        }
+                    }
+                    if (goal.key === 'wanderHome' && home && homeDist > villager.roamRadius + 0.4) {
+                        villager.dir.set(homeDx, 0, homeDz).normalize();
+                        speed = 0.66;
+                        break;
+                    }
+                    if (goal.key === 'observe') {
+                        villager.nextLookChangeMs -= deltaMs;
+                        if (villager.nextLookChangeMs <= 0) {
+                            villager.nextLookChangeMs = 700 + Math.random() * 1500;
+                            villager.lookTargetYaw = (Math.random() - 0.5) * 1.1;
+                            villager.lookTargetPitch = (Math.random() - 0.5) * 0.45;
+                        }
+                    }
+                }
+
+                const nx = villager.root.position.x + villager.dir.x * speed * dt;
+                const nz = villager.root.position.z + villager.dir.z * speed * dt;
+                villager.groundProbeMs -= deltaMs;
+                if (villager.groundProbeMs <= 0) {
+                    villager.groundProbeMs = 180 + Math.random() * 120;
+                    villager.targetY = getSurfaceYForEntity(nx, nz, villager.targetY);
+                }
+                if (villager.targetY > 0) {
+                    villager.root.position.x = nx;
+                    villager.root.position.z = nz;
+                    villager.root.position.y += (villager.targetY - villager.root.position.y) * Math.min(1, dt * 10);
+                }
+
+                villager.root.rotation.y = Math.atan2(villager.dir.x, villager.dir.z);
+                villager.lookYaw += (villager.lookTargetYaw - villager.lookYaw) * Math.min(1, dt * 6);
+                villager.lookPitch += (villager.lookTargetPitch - villager.lookPitch) * Math.min(1, dt * 6);
+                const parts = villager.root.userData.villagerParts || {};
+                if (parts.head) {
+                    parts.head.rotation.y = villager.lookYaw;
+                    parts.head.rotation.x = villager.lookPitch;
+                }
+                const walk = Math.sin(time * 0.012 + villager.bobPhase) * 0.32;
+                if (parts.leftLegPivot) parts.leftLegPivot.rotation.x = walk;
+                if (parts.rightLegPivot) parts.rightLegPivot.rotation.x = -walk;
+                if (parts.leftArmPivot) parts.leftArmPivot.rotation.x = -walk * 0.85;
+                if (parts.rightArmPivot) parts.rightArmPivot.rotation.x = walk * 0.85;
+            }
         }
 
         function getWolfHitFromCrosshair() {
@@ -5720,13 +5905,14 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
              const spawnedPigs = [];
              const spawnedWolves = [];
              const spawnedPandas = [];
+             const spawnedVillagers = [];
              placeIglooInChunk(data, cx, cz, spawnedGnomes);
-             const placedVillage = placeVillageInChunk(data, cx, cz);
+             const placedVillage = placeVillageInChunk(data, cx, cz, spawnedVillagers);
              if (!placedVillage) placeDesertWellInChunk(data, cx, cz, spawnedPigs);
              placeWolfPackInChunk(data, heightmap, cx, cz, spawnedWolves);
              placePandaPackInChunk(data, heightmap, cx, cz, spawnedPandas);
              placeBambooInChunk(data, cx, cz);
-             return { data, heightmap, spawnedGnomes, spawnedPigs, spawnedWolves, spawnedPandas };
+             return { data, heightmap, spawnedGnomes, spawnedPigs, spawnedWolves, spawnedPandas, spawnedVillagers };
         }
 
         function placeIglooInChunk(data, cx, cz, spawnedGnomes) {
@@ -5808,7 +5994,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             spawnedGnomes.push({ wx: worldX, wy: gnomeY, wz: worldZ });
         }
 
-        function placeVillageInChunk(data, cx, cz) {
+        function placeVillageInChunk(data, cx, cz, spawnedVillagers = []) {
             const vg = window.VillageGeneration || {};
             if (!vg.getVillageRegionCandidate) return false;
 
@@ -6213,6 +6399,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                         const doorDirs = Array.from(new Set([primaryDoorDir, ...extraDoors.map((d) => String(d || '').toUpperCase()).filter((d) => DIR_VECTORS[d]) ]));
 
                         const built = placeGroundedHouse(centerX, centerZ, size, wall, roof, doorDirs, biomeKey);
+                        spawnedVillagers.push({ wx: centerX + 0.5, wy: built.baseY + 1, wz: centerZ + 0.5, homeX: centerX + 0.5, homeZ: centerZ + 0.5 });
                         addBuildingObstacle(centerX, centerZ, size);
                         buildingCenters.push({ x: centerX, z: centerZ, size });
 
@@ -6514,6 +6701,11 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             }
             if (generated.spawnedPandas && generated.spawnedPandas.length) {
                 for (const panda of generated.spawnedPandas) spawnPandaAtExact(panda.wx, panda.wy, panda.wz);
+            }
+            if (generated.spawnedVillagers && generated.spawnedVillagers.length) {
+                for (const villager of generated.spawnedVillagers) {
+                    spawnVillagerAtExact(villager.wx, villager.wy, villager.wz, { x: villager.homeX, z: villager.homeZ });
+                }
             }
             return group;
         }
@@ -7653,6 +7845,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 updatePigs(time, delta);
                 updateWolves(time, delta);
                 updatePandas(time, delta);
+                updateVillagers(time, delta);
                 updateBambooGrowth(delta);
                 trySpawnNightZombie(delta);
                 updateZombies(time, delta);
@@ -7671,6 +7864,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 updatePigs(time, delta);
                 updateWolves(time, delta);
                 updatePandas(time, delta);
+                updateVillagers(time, delta);
                 updateZombies(time, delta);
                 updateEatingAnimation(delta, time);
                 maybeSpawnLavaParticles(delta);
