@@ -5447,12 +5447,12 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
             const regionSize = Number(vg.DEFAULT_STRUCTURE_REGION_SIZE) || 384;
             const chance = Number(vg.DEFAULT_VILLAGE_CHANCE_PER_REGION) || 0.36;
-            const pathHalfLen = 28;
+            const pathHalfLen = 96;
             const chunkMinX = cx * CHUNK_SIZE;
             const chunkMinZ = cz * CHUNK_SIZE;
             const chunkMaxX = chunkMinX + CHUNK_SIZE - 1;
             const chunkMaxZ = chunkMinZ + CHUNK_SIZE - 1;
-            const influenceRadius = pathHalfLen + 16;
+            const influenceRadius = pathHalfLen + 80;
 
             const regionMinX = Math.floor((chunkMinX - influenceRadius) / regionSize);
             const regionMaxX = Math.floor((chunkMaxX + influenceRadius) / regionSize);
@@ -5477,6 +5477,12 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 E: { dx: 1, dz: 0 },
                 W: { dx: -1, dz: 0 }
             };
+
+            const OPPOSITE_DIR = { N: 'S', S: 'N', E: 'W', W: 'E' };
+
+            function isWaterType(t) {
+                return t === 4 || t === 47 || t === 48;
+            }
 
             function setSurfaceBlock(wx, wz, blockId) {
                 if (wx < chunkMinX || wx > chunkMaxX || wz < chunkMinZ || wz > chunkMaxZ) return;
@@ -5503,91 +5509,125 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 return top > 0 ? top : null;
             }
 
+            function getSurfaceTypeAt(wx, wz) {
+                const gy = getGroundYAt(wx, wz);
+                if (!Number.isFinite(gy)) return null;
+                if (wx < chunkMinX || wx > chunkMaxX || wz < chunkMinZ || wz > chunkMaxZ) return null;
+                const lx = wx - chunkMinX;
+                const lz = wz - chunkMinZ;
+                return data[idx(lx, gy, lz)] ?? null;
+            }
+
             function asPathKey(wx, wz) {
                 return `${wx},${wz}`;
             }
 
-            function carvePathBetween(pathCells, a, b) {
-                let x = a.x;
-                let z = a.z;
-                pathCells.add(asPathKey(x, z));
-
-                const horizontalFirst = Math.abs(b.x - a.x) >= Math.abs(b.z - a.z);
-                if (horizontalFirst) {
-                    while (x !== b.x) {
-                        x += Math.sign(b.x - x);
-                        pathCells.add(asPathKey(x, z));
-                    }
-                    while (z !== b.z) {
-                        z += Math.sign(b.z - z);
-                        pathCells.add(asPathKey(x, z));
-                    }
-                } else {
-                    while (z !== b.z) {
-                        z += Math.sign(b.z - z);
-                        pathCells.add(asPathKey(x, z));
-                    }
-                    while (x !== b.x) {
-                        x += Math.sign(b.x - x);
-                        pathCells.add(asPathKey(x, z));
-                    }
-                }
+            function parsePathKey(key) {
+                const [x, z] = String(key).split(',').map((n) => Number(n));
+                return { x, z };
             }
 
-            function placeHouse(centerX, centerZ, size, wallId, roofId, doorDirs) {
-                const half = Math.floor(size / 2);
-                const doorSet = new Set(doorDirs || ['N']);
-                const doors = [];
+            function seedRand01(seedA, seedB, salt) {
+                return hashRand2D(seedA * 131 + salt * 17, seedB * 97 - salt * 23, 29000 + salt);
+            }
 
-                function addDoor(dir) {
-                    const vec = DIR_VECTORS[dir];
-                    if (!vec) return;
-                    const wallX = centerX + vec.dx * half;
-                    const wallZ = centerZ + vec.dz * half;
-                    const outsideX = centerX + vec.dx * (half + 1);
-                    const outsideZ = centerZ + vec.dz * (half + 1);
-                    const wallY = getGroundYAt(wallX, wallZ);
-                    if (Number.isFinite(wallY)) {
-                        placeSolid(wallX, wallY + 1, wallZ, 0);
-                        placeSolid(wallX, wallY + 2, wallZ, 0);
+            function getConnectorPoint(centerX, centerZ, size, dir) {
+                const half = Math.floor(size / 2);
+                const v = DIR_VECTORS[dir] || DIR_VECTORS.N;
+                return {
+                    x: centerX + v.dx * (half + 1),
+                    z: centerZ + v.dz * (half + 1),
+                    dir
+                };
+            }
+
+            function pathfindAroundBuildings(start, goal, blockedKeys, maxRadius = 220) {
+                const sx = start.x;
+                const sz = start.z;
+                const gx = goal.x;
+                const gz = goal.z;
+                const minX = Math.min(sx, gx) - maxRadius;
+                const maxX = Math.max(sx, gx) + maxRadius;
+                const minZ = Math.min(sz, gz) - maxRadius;
+                const maxZ = Math.max(sz, gz) + maxRadius;
+
+                const q = [{ x: sx, z: sz }];
+                const visited = new Set([asPathKey(sx, sz)]);
+                const parent = new Map();
+                let found = false;
+                const dirs = [DIR_VECTORS.N, DIR_VECTORS.E, DIR_VECTORS.S, DIR_VECTORS.W];
+
+                while (q.length) {
+                    const cur = q.shift();
+                    if (cur.x === gx && cur.z === gz) {
+                        found = true;
+                        break;
                     }
-                    doors.push({ x: outsideX, z: outsideZ, dir });
+                    for (const d of dirs) {
+                        const nx = cur.x + d.dx;
+                        const nz = cur.z + d.dz;
+                        if (nx < minX || nx > maxX || nz < minZ || nz > maxZ) continue;
+                        const nk = asPathKey(nx, nz);
+                        if (visited.has(nk)) continue;
+                        if (blockedKeys.has(nk) && !(nx === gx && nz === gz) && !(nx === sx && nz === sz)) continue;
+                        visited.add(nk);
+                        parent.set(nk, asPathKey(cur.x, cur.z));
+                        q.push({ x: nx, z: nz });
+                    }
                 }
+
+                if (!found) return null;
+                const out = [];
+                let k = asPathKey(gx, gz);
+                while (k) {
+                    out.push(parsePathKey(k));
+                    if (k === asPathKey(sx, sz)) break;
+                    k = parent.get(k);
+                }
+                out.reverse();
+                return out;
+            }
+
+            function placeFloatingHouse(centerX, centerZ, size, wallId, roofId, doorDirs) {
+                const half = Math.floor(size / 2);
+                let maxGround = -Infinity;
+                for (let x = centerX - half; x <= centerX + half; x++) {
+                    for (let z = centerZ - half; z <= centerZ + half; z++) {
+                        const gy = getGroundYAt(x, z);
+                        if (Number.isFinite(gy)) maxGround = Math.max(maxGround, gy);
+                    }
+                }
+                const baseY = Number.isFinite(maxGround) ? Math.min(CHUNK_HEIGHT - 8, maxGround + 2) : 70;
 
                 for (let x = centerX - half; x <= centerX + half; x++) {
                     for (let z = centerZ - half; z <= centerZ + half; z++) {
-                        const groundY = getGroundYAt(x, z);
-                        if (!Number.isFinite(groundY)) continue;
-                        placeSolid(x, groundY + 1, z, wallId);
+                        placeSolid(x, baseY, z, wallId);
                         const edge = x === centerX - half || x === centerX + half || z === centerZ - half || z === centerZ + half;
                         if (edge) {
-                            placeSolid(x, groundY + 2, z, wallId);
-                            placeSolid(x, groundY + 3, z, wallId);
+                            placeSolid(x, baseY + 1, z, wallId);
+                            placeSolid(x, baseY + 2, z, wallId);
                         } else {
-                            placeSolid(x, groundY + 2, z, 0);
-                            placeSolid(x, groundY + 3, z, 0);
+                            placeSolid(x, baseY + 1, z, 0);
+                            placeSolid(x, baseY + 2, z, 0);
                         }
-                        placeSolid(x, groundY + 4, z, roofId);
+                        placeSolid(x, baseY + 3, z, roofId);
                     }
                 }
 
-                for (const dir of doorSet) addDoor(dir);
-                return doors;
-            }
-
-            function nearestPoint(points, from, excludeSet = null) {
-                let best = null;
-                let bestDist = Infinity;
-                for (const p of points) {
-                    if (p.id === from.id) continue;
-                    if (excludeSet && excludeSet.has(`${from.id}->${p.id}`)) continue;
-                    const dist = Math.abs(p.x - from.x) + Math.abs(p.z - from.z);
-                    if (dist < bestDist) {
-                        bestDist = dist;
-                        best = p;
-                    }
+                const resultDoors = [];
+                const dirs = Array.isArray(doorDirs) && doorDirs.length ? doorDirs : ['N'];
+                for (const dirRaw of dirs) {
+                    const dir = String(dirRaw || '').toUpperCase();
+                    const v = DIR_VECTORS[dir];
+                    if (!v) continue;
+                    const wallX = centerX + v.dx * half;
+                    const wallZ = centerZ + v.dz * half;
+                    placeSolid(wallX, baseY + 1, wallZ, 0);
+                    placeSolid(wallX, baseY + 2, wallZ, 0);
+                    resultDoors.push(getConnectorPoint(centerX, centerZ, size, dir));
                 }
-                return best;
+
+                return { doors: resultDoors, baseY };
             }
 
             for (let rx = regionMinX; rx <= regionMaxX; rx++) {
@@ -5615,12 +5655,18 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                     const template = getVillageTemplateForBiome(biome) || {};
                     const layout = template.layout || getDefaultVillageLayout();
                     const roadCfg = layout.road || {};
+                    const biomeKey = normalizeVillageBiomeKey(biome);
+                    const allowWaterSpawn = biomeKey === 'ocean' || biomeKey === 'jungle_forest';
                     const isDesert = biome === 'Desert';
                     const wellBlock = Number(layout.wellBlockId) || (isDesert ? 13 : 17);
                     const pathBlock = Number(layout.pathBlockId) || getPathBlockIdFromTemplate(template, 17);
                     const houseWall = Number(layout.defaultHouseWallBlockId) || (isDesert ? 13 : 8);
                     const houseRoof = Number(layout.defaultHouseRoofBlockId) || 17;
                     const water = Number(layout.wellWaterBlockId) || 4;
+                    const minSpacing = Math.max(34, Number(layout.minPointSpacing) || 34);
+                    const maxSpacing = Math.max(minSpacing, Number(layout.maxPointSpacing) || 64);
+                    const maxBuildings = Math.max(1, Number(layout.maxBuildings) || 9);
+                    const roadWidth = Math.min(1, Math.max(0, Number(roadCfg.width) || 1)); // <=3 blocks total
 
                     for (let wx = coreX - 2; wx <= coreX + 2; wx++) {
                         for (let wz = coreZ - 2; wz <= coreZ + 2; wz++) {
@@ -5638,7 +5684,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                         placeSolid(coreX, centerY + 1, coreZ + 1, water);
                     }
 
-                    const housePlans = Array.isArray(layout.buildings) && layout.buildings.length
+                    const houseTemplates = Array.isArray(layout.buildings) && layout.buildings.length
                         ? layout.buildings
                         : getDefaultVillageLayout().buildings;
 
@@ -5646,66 +5692,130 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                         ? layout.wellConnectors
                         : getDefaultVillageLayout().wellConnectors;
 
-                    const points = [];
+                    const allPoints = [];
+                    const openPoints = [];
+                    let pointCounter = 0;
+                    const buildingBlocked = new Set();
+                    const buildingCenters = [];
+
                     for (const conn of wellConnectors) {
                         const cxOff = Number(conn.x);
                         const czOff = Number(conn.z);
                         if (!Number.isFinite(cxOff) || !Number.isFinite(czOff)) continue;
                         const dir = String(conn.dir || '').toUpperCase();
-                        points.push({ id: String(conn.id || `well-${dir || 'p'}`), x: coreX + cxOff, z: coreZ + czOff, dir: dir || 'N', kind: 'well' });
+                        const pt = { id: String(conn.id || `well-${pointCounter++}`), x: coreX + cxOff, z: coreZ + czOff, dir: dir || 'N', kind: 'well' };
+                        allPoints.push(pt);
+                        openPoints.push(pt);
                     }
 
-                    let doorCounter = 0;
-                    for (const plan of housePlans) {
-                        const px = Number(plan.offsetX);
-                        const pz = Number(plan.offsetZ);
-                        if (!Number.isFinite(px) || !Number.isFinite(pz)) continue;
-                        const size = Math.max(3, Number(plan.size) || 5);
-                        const wall = Number(plan.wallBlockId) || houseWall;
-                        const roof = Number(plan.roofBlockId) || houseRoof;
-                        const doorDirs = Array.isArray(plan.doorDirs) ? plan.doorDirs : (Array.isArray(plan.doors) ? plan.doors : ['N']);
-                        const doors = placeHouse(coreX + px, coreZ + pz, size, wall, roof, doorDirs);
-                        const buildingId = String(plan.id || `building-${doorCounter}`);
-                        for (const d of doors) {
-                            points.push({ id: `${buildingId}-door-${doorCounter++}`, x: d.x, z: d.z, dir: d.dir, kind: 'door' });
+                    const pathSegments = [];
+
+                    function addBuildingObstacle(centerX, centerZ, size) {
+                        const half = Math.floor(size / 2);
+                        for (let x = centerX - half; x <= centerX + half; x++) {
+                            for (let z = centerZ - half; z <= centerZ + half; z++) {
+                                buildingBlocked.add(asPathKey(x, z));
+                            }
                         }
+                    }
+
+                    function canPlaceAt(centerX, centerZ, size) {
+                        const half = Math.floor(size / 2);
+                        for (let x = centerX - half; x <= centerX + half; x++) {
+                            for (let z = centerZ - half; z <= centerZ + half; z++) {
+                                if (buildingBlocked.has(asPathKey(x, z))) return false;
+                                if (!allowWaterSpawn) {
+                                    const st = getSurfaceTypeAt(x, z);
+                                    if (isWaterType(st)) return false;
+                                }
+                            }
+                        }
+                        return true;
+                    }
+
+                    const placementAttempts = maxBuildings * 18;
+                    let placedBuildings = 0;
+
+                    for (let step = 0; step < placementAttempts && placedBuildings < maxBuildings && openPoints.length; step++) {
+                        const srcIdx = Math.floor(seedRand01(coreX + step, coreZ - step, 1 + step) * openPoints.length);
+                        const src = openPoints[srcIdx];
+                        if (!src) continue;
+
+                        const tpl = houseTemplates[Math.floor(seedRand01(coreX + step * 3, coreZ - step * 5, 2 + step) * houseTemplates.length)] || houseTemplates[0];
+                        const size = Math.max(3, Number(tpl.size) || 5);
+                        const dist = minSpacing + Math.floor(seedRand01(coreX - step * 7, coreZ + step * 11, 3 + step) * (maxSpacing - minSpacing + 1));
+                        const dir = String(src.dir || 'N').toUpperCase();
+                        const vec = DIR_VECTORS[dir] || DIR_VECTORS.N;
+                        const primaryDoorDir = OPPOSITE_DIR[dir] || 'S';
+
+                        const targetPointX = src.x + vec.dx * dist;
+                        const targetPointZ = src.z + vec.dz * dist;
+                        const half = Math.floor(size / 2);
+                        const doorVec = DIR_VECTORS[primaryDoorDir] || DIR_VECTORS.S;
+                        const centerX = targetPointX - doorVec.dx * (half + 1);
+                        const centerZ = targetPointZ - doorVec.dz * (half + 1);
+
+                        let tooClose = false;
+                        for (const p of allPoints) {
+                            const man = Math.abs(p.x - targetPointX) + Math.abs(p.z - targetPointZ);
+                            if (man < minSpacing) {
+                                tooClose = true;
+                                break;
+                            }
+                        }
+                        if (tooClose) continue;
+
+                        if (!canPlaceAt(centerX, centerZ, size)) continue;
+
+                        const wall = Number(tpl.wallBlockId) || houseWall;
+                        const roof = Number(tpl.roofBlockId) || houseRoof;
+                        const extraDoors = Array.isArray(tpl.doorDirs) ? tpl.doorDirs : [];
+                        const doorDirs = Array.from(new Set([primaryDoorDir, ...extraDoors.map((d) => String(d || '').toUpperCase()).filter((d) => DIR_VECTORS[d]) ]));
+
+                        const built = placeFloatingHouse(centerX, centerZ, size, wall, roof, doorDirs);
+                        addBuildingObstacle(centerX, centerZ, size);
+                        buildingCenters.push({ x: centerX, z: centerZ, size });
+
+                        const mainDoor = built.doors.find((d) => d.dir === primaryDoorDir) || built.doors[0];
+                        if (mainDoor) {
+                            const path = pathfindAroundBuildings(src, mainDoor, buildingBlocked, 180);
+                            if (path && path.length > 1) pathSegments.push(path);
+                        }
+
+                        for (const d of built.doors) {
+                            const id = `${String(tpl.id || 'building')}-${pointCounter++}`;
+                            const pt = { id, x: d.x, z: d.z, dir: d.dir, kind: 'door' };
+                            allPoints.push(pt);
+                            openPoints.push(pt);
+                        }
+
+                        placedBuildings++;
                     }
 
                     const pathCells = new Set();
-                    const connectedEdges = new Set();
-                    const wellPoints = points.filter((p) => p.kind === 'well');
-                    const doorPoints = points.filter((p) => p.kind === 'door');
-                    if (!wellPoints.length || !doorPoints.length) continue;
-
-                    for (const door of doorPoints) {
-                        let bestWell = null;
-                        let bestDist = Infinity;
-                        for (const wp of wellPoints) {
-                            const dist = Math.abs(door.x - wp.x) + Math.abs(door.z - wp.z);
-                            if (dist < bestDist) {
-                                bestDist = dist;
-                                bestWell = wp;
-                            }
-                        }
-                        if (bestWell) {
-                            carvePathBetween(pathCells, door, bestWell);
-                            connectedEdges.add(`${door.id}->${bestWell.id}`);
-                            connectedEdges.add(`${bestWell.id}->${door.id}`);
-                        }
+                    for (const seg of pathSegments) {
+                        for (const cell of seg) pathCells.add(asPathKey(cell.x, cell.z));
                     }
 
+                    const connectedEdges = new Set();
+                    const doorPoints = allPoints.filter((p) => p.kind === 'door');
                     for (const door of doorPoints) {
-                        const nearest = nearestPoint(doorPoints, door, connectedEdges);
+                        const nearest = doorPoints
+                            .filter((p) => p.id !== door.id && !connectedEdges.has(`${door.id}->${p.id}`))
+                            .sort((a, b) => (Math.abs(a.x - door.x) + Math.abs(a.z - door.z)) - (Math.abs(b.x - door.x) + Math.abs(b.z - door.z)))[0];
                         if (!nearest) continue;
                         const dist = Math.abs(door.x - nearest.x) + Math.abs(door.z - nearest.z);
                         if (dist <= Math.max(4, Number(roadCfg.maxDoorLinkDistance) || 26)) {
-                            carvePathBetween(pathCells, door, nearest);
-                            connectedEdges.add(`${door.id}->${nearest.id}`);
-                            connectedEdges.add(`${nearest.id}->${door.id}`);
+                            const link = pathfindAroundBuildings(door, nearest, buildingBlocked, 180);
+                            if (link && link.length > 1) {
+                                for (const cell of link) pathCells.add(asPathKey(cell.x, cell.z));
+                                connectedEdges.add(`${door.id}->${nearest.id}`);
+                                connectedEdges.add(`${nearest.id}->${door.id}`);
+                            }
                         }
                     }
 
-                    for (const p of points) {
+                    for (const p of allPoints) {
                         const vec = DIR_VECTORS[p.dir] || { dx: 0, dz: 0 };
                         const extensionLen = p.kind === 'well'
                             ? Math.max(1, Number(roadCfg.wellConnectorExtension) || 8)
@@ -5716,7 +5826,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                         for (let i = 0; i < extensionLen; i++) {
                             ex += vec.dx;
                             ez += vec.dz;
-                            pathCells.add(asPathKey(ex, ez));
+                            if (!buildingBlocked.has(asPathKey(ex, ez))) pathCells.add(asPathKey(ex, ez));
                         }
                     }
 
@@ -5724,11 +5834,13 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                         const [sx, sz] = key.split(',');
                         const px = Number(sx);
                         const pz = Number(sz);
-                        const roadWidth = Math.max(0, Number(roadCfg.width) || 1);
                         for (let ox = -roadWidth; ox <= roadWidth; ox++) {
                             for (let oz = -roadWidth; oz <= roadWidth; oz++) {
                                 if (Math.abs(ox) + Math.abs(oz) > roadWidth) continue;
-                                setSurfaceBlock(px + ox, pz + oz, pathBlock);
+                                const tx = px + ox;
+                                const tz = pz + oz;
+                                if (buildingBlocked.has(asPathKey(tx, tz))) continue;
+                                setSurfaceBlock(tx, tz, pathBlock);
                             }
                         }
                     }

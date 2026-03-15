@@ -106,6 +106,9 @@
       "wellConnectorExtension": 8,
       "doorExtension": 5,
       "width": 1
-    }
+    },
+    "minPointSpacing": 34,
+    "maxPointSpacing": 64,
+    "maxBuildings": 9
   }
 }

@@ -109,6 +109,9 @@
       "width": 1
     },
     "defaultHouseWallBlockId": 15,
-    "defaultHouseRoofBlockId": 17
+    "defaultHouseRoofBlockId": 17,
+    "minPointSpacing": 34,
+    "maxPointSpacing": 64,
+    "maxBuildings": 9
   }
 }
