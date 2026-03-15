@@ -389,11 +389,6 @@ window.perlin = perlinInstance;
         const pigEntities = [];
         const zombieEntities = [];
         const wolfEntities = [];
-        const mobCoreCfg = window.SingleplayerMobCore || {};
-        const mobCombatCfg = mobCoreCfg.combat || {};
-        const mobKnockbackCfg = mobCombatCfg.knockback || {};
-        const mobFeedbackCfg = mobCoreCfg.feedback || {};
-        const mobDeathCfg = mobCoreCfg.death || {};
         const pigMobDef = window.SingleplayerMobData?.categories?.passive?.pig || null;
         const pigGoalPriority = Array.isArray(pigMobDef?.behavior?.goals)
             ? [...pigMobDef.behavior.goals].sort((a, b) => a.priority - b.priority)
@@ -1398,11 +1393,6 @@ window.perlin = perlinInstance;
                 lookTargetYaw: 0,
                 lookTargetPitch: 0,
                 nextLookChangeMs: 0,
-                knockbackVel: new THREE.Vector3(),
-                dead: false,
-                deathMs: 0,
-                deathFallDir: 1,
-                deathDropsDone: false,
             });
             return true;
         }
@@ -1501,27 +1491,8 @@ window.perlin = perlinInstance;
             if (!pigEntities.length) return;
             const dt = Math.max(0.001, Math.min(0.05, deltaMs / 1000));
             const nowMs = performance.now();
-            for (let i = pigEntities.length - 1; i >= 0; i--) {
-                const pig = pigEntities[i];
+            for (const pig of pigEntities) {
                 if (!isEntityActiveAt(pig.root.position)) continue;
-
-                if (updateMobKnockbackAndDeath(pig, deltaMs)) {
-                    if (!pig.deathDropsDone) {
-                        pig.deathDropsDone = true;
-                        const drops = 1 + Math.floor(Math.random() * 3);
-                        addToInventory(89, drops);
-                        showGameMessage(`+${drops} Raw Porkchop`);
-                        if (Math.random() < 0.22) {
-                            addToInventory(95, 1);
-                            addToInventory(2, 1);
-                            showGameMessage('+1 Bone +1 Dirt');
-                        }
-                    }
-                    pigEntities.splice(i, 1);
-                    scene.remove(pig.root);
-                    continue;
-                }
-                if (pig.dead) continue;
 
                 pig.changeDirMs -= deltaMs;
                 if (pig.changeDirMs <= 0) {
@@ -1590,81 +1561,6 @@ window.perlin = perlinInstance;
             }
         }
 
-        function getPlayerMobDamage() {
-            const held = inventory[selectedHotbarIndex];
-            if (!held) return Number(mobCombatCfg.fistDamage) || 1;
-            const mat = blockMaterials[held.id] || {};
-            if (mat.toolType === 'pickaxe') return Number(mobCombatCfg.defaultHitDamage) || 4;
-            return Number(mobCombatCfg.fistDamage) || 1;
-        }
-
-        function flashMobHit(root) {
-            if (!root) return;
-            const flashColor = Number(mobFeedbackCfg.hitFlashColor) || 0xff3b30;
-            const flashMs = Math.max(60, Number(mobFeedbackCfg.hitFlashMs) || 140);
-            const touched = [];
-            root.traverse((obj) => {
-                const mats = obj.material ? (Array.isArray(obj.material) ? obj.material : [obj.material]) : [];
-                for (const mat of mats) {
-                    if (!mat || !('emissive' in mat) || !mat.emissive) continue;
-                    touched.push({ mat, prevHex: mat.emissive.getHex(), prevIntensity: mat.emissiveIntensity || 0 });
-                    mat.emissive.setHex(flashColor);
-                    mat.emissiveIntensity = Math.max(0.85, mat.emissiveIntensity || 0);
-                }
-            });
-            if (!touched.length) return;
-            setTimeout(() => {
-                for (const item of touched) {
-                    item.mat.emissive.setHex(item.prevHex);
-                    item.mat.emissiveIntensity = item.prevIntensity;
-                }
-            }, flashMs);
-        }
-
-        function applyMobKnockback(entity, sourcePos) {
-            if (!entity || !entity.root) return;
-            const src = sourcePos || yawObject?.position;
-            if (!src) return;
-            const dx = entity.root.position.x - src.x;
-            const dz = entity.root.position.z - src.z;
-            const len = Math.hypot(dx, dz) || 1;
-            const h = Number(mobKnockbackCfg.horizontal) || 4.2;
-            const v = Number(mobKnockbackCfg.vertical) || 2.1;
-            entity.knockbackVel = entity.knockbackVel || new THREE.Vector3();
-            entity.knockbackVel.x += (dx / len) * h;
-            entity.knockbackVel.z += (dz / len) * h;
-            entity.knockbackVel.y = Math.max(entity.knockbackVel.y, v);
-        }
-
-        function beginMobDeath(entity) {
-            if (!entity || entity.dead) return;
-            entity.dead = true;
-            entity.deathMs = 0;
-            entity.deathFallDir = entity.deathFallDir || ((Math.random() < 0.5 ? -1 : 1) * 1);
-            flashMobHit(entity.root);
-        }
-
-        function updateMobKnockbackAndDeath(entity, deltaMs) {
-            if (!entity || !entity.root) return false;
-            const dt = Math.max(0.001, Math.min(0.05, deltaMs / 1000));
-            if (entity.knockbackVel) {
-                entity.root.position.x += entity.knockbackVel.x * dt;
-                entity.root.position.y += entity.knockbackVel.y * dt;
-                entity.root.position.z += entity.knockbackVel.z * dt;
-                entity.knockbackVel.y -= 9.8 * dt;
-                const damp = Math.max(0, 1 - ((Number(mobKnockbackCfg.damping) || 6.2) * dt));
-                entity.knockbackVel.x *= damp;
-                entity.knockbackVel.z *= damp;
-            }
-            if (!entity.dead) return false;
-            entity.deathMs = (entity.deathMs || 0) + deltaMs;
-            const t = Math.min(1, entity.deathMs / (Math.max(120, Number(mobDeathCfg.animationMs) || 650)));
-            const fallAngle = (Number(mobDeathCfg.fallAngleRad) || 1.46) * t;
-            entity.root.rotation.z = entity.deathFallDir * fallAngle;
-            entity.root.position.y -= (Number(mobDeathCfg.sinkSpeed) || 0.35) * dt;
-            return entity.deathMs >= (Math.max(120, Number(mobDeathCfg.animationMs) || 650));
-        }
-
         function getPigHitFromCrosshair() {
             if (!pigEntities.length) return null;
             raycaster.setFromCamera({ x: 0, y: 0 }, camera);
@@ -1675,11 +1571,9 @@ window.perlin = perlinInstance;
             return pigEntities.find((p) => p.root.userData.pigHitbox === hitObj) || null;
         }
 
-        function hurtPig(pig, amount = 4, source = 'player', hitFromPos = null) {
-            if (!pig || pig.dead) return;
+        function hurtPig(pig, amount = 4, source = 'player') {
+            if (!pig) return;
             pig.hp -= amount;
-            flashMobHit(pig.root);
-            applyMobKnockback(pig, hitFromPos);
             if (pig.hp > 0) {
                 pig.changeDirMs = 0;
                 pig.panicUntilMs = performance.now() + 3800;
@@ -1687,7 +1581,17 @@ window.perlin = perlinInstance;
                 if (source === 'player') showGameMessage('Pig: oink!');
                 return;
             }
-            beginMobDeath(pig);
+            const idx = pigEntities.indexOf(pig);
+            if (idx >= 0) pigEntities.splice(idx, 1);
+            scene.remove(pig.root);
+            const drops = 1 + Math.floor(Math.random() * 3);
+            addToInventory(89, drops);
+            showGameMessage(`+${drops} Raw Porkchop`);
+            if (Math.random() < 0.22) {
+                addToInventory(95, 1);
+                addToInventory(2, 1);
+                showGameMessage('+1 Bone +1 Dirt');
+            }
         }
 
         function spawnWolfAt(wx, wz) {
@@ -1719,11 +1623,6 @@ window.perlin = perlinInstance;
                 retargetMs: 0,
                 combatTarget: null,
                 combatTargetType: null,
-                knockbackVel: new THREE.Vector3(),
-                dead: false,
-                deathMs: 0,
-                deathFallDir: 1,
-                deathDropsDone: false,
             });
             return true;
         }
@@ -1749,18 +1648,19 @@ window.perlin = perlinInstance;
             return wolfEntities.find((w) => w.root.userData.wolfHitbox === hitObj) || null;
         }
 
-        function hurtWolf(wolf, amount = 4, hitFromPos = null) {
-            if (!wolf || wolf.dead) return;
+        function hurtWolf(wolf, amount = 4) {
+            if (!wolf) return;
             wolf.hp -= amount;
-            flashMobHit(wolf.root);
-            applyMobKnockback(wolf, hitFromPos);
             if (wolf.hp > 0) {
                 wolf.changeDirMs = 0;
                 wolf.dir.set((Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2).normalize();
                 showGameMessage(wolf.tamed ? 'Dog: whine!' : 'Wolf: growl!');
                 return;
             }
-            beginMobDeath(wolf);
+            const idx = wolfEntities.indexOf(wolf);
+            if (idx >= 0) wolfEntities.splice(idx, 1);
+            scene.remove(wolf.root);
+            showGameMessage(wolf.tamed ? 'Your dog died.' : 'Wolf defeated.');
         }
 
         function commandTamedWolvesAttack(target, targetType) {
@@ -1781,17 +1681,6 @@ window.perlin = perlinInstance;
 
             for (let i = wolfEntities.length - 1; i >= 0; i--) {
                 const wolf = wolfEntities[i];
-                if (updateMobKnockbackAndDeath(wolf, deltaMs)) {
-                    if (!wolf.deathDropsDone) {
-                        wolf.deathDropsDone = true;
-                        showGameMessage(wolf.tamed ? 'Your dog died.' : 'Wolf defeated.');
-                    }
-                    wolfEntities.splice(i, 1);
-                    scene.remove(wolf.root);
-                    continue;
-                }
-                if (wolf.dead) continue;
-
                 wolf.attackCooldownMs = Math.max(0, wolf.attackCooldownMs - deltaMs);
                 wolf.changeDirMs -= deltaMs;
                 wolf.retargetMs -= deltaMs;
@@ -1799,11 +1688,11 @@ window.perlin = perlinInstance;
                 let targetPos = null;
                 let targetDist = Infinity;
 
-                if (wolf.combatTargetType === 'pig' && (!wolf.combatTarget || pigEntities.indexOf(wolf.combatTarget) < 0 || wolf.combatTarget.dead)) {
+                if (wolf.combatTargetType === 'pig' && (!wolf.combatTarget || pigEntities.indexOf(wolf.combatTarget) < 0)) {
                     wolf.combatTarget = null;
                     wolf.combatTargetType = null;
                 }
-                if (wolf.combatTargetType === 'zombie' && (!wolf.combatTarget || zombieEntities.indexOf(wolf.combatTarget) < 0 || wolf.combatTarget.dead)) {
+                if (wolf.combatTargetType === 'zombie' && (!wolf.combatTarget || zombieEntities.indexOf(wolf.combatTarget) < 0)) {
                     wolf.combatTarget = null;
                     wolf.combatTargetType = null;
                 }
@@ -1813,8 +1702,7 @@ window.perlin = perlinInstance;
                     let bestPig = null;
                     let bestDist = 11;
                     for (const pig of pigEntities) {
-                        if (pig.dead) continue;
-                        if (!isEntityActiveAt(pig.root.position)) continue;
+                if (!isEntityActiveAt(pig.root.position)) continue;
                         const d = pig.root.position.distanceTo(wolf.root.position);
                         if (d < bestDist) {
                             bestDist = d;
@@ -1868,8 +1756,8 @@ window.perlin = perlinInstance;
 
                 if (wolf.combatTarget && targetDist < 1.35 && wolf.attackCooldownMs <= 0) {
                     wolf.attackCooldownMs = 650;
-                    if (wolf.combatTargetType === 'pig') hurtPig(wolf.combatTarget, 4, 'wolf', wolf.root.position);
-                    else if (wolf.combatTargetType === 'zombie') hurtZombie(wolf.combatTarget, 3, wolf.root.position);
+                    if (wolf.combatTargetType === 'pig') hurtPig(wolf.combatTarget, 4, 'wolf');
+                    else if (wolf.combatTargetType === 'zombie') hurtZombie(wolf.combatTarget, 3);
                 }
 
                 const parts = wolf.root.userData.wolfParts || {};
@@ -1896,13 +1784,16 @@ window.perlin = perlinInstance;
             return zombieEntities.find((z) => z.root.userData.zombieHitbox === hitObj) || null;
         }
 
-        function hurtZombie(zombie, amount = 4, hitFromPos = null) {
-            if (!zombie || zombie.dead) return;
+        function hurtZombie(zombie, amount = 4) {
+            if (!zombie) return;
             zombie.hp -= amount;
-            flashMobHit(zombie.root);
-            applyMobKnockback(zombie, hitFromPos);
             if (zombie.hp > 0) return;
-            beginMobDeath(zombie);
+            const idx = zombieEntities.indexOf(zombie);
+            if (idx >= 0) zombieEntities.splice(idx, 1);
+            scene.remove(zombie.root);
+            const drops = 1 + Math.floor(Math.random() * 2);
+            addToInventory(92, drops);
+            showGameMessage(`+${drops} Rotten Flesh`);
         }
 
         function canZombieSeeSky(wx, wy, wz) {
@@ -1951,11 +1842,6 @@ window.perlin = perlinInstance;
                 sunProbeMs: 0,
                 targetY: y,
                 groundProbeMs: 0,
-                knockbackVel: new THREE.Vector3(),
-                dead: false,
-                deathMs: 0,
-                deathFallDir: 1,
-                deathDropsDone: false,
             });
             return true;
         }
@@ -1992,20 +1878,7 @@ window.perlin = perlinInstance;
 
             for (let i = zombieEntities.length - 1; i >= 0; i--) {
                 const z = zombieEntities[i];
-                if (updateMobKnockbackAndDeath(z, deltaMs)) {
-                    if (!z.deathDropsDone) {
-                        z.deathDropsDone = true;
-                        const drops = 1 + Math.floor(Math.random() * 2);
-                        addToInventory(92, drops);
-                        showGameMessage(`+${drops} Rotten Flesh`);
-                    }
-                    zombieEntities.splice(i, 1);
-                    scene.remove(z.root);
-                    continue;
-                }
-                if (z.dead) continue;
                 if (!isEntityActiveAt(z.root.position)) continue;
-
                 const toPlayerFlat = new THREE.Vector3(playerPos.x - z.root.position.x, 0, playerPos.z - z.root.position.z);
                 const distFlat = toPlayerFlat.length();
                 if (distFlat > 0.001) toPlayerFlat.normalize();
@@ -2035,6 +1908,8 @@ window.perlin = perlinInstance;
                     const walk = Math.sin(time * 0.01 + i) * 0.52;
                     parts.leftLegPivot.rotation.x = walk;
                     parts.rightLegPivot.rotation.x = -walk;
+
+                    // Minecraft-like zombie gait: both arms held forward, swaying while walking.
                     const armSwing = Math.sin(time * 0.01 + i + Math.PI * 0.2) * 0.20;
                     parts.leftArmPivot.rotation.x = -1.35 + armSwing;
                     parts.rightArmPivot.rotation.x = -1.35 - armSwing;
@@ -2061,7 +1936,7 @@ window.perlin = perlinInstance;
                     z.burnTickMs += deltaMs;
                     if (z.burnTickMs >= 900) {
                         z.burnTickMs = 0;
-                        hurtZombie(z, 2, null);
+                        hurtZombie(z, 2);
                     }
                 } else {
                     z.burnTickMs = 0;
@@ -3365,20 +3240,20 @@ window.perlin = perlinInstance;
                             showGameMessage('The wolf refused the bone.');
                         }
                     } else {
-                        hurtWolf(wolfHit, getPlayerMobDamage(), yawObject.position);
+                        hurtWolf(wolfHit, 4);
                     }
                     return;
                 }
 
                 const zombieHit = getZombieHitFromCrosshair();
                 if (zombieHit) {
-                    hurtZombie(zombieHit, getPlayerMobDamage(), yawObject.position);
+                    hurtZombie(zombieHit, 4);
                     commandTamedWolvesAttack(zombieHit, 'zombie');
                     return;
                 }
                 const pigHit = getPigHitFromCrosshair();
                 if (pigHit) {
-                    hurtPig(pigHit, getPlayerMobDamage(), 'player', yawObject.position);
+                    hurtPig(pigHit, 4, 'player');
                     commandTamedWolvesAttack(pigHit, 'pig');
                     return;
                 }
