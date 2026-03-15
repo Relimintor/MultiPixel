@@ -5591,7 +5591,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 return out;
             }
 
-            function placeGroundedHouse(centerX, centerZ, size, wallId, roofId, doorDirs) {
+            function placeGroundedHouse(centerX, centerZ, size, wallId, roofId, doorDirs, biomeStyleKey = 'plains') {
                 const half = Math.floor(size / 2);
                 let minGround = Infinity;
                 let maxGround = -Infinity;
@@ -5604,29 +5604,50 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                         }
                     }
                 }
-                const baseY = Number.isFinite(minGround) ? Math.min(CHUNK_HEIGHT - 8, minGround + 1) : 70;
+
+                const baseY = Number.isFinite(minGround) ? Math.min(CHUNK_HEIGHT - 10, minGround + 1) : 70;
+                const height = 4;
+                const wallTopY = baseY + height;
+                const roofY = wallTopY + 1;
+                const beamId = biomeStyleKey === 'jungle_forest' ? 96 : 5;
+                const floorId = (biomeStyleKey === 'desert' || biomeStyleKey === 'snowy_plains') ? wallId : 8;
+                const windowId = biomeStyleKey === 'snowy_plains' ? 80 : 26;
+                const foundationId = (biomeStyleKey === 'desert' || biomeStyleKey === 'snowy_plains') ? wallId : 17;
 
                 for (let x = centerX - half; x <= centerX + half; x++) {
                     for (let z = centerZ - half; z <= centerZ + half; z++) {
                         const gy = getGroundYAt(x, z);
                         if (Number.isFinite(gy)) {
-                            for (let fy = gy + 1; fy <= baseY; fy++) placeSolid(x, fy, z, wallId);
+                            for (let fy = gy + 1; fy <= baseY; fy++) placeSolid(x, fy, z, foundationId);
                         }
-                        placeSolid(x, baseY, z, wallId);
                         const edge = x === centerX - half || x === centerX + half || z === centerZ - half || z === centerZ + half;
-                        if (edge) {
-                            placeSolid(x, baseY + 1, z, wallId);
-                            placeSolid(x, baseY + 2, z, wallId);
-                        } else {
-                            placeSolid(x, baseY + 1, z, 0);
-                            placeSolid(x, baseY + 2, z, 0);
+                        const isCorner = (x === centerX - half || x === centerX + half) && (z === centerZ - half || z === centerZ + half);
+
+                        placeSolid(x, baseY, z, floorId);
+
+                        for (let y = baseY + 1; y <= wallTopY; y++) {
+                            if (edge) {
+                                placeSolid(x, y, z, isCorner ? beamId : wallId);
+                            } else {
+                                placeSolid(x, y, z, 0);
+                            }
                         }
-                        placeSolid(x, baseY + 3, z, roofId);
+                    }
+                }
+
+                const windowRows = [baseY + 2, baseY + 3];
+                if (size >= 5) {
+                    for (const y of windowRows) {
+                        placeSolid(centerX, y, centerZ - half, windowId);
+                        placeSolid(centerX, y, centerZ + half, windowId);
+                        placeSolid(centerX - half, y, centerZ, windowId);
+                        placeSolid(centerX + half, y, centerZ, windowId);
                     }
                 }
 
                 const resultDoors = [];
                 const dirs = Array.isArray(doorDirs) && doorDirs.length ? doorDirs : ['N'];
+                const usedDoorCells = new Set();
                 for (const dirRaw of dirs) {
                     const dir = String(dirRaw || '').toUpperCase();
                     const v = DIR_VECTORS[dir];
@@ -5635,7 +5656,33 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                     const wallZ = centerZ + v.dz * half;
                     placeSolid(wallX, baseY + 1, wallZ, 0);
                     placeSolid(wallX, baseY + 2, wallZ, 0);
+                    usedDoorCells.add(asPathKey(wallX, wallZ));
                     resultDoors.push(getConnectorPoint(centerX, centerZ, size, dir));
+                }
+
+                for (let y = roofY; y <= roofY + 1; y++) {
+                    for (let x = centerX - half; x <= centerX + half; x++) {
+                        for (let z = centerZ - half; z <= centerZ + half; z++) {
+                            const roofEdge = x === centerX - half || x === centerX + half || z === centerZ - half || z === centerZ + half;
+                            if (y === roofY && roofEdge) placeSolid(x, y, z, roofId);
+                            if (y === roofY + 1 && Math.abs(x - centerX) <= Math.max(0, half - 1) && Math.abs(z - centerZ) <= Math.max(0, half - 1)) {
+                                placeSolid(x, y, z, roofId);
+                            }
+                        }
+                    }
+                }
+
+                const chestCandidates = [
+                    { x: centerX - half + 1, z: centerZ - half + 1 },
+                    { x: centerX + half - 1, z: centerZ - half + 1 },
+                    { x: centerX - half + 1, z: centerZ + half - 1 },
+                    { x: centerX + half - 1, z: centerZ + half - 1 }
+                ];
+                for (const cand of chestCandidates) {
+                    const key = asPathKey(cand.x, cand.z);
+                    if (usedDoorCells.has(key)) continue;
+                    placeSolid(cand.x, baseY + 1, cand.z, 82);
+                    break;
                 }
 
                 return {
@@ -5801,7 +5848,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                         const extraDoors = Array.isArray(tpl.doorDirs) ? tpl.doorDirs : [];
                         const doorDirs = Array.from(new Set([primaryDoorDir, ...extraDoors.map((d) => String(d || '').toUpperCase()).filter((d) => DIR_VECTORS[d]) ]));
 
-                        const built = placeGroundedHouse(centerX, centerZ, size, wall, roof, doorDirs);
+                        const built = placeGroundedHouse(centerX, centerZ, size, wall, roof, doorDirs, biomeKey);
                         addBuildingObstacle(centerX, centerZ, size);
                         buildingCenters.push({ x: centerX, z: centerZ, size });
 
