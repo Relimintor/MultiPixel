@@ -50,6 +50,8 @@
     99: 1,
     100: 1,
     101: 1,
+    102: 11, // Chiseled stone bricks
+    103: 6,  // Bamboo planks
   };
 
   function getHardness(blockId) {

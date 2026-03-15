@@ -62,6 +62,8 @@
     { name: 'Emerald Shovel', output: { id: 94, count: 1 }, shape: [[56], [10], [10]] },
     { name: 'Chiseled Copper', output: { id: 77, count: 4 }, shape: [[78], [78]] },
     { name: 'Jungle Planks', output:  { id: 98, count: 4 }, shape: [[96]] },
+    { name: 'Bamboo Planks', output:  { id: 103, count: 4 }, shape: [[101]] },
+    { name: 'Chiseled Stone Bricks', output: { id: 102, count: 1 }, shape: [[21], [21]] },
   ];
 
   function checkCraftingRecipe(inputSlots, gridWidth) {
