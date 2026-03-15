@@ -776,7 +776,7 @@ window.perlin = perlinInstance;
         }
 
         function getFogDistances(renderDistance) {
-            const radius = Math.max(4, Math.min(WORLD_RADIUS, Number(renderDistance) || 4));
+            const radius = Math.max(1, Number(renderDistance) || 1);
             return {
                 nearBase: Math.max(10, radius * CHUNK_SIZE * 0.12),
                 nearDayBoost: Math.max(3, radius * CHUNK_SIZE * 0.04),
@@ -799,9 +799,9 @@ window.perlin = perlinInstance;
         function setRenderDistance(amount) {
             const parsed = Number.parseInt(amount, 10);
             if (!Number.isFinite(parsed)) return false;
-            const clamped = Math.max(4, Math.min(WORLD_RADIUS, parsed));
-            if (clamped === currentChunkLoadRadius) return true;
-            currentChunkLoadRadius = clamped;
+            const normalized = Math.max(1, parsed);
+            if (normalized === currentChunkLoadRadius) return true;
+            currentChunkLoadRadius = normalized;
             effectiveChunkLoadRadius = currentChunkLoadRadius;
             lastChunkUpdateMs = -Infinity;
             ensureChunksAroundPlayer(true);
@@ -811,8 +811,8 @@ window.perlin = perlinInstance;
         function setCameraFov(amount) {
             const parsed = Number.parseFloat(amount);
             if (!Number.isFinite(parsed)) return false;
-            const clamped = Math.max(50, Math.min(120, parsed));
-            camera.fov = clamped;
+            const normalized = Math.max(1, parsed);
+            camera.fov = normalized;
             camera.updateProjectionMatrix();
             return true;
         }

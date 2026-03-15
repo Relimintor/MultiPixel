@@ -169,8 +169,8 @@
                     <p><strong>/spawn structure:village biome:&lt;name&gt; building:&lt;json_name&gt;</strong> — place a village building near you (example: <em>building:house_small</em>).</p>
                     <p><strong>/tp</strong> &lt;x y z&gt; or <strong>/tp biome:&lt;name&gt;</strong> or <strong>/tp structure:village biome:&lt;name&gt;</strong> — teleport to coordinates, nearest biome, or village candidate in a village biome.</p>
                     <p><strong>/time</strong> &lt;HH:MM&gt; — set time with military clock (00:00 to 23:59).</p>
-                    <p><strong>/set render_distance</strong> &lt;amount&gt; — set chunk render distance (4 to world max).</p>
-                    <p><strong>/set fov</strong> &lt;amount&gt; — set camera field of view (50 to 120).</p>
+                    <p><strong>/set render_distance</strong> &lt;amount&gt; — set chunk render distance (no hard upper cap).</p>
+                    <p><strong>/set fov</strong> &lt;amount&gt; — set camera field of view (no hard upper cap).</p>
                     <p><strong>/gamemode creative</strong> — switch to creative and open creative menu.</p>
                     <p><strong>/grantme</strong> &lt;fly|speed|noclip|all&gt; — grant yourself movement privileges.</p>
                     <p><strong>/ungrantme</strong> &lt;fly|speed|noclip|all&gt; — remove movement privileges.</p>
