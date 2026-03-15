@@ -866,11 +866,21 @@ window.perlin = perlinInstance;
 
 
      
+        function getMaxStackSize(itemId) {
+            const itemDef = blockMaterials[itemId];
+            return itemDef?.toolType ? 1 : 64;
+        }
+
+        function shouldShowItemCount(item) {
+            return !!item && getMaxStackSize(item.id) > 1 && item.count > 1;
+        }
+
         function addToInventory(blockId, amount = 1) {
+            const maxStack = getMaxStackSize(blockId);
          
             for (let i = 0; i < TOTAL_INV_SIZE; i++) {
-                if (inventory[i] && inventory[i].id === blockId && inventory[i].count < 64) {
-                    const capacity = 64 - inventory[i].count;
+                if (inventory[i] && inventory[i].id === blockId && inventory[i].count < maxStack) {
+                    const capacity = maxStack - inventory[i].count;
                     const transfer = Math.min(amount, capacity);
                     inventory[i].count += transfer;
                     amount -= transfer;
@@ -885,11 +895,13 @@ window.perlin = perlinInstance;
           
             for (let i = 0; i < TOTAL_INV_SIZE; i++) {
                 if (inventory[i] === null) {
-                    inventory[i] = { id: blockId, count: amount };
+                    const transfer = Math.min(amount, maxStack);
+                    inventory[i] = { id: blockId, count: transfer };
+                    amount -= transfer;
                     updateHotbarUI();
                     if(isInventoryOpen) renderInventoryScreen();
-                    showGameMessage(`+${amount} ${blockMaterials[blockId].name}`);
-                    return true;
+                    showGameMessage(`+${transfer} ${blockMaterials[blockId].name}`);
+                    if (amount <= 0) return true;
                 }
             }
             showGameMessage("Inventory Full!");
@@ -1051,6 +1063,126 @@ window.perlin = perlinInstance;
             const sprite = new THREE.Sprite(mat);
             sprite.scale.set(1.35, 0.34, 1);
             return sprite;
+        }
+
+
+        function getVillagePaletteForBiome(rawBiome, template) {
+            const biome = normalizeBiomeCommandName(rawBiome) || getBiome(Math.floor(yawObject?.position?.x || 0), Math.floor(yawObject?.position?.z || 0));
+            const layout = template?.layout || {};
+            const isDesert = biome === 'Desert';
+            return {
+                wall: Number(layout.defaultHouseWallBlockId) || (isDesert ? 13 : 8),
+                roof: Number(layout.defaultHouseRoofBlockId) || 17,
+                path: Number(layout.pathBlockId) || getPathBlockIdFromTemplate(template, 17),
+                water: Number(layout.wellWaterBlockId) || 4,
+            };
+        }
+
+        function placeSimpleVillageHouse(centerX, centerZ, size, wallId, roofId) {
+            const half = Math.max(2, Math.floor(size / 2));
+            const minX = centerX - half;
+            const maxX = centerX + half;
+            const minZ = centerZ - half;
+            const maxZ = centerZ + half;
+
+            const floorY = getSurfaceYForEntity(centerX, centerZ);
+            if (!Number.isFinite(floorY) || floorY < 2 || floorY >= CHUNK_HEIGHT - 5) return { ok: false, message: 'Could not place building on current terrain.' };
+
+            for (let x = minX; x <= maxX; x++) {
+                for (let z = minZ; z <= maxZ; z++) {
+                    setBlockTypeRaw(x, floorY, z, wallId, true);
+                }
+            }
+
+            for (let y = floorY + 1; y <= floorY + 3; y++) {
+                for (let x = minX; x <= maxX; x++) {
+                    for (let z = minZ; z <= maxZ; z++) {
+                        const isWall = x === minX || x === maxX || z === minZ || z === maxZ;
+                        setBlockTypeRaw(x, y, z, isWall ? wallId : 0, true);
+                    }
+                }
+            }
+
+            for (let x = minX - 1; x <= maxX + 1; x++) {
+                for (let z = minZ - 1; z <= maxZ + 1; z++) {
+                    setBlockTypeRaw(x, floorY + 4, z, roofId, true);
+                }
+            }
+
+            const doorX = centerX;
+            const doorZ = minZ;
+            setBlockTypeRaw(doorX, floorY + 1, doorZ, 0, true);
+            setBlockTypeRaw(doorX, floorY + 2, doorZ, 0, true);
+
+            ensureChunksAroundPlayer(true);
+            return { ok: true, x: centerX, y: floorY + 1, z: centerZ };
+        }
+
+        function placeSimpleVillageWell(centerX, centerZ, baseBlockId, waterBlockId) {
+            const floorY = getSurfaceYForEntity(centerX, centerZ);
+            if (!Number.isFinite(floorY) || floorY < 2 || floorY >= CHUNK_HEIGHT - 5) return { ok: false, message: 'Could not place well on current terrain.' };
+
+            for (let x = centerX - 2; x <= centerX + 2; x++) {
+                for (let z = centerZ - 2; z <= centerZ + 2; z++) {
+                    setBlockTypeRaw(x, floorY, z, baseBlockId, true);
+                }
+            }
+
+            setBlockTypeRaw(centerX, floorY + 1, centerZ, waterBlockId, true);
+            const pillars = [[-1,-1],[-1,1],[1,-1],[1,1]];
+            for (const [ox, oz] of pillars) {
+                for (let y = floorY + 1; y <= floorY + 3; y++) {
+                    setBlockTypeRaw(centerX + ox, y, centerZ + oz, baseBlockId, true);
+                }
+            }
+            for (let x = centerX - 1; x <= centerX + 1; x++) {
+                for (let z = centerZ - 1; z <= centerZ + 1; z++) {
+                    setBlockTypeRaw(x, floorY + 4, z, baseBlockId, true);
+                }
+            }
+
+            ensureChunksAroundPlayer(true);
+            return { ok: true, x: centerX, y: floorY + 1, z: centerZ };
+        }
+
+        function spawnVillageStructure(rawBiomeName, rawBuildingName) {
+            if (!yawObject) return { ok: false, message: 'Player not ready.' };
+            const biomeKey = normalizeVillageBiomeKey(rawBiomeName);
+            if (!biomeKey) return { ok: false, message: 'Unknown village biome. Try plains, desert, oak_forest, jungle_forest, ocean, snowy_plains.' };
+
+            const template = villageTemplatesByBiomeKey.get(biomeKey) || getVillageTemplateForBiome(rawBiomeName);
+            if (!template) return { ok: false, message: `Village template for biome ${biomeKey} is not loaded.` };
+
+            const requested = String(rawBuildingName || '').toLowerCase().trim().replace(/\.json$/i, '');
+            if (!requested) return { ok: false, message: 'Please provide building:<json_name>.' };
+
+            const pieces = Array.isArray(template.pieces) ? template.pieces.map((p) => String(p || '').toLowerCase()) : [];
+            if (pieces.length && !pieces.includes(requested)) {
+                return { ok: false, message: `Building ${requested} not found in ${biomeKey} village pieces: ${pieces.join(', ')}.` };
+            }
+
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(yawObject.quaternion);
+            const centerX = Math.floor(yawObject.position.x + forward.x * 12);
+            const centerZ = Math.floor(yawObject.position.z + forward.z * 12);
+            const palette = getVillagePaletteForBiome(rawBiomeName, template);
+
+            if (requested === 'well') {
+                const placed = placeSimpleVillageWell(centerX, centerZ, palette.path, palette.water);
+                if (!placed.ok) return placed;
+                return { ok: true, message: `Spawned village/${requested}.json in ${biomeKey} at ${placed.x}, ${placed.y}, ${placed.z}.` };
+            }
+
+            const layout = template.layout || getDefaultVillageLayout();
+            const layoutEntry = Array.isArray(layout.buildings)
+                ? layout.buildings.find((b) => String(b?.id || '').toLowerCase().includes(requested) || requested.includes('house'))
+                : null;
+            let size = Number(layoutEntry?.size) || 5;
+            if (requested.includes('church')) size = Math.max(size, 7);
+            if (requested.includes('igloo')) size = Math.max(size, Number(iglooStructureDef?.radius) ? Number(iglooStructureDef.radius) * 2 + 1 : 7);
+
+            const placed = placeSimpleVillageHouse(centerX, centerZ, size, palette.wall, palette.roof);
+            if (!placed.ok) return placed;
+            return { ok: true, message: `Spawned village/${requested}.json in ${biomeKey} at ${placed.x}, ${placed.y}, ${placed.z}.` };
         }
 
         function spawnGnomeAt(wx, wy, wz) {
@@ -1730,10 +1862,21 @@ window.perlin = perlinInstance;
         function spawnPandaAtExact(wx, y, wz) {
             const root = createPandaMesh();
             root.position.set(Math.floor(wx) + 0.5, y, Math.floor(wz) + 0.5);
+
+            const isXRealm = Math.random() < 0.001;
+            if (isXRealm) {
+                const nameTag = createNameTagSprite('XREALM');
+                nameTag.position.set(0, 1.95, 0);
+                root.add(nameTag);
+                root.userData.specialNameTag = nameTag;
+            }
+
             scene.add(root);
             pandaEntities.push({
                 root,
-                hp: 20,
+                hp: isXRealm ? Number.POSITIVE_INFINITY : 20,
+                invulnerable: isXRealm,
+                specialName: isXRealm ? 'XREALM' : '',
                 angerUntilMs: 0,
                 attackCooldownMs: 0,
                 dir: new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize(),
@@ -1914,6 +2057,12 @@ window.perlin = perlinInstance;
 
         function hurtPanda(panda, amount = 4, source = 'player') {
             if (!panda) return;
+            if (panda.invulnerable) {
+                if (source === 'player') showGameMessage('XREALM is unkillable.');
+                panda.changeDirMs = 0;
+                panda.angerUntilMs = performance.now() + (window.JungleDecorationConfig?.panda?.angerMsOnHit || 6000);
+                return;
+            }
             panda.hp -= amount;
             if (panda.hp > 0) {
                 panda.changeDirMs = 0;
@@ -2237,6 +2386,7 @@ window.perlin = perlinInstance;
                 getBlockById: (id) => blockMaterials[id] || null,
                 getMobById: (id) => window.SingleplayerMobConfig?.byId?.[id] || null,
                 spawnMobById,
+                spawnVillageStructure,
                 setTimeByClock,
                 setRenderDistance,
                 getRenderDistance: () => currentChunkLoadRadius,
@@ -2465,7 +2615,7 @@ window.perlin = perlinInstance;
                     const countSpan = document.createElement('span');
                     countSpan.className = 'item-count';
                     countSpan.textContent = item.count;
-                    slot.appendChild(countSpan);
+                    if (shouldShowItemCount(item)) slot.appendChild(countSpan);
                 }
                 slot.addEventListener('click', () => {
                      // Check if not in inventory screen, then select
@@ -2564,7 +2714,7 @@ window.perlin = perlinInstance;
                 if (!targetItem) {
                     slotArray[finalIndex] = { id: heldItem.id, count: 1 };
                     heldItem.count -= 1;
-                } else if (targetItem.id === heldItem.id && targetItem.count < 64) {
+                } else if (targetItem.id === heldItem.id && targetItem.count < getMaxStackSize(targetItem.id)) {
                     targetItem.count += 1;
                     heldItem.count -= 1;
                 }
@@ -2591,7 +2741,7 @@ window.perlin = perlinInstance;
                     if (!targetItem) {
                         ref.state[ref.key] = { id: heldItem.id, count: 1 };
                         heldItem.count -= 1;
-                    } else if (targetItem.id === heldItem.id && targetItem.count < 64) {
+                    } else if (targetItem.id === heldItem.id && targetItem.count < getMaxStackSize(targetItem.id)) {
                         targetItem.count += 1;
                         heldItem.count -= 1;
                     }
@@ -2631,9 +2781,9 @@ window.perlin = perlinInstance;
                     heldItem = null;
                     heldItemSourceIndex = -1;
                     heldItemSourceType = null;
-                } else if (targetItem.id === heldItem.id && targetItem.count < 64) {
+                } else if (targetItem.id === heldItem.id && targetItem.count < getMaxStackSize(targetItem.id)) {
                     // 2. COMBINE (Stacking)
-                    const capacity = 64 - targetItem.count;
+                    const capacity = getMaxStackSize(targetItem.id) - targetItem.count;
                     const transfer = Math.min(heldItem.count, capacity);
                     
                     targetItem.count += transfer;
@@ -2660,7 +2810,7 @@ window.perlin = perlinInstance;
             if (slotType === 'creative-item') {
                 const itemId = creativeCatalog[slotIndex];
                 if (!Number.isFinite(itemId) || !blockMaterials[itemId]) return;
-                heldItem = { id: itemId, count: 64 };
+                heldItem = { id: itemId, count: getMaxStackSize(itemId) };
                 heldItemSourceIndex = -1;
                 heldItemSourceType = 'creative-item';
                 renderHeldItem();
@@ -2676,7 +2826,7 @@ window.perlin = perlinInstance;
                     if (!heldItem) {
                         heldItem = { ...ref.state.output };
                         ref.state.output = null;
-                    } else if (heldItem.id === ref.state.output.id && heldItem.count + ref.state.output.count <= 64) {
+                    } else if (heldItem.id === ref.state.output.id && heldItem.count + ref.state.output.count <= getMaxStackSize(ref.state.output.id)) {
                         heldItem.count += ref.state.output.count;
                         ref.state.output = null;
                     }
@@ -2703,7 +2853,7 @@ window.perlin = perlinInstance;
                         }
                     } 
                     // 2. If heldItem is the same and not full, combine one craft's worth
-                    else if (heldItem.id === recipeResult.id && heldItem.count + recipeResult.recipeOutputPerCraft <= 64) {
+                    else if (heldItem.id === recipeResult.id && heldItem.count + recipeResult.recipeOutputPerCraft <= getMaxStackSize(recipeResult.id)) {
                         
                         if (consumeCraftingInputForOne(inputGrid, recipeResult, gridWidth)) {
                             heldItem.count += recipeResult.recipeOutputPerCraft; 
@@ -2742,7 +2892,7 @@ window.perlin = perlinInstance;
                     if (!targetItem) {
                         ref.state[ref.key] = { id: heldItem.id, count: 1 };
                         heldItem.count -= 1;
-                    } else if (targetItem.id === heldItem.id && targetItem.count < 64) {
+                    } else if (targetItem.id === heldItem.id && targetItem.count < getMaxStackSize(targetItem.id)) {
                         targetItem.count += 1;
                         heldItem.count -= 1;
                     }
@@ -2832,7 +2982,7 @@ window.perlin = perlinInstance;
                     const countSpan = document.createElement('span');
                     countSpan.className = 'item-count';
                     countSpan.textContent = item.count;
-                    slot.appendChild(countSpan);
+                    if (shouldShowItemCount(item)) slot.appendChild(countSpan);
                 }
                 return slot;
             };
@@ -2850,7 +3000,7 @@ window.perlin = perlinInstance;
             if (isCreativeMenuOpen) {
                 for (let i = 0; i < creativeCatalog.length; i++) {
                     const id = creativeCatalog[i];
-                    creativeGrid?.appendChild(createSlot({ id, count: 64 }, i, 'creative-item'));
+                    creativeGrid?.appendChild(createSlot({ id, count: getMaxStackSize(id) }, i, 'creative-item'));
                 }
                 for (let i = 0; i < HOTBAR_SLOTS; i++) {
                     creativeHotbarGrid?.appendChild(createSlot(inventory[i], i, 'creative-hotbar'));
@@ -2933,7 +3083,7 @@ window.perlin = perlinInstance;
                 const countSpan = document.createElement('span');
                 countSpan.className = 'item-count !text-lg !right-1 !bottom-0'; // make count larger for clarity
                 countSpan.textContent = item.count;
-                heldDiv.appendChild(countSpan);
+                if (shouldShowItemCount(item)) heldDiv.appendChild(countSpan);
             } else {
                 heldDiv.style.opacity = 0;
                 heldDiv.style.backgroundColor = 'transparent';
