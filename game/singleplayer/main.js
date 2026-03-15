@@ -2127,6 +2127,7 @@ window.perlin = perlinInstance;
                 lookTargetYaw: 0,
                 lookTargetPitch: 0,
                 nextLookChangeMs: 0,
+                panicUntilMs: 0,
                 knockbackVX: 0,
                 knockbackVZ: 0,
                 hitFlashMs: 0,
@@ -2144,9 +2145,30 @@ window.perlin = perlinInstance;
             return spawnVillagerAtExact(wx, y, wz, { x: Math.floor(wx) + 0.5, z: Math.floor(wz) + 0.5 });
         }
 
+
+        function findClosestZombieThreat(position, maxDist = 10) {
+            if (!zombieEntities.length) return null;
+            const maxSq = maxDist * maxDist;
+            let nearest = null;
+            let bestSq = maxSq;
+            for (const z of zombieEntities) {
+                const p = z?.root?.position;
+                if (!p) continue;
+                const dx = position.x - p.x;
+                const dz = position.z - p.z;
+                const d2 = dx * dx + dz * dz;
+                if (d2 < bestSq) {
+                    bestSq = d2;
+                    nearest = z;
+                }
+            }
+            return nearest;
+        }
+
         function updateVillagers(time, deltaMs) {
             if (!villagerEntities.length) return;
             const dt = Math.max(0.001, Math.min(0.05, deltaMs / 1000));
+            const nowMs = performance.now();
             for (const villager of villagerEntities) {
                 if (!isEntityActiveAt(villager.root.position)) continue;
                 tickMobHitFeedback(villager, deltaMs);
@@ -2156,10 +2178,16 @@ window.perlin = perlinInstance;
                 const homeDx = home ? (home.x - villager.root.position.x) : 0;
                 const homeDz = home ? (home.z - villager.root.position.z) : 0;
                 const homeDist = home ? Math.hypot(homeDx, homeDz) : 0;
+                const inLiquid = isLiquid(getBlockType(Math.floor(villager.root.position.x), Math.floor(villager.root.position.y), Math.floor(villager.root.position.z)));
+
+                const threat = findClosestZombieThreat(villager.root.position, 10);
+                const panicActive = (villager.panicUntilMs || 0) > nowMs;
 
                 if (villager.changeDirMs <= 0) {
-                    villager.changeDirMs = 800 + Math.random() * 1400;
-                    if (home && homeDist > villager.roamRadius + 0.75) {
+                    villager.changeDirMs = 700 + Math.random() * 1300;
+                    if (panicActive) {
+                        villager.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
+                    } else if (home && homeDist > villager.roamRadius + 0.75) {
                         villager.dir.set(homeDx, 0, homeDz).normalize();
                     } else {
                         villager.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
@@ -2167,20 +2195,45 @@ window.perlin = perlinInstance;
                 }
 
                 let speed = 0.56;
+                const desiredDir = villager.dir.clone();
+
                 for (const goal of villagerGoalPriority) {
-                    if (goal.key === 'float') {
-                        const inLiquid = isLiquid(getBlockType(Math.floor(villager.root.position.x), Math.floor(villager.root.position.y), Math.floor(villager.root.position.z)));
-                        if (inLiquid) {
-                            speed = 0.68;
-                            villager.targetY = Math.max(villager.targetY, villager.root.position.y + 0.08);
-                            break;
+                    if (goal.key === 'float' && inLiquid) {
+                        speed = Math.max(speed, 0.72);
+                        villager.targetY = Math.max(villager.targetY, villager.root.position.y + 0.09);
+                        continue;
+                    }
+
+                    if (goal.key === 'panic' && panicActive) {
+                        speed = Math.max(speed, 1.02);
+                        const panicVec = new THREE.Vector3((Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2);
+                        if (panicVec.lengthSq() > 0.0001) desiredDir.add(panicVec.normalize().multiplyScalar(1.35));
+                        continue;
+                    }
+
+                    if (goal.key === 'avoidHostile' && threat?.root?.position) {
+                        const away = new THREE.Vector3(
+                            villager.root.position.x - threat.root.position.x,
+                            0,
+                            villager.root.position.z - threat.root.position.z
+                        );
+                        const d = away.length();
+                        if (d < 9 && d > 0.001) {
+                            const danger = Math.max(0, (9 - d) / 9);
+                            speed = Math.max(speed, 0.74 + danger * 0.32);
+                            desiredDir.add(away.normalize().multiplyScalar(1.5 + danger * 1.3));
+                            villager.panicUntilMs = Math.max(villager.panicUntilMs || 0, nowMs + 700);
                         }
+                        continue;
                     }
+
                     if (goal.key === 'wanderHome' && home && homeDist > villager.roamRadius + 0.4) {
-                        villager.dir.set(homeDx, 0, homeDz).normalize();
-                        speed = 0.66;
-                        break;
+                        speed = Math.max(speed, 0.66);
+                        const toHome = new THREE.Vector3(homeDx, 0, homeDz);
+                        if (toHome.lengthSq() > 0.0001) desiredDir.add(toHome.normalize().multiplyScalar(0.9));
+                        continue;
                     }
+
                     if (goal.key === 'observe') {
                         villager.nextLookChangeMs -= deltaMs;
                         if (villager.nextLookChangeMs <= 0) {
@@ -2190,6 +2243,8 @@ window.perlin = perlinInstance;
                         }
                     }
                 }
+
+                if (desiredDir.lengthSq() > 0.00001) villager.dir.copy(desiredDir.normalize());
 
                 const nx = villager.root.position.x + villager.dir.x * speed * dt;
                 const nz = villager.root.position.z + villager.dir.z * speed * dt;
@@ -2236,6 +2291,7 @@ window.perlin = perlinInstance;
             applyHitFeedback(villager, sourcePos, amount);
             villager.hp -= amount;
             villager.changeDirMs = 0;
+            villager.panicUntilMs = performance.now() + 3600;
             if (source === 'player') showGameMessage('Villager: hrmm...');
             if (villager.hp > 0) return;
             const idx = villagerEntities.indexOf(villager);
