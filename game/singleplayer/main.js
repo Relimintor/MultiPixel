@@ -866,11 +866,21 @@ window.perlin = perlinInstance;
 
 
      
+        function getMaxStackSize(itemId) {
+            const itemDef = blockMaterials[itemId];
+            return itemDef?.toolType ? 1 : 64;
+        }
+
+        function shouldShowItemCount(item) {
+            return !!item && getMaxStackSize(item.id) > 1 && item.count > 1;
+        }
+
         function addToInventory(blockId, amount = 1) {
+            const maxStack = getMaxStackSize(blockId);
          
             for (let i = 0; i < TOTAL_INV_SIZE; i++) {
-                if (inventory[i] && inventory[i].id === blockId && inventory[i].count < 64) {
-                    const capacity = 64 - inventory[i].count;
+                if (inventory[i] && inventory[i].id === blockId && inventory[i].count < maxStack) {
+                    const capacity = maxStack - inventory[i].count;
                     const transfer = Math.min(amount, capacity);
                     inventory[i].count += transfer;
                     amount -= transfer;
@@ -885,11 +895,13 @@ window.perlin = perlinInstance;
           
             for (let i = 0; i < TOTAL_INV_SIZE; i++) {
                 if (inventory[i] === null) {
-                    inventory[i] = { id: blockId, count: amount };
+                    const transfer = Math.min(amount, maxStack);
+                    inventory[i] = { id: blockId, count: transfer };
+                    amount -= transfer;
                     updateHotbarUI();
                     if(isInventoryOpen) renderInventoryScreen();
-                    showGameMessage(`+${amount} ${blockMaterials[blockId].name}`);
-                    return true;
+                    showGameMessage(`+${transfer} ${blockMaterials[blockId].name}`);
+                    if (amount <= 0) return true;
                 }
             }
             showGameMessage("Inventory Full!");
@@ -2465,7 +2477,7 @@ window.perlin = perlinInstance;
                     const countSpan = document.createElement('span');
                     countSpan.className = 'item-count';
                     countSpan.textContent = item.count;
-                    slot.appendChild(countSpan);
+                    if (shouldShowItemCount(item)) slot.appendChild(countSpan);
                 }
                 slot.addEventListener('click', () => {
                      // Check if not in inventory screen, then select
@@ -2564,7 +2576,7 @@ window.perlin = perlinInstance;
                 if (!targetItem) {
                     slotArray[finalIndex] = { id: heldItem.id, count: 1 };
                     heldItem.count -= 1;
-                } else if (targetItem.id === heldItem.id && targetItem.count < 64) {
+                } else if (targetItem.id === heldItem.id && targetItem.count < getMaxStackSize(targetItem.id)) {
                     targetItem.count += 1;
                     heldItem.count -= 1;
                 }
@@ -2591,7 +2603,7 @@ window.perlin = perlinInstance;
                     if (!targetItem) {
                         ref.state[ref.key] = { id: heldItem.id, count: 1 };
                         heldItem.count -= 1;
-                    } else if (targetItem.id === heldItem.id && targetItem.count < 64) {
+                    } else if (targetItem.id === heldItem.id && targetItem.count < getMaxStackSize(targetItem.id)) {
                         targetItem.count += 1;
                         heldItem.count -= 1;
                     }
@@ -2631,9 +2643,9 @@ window.perlin = perlinInstance;
                     heldItem = null;
                     heldItemSourceIndex = -1;
                     heldItemSourceType = null;
-                } else if (targetItem.id === heldItem.id && targetItem.count < 64) {
+                } else if (targetItem.id === heldItem.id && targetItem.count < getMaxStackSize(targetItem.id)) {
                     // 2. COMBINE (Stacking)
-                    const capacity = 64 - targetItem.count;
+                    const capacity = getMaxStackSize(targetItem.id) - targetItem.count;
                     const transfer = Math.min(heldItem.count, capacity);
                     
                     targetItem.count += transfer;
@@ -2660,7 +2672,7 @@ window.perlin = perlinInstance;
             if (slotType === 'creative-item') {
                 const itemId = creativeCatalog[slotIndex];
                 if (!Number.isFinite(itemId) || !blockMaterials[itemId]) return;
-                heldItem = { id: itemId, count: 64 };
+                heldItem = { id: itemId, count: getMaxStackSize(itemId) };
                 heldItemSourceIndex = -1;
                 heldItemSourceType = 'creative-item';
                 renderHeldItem();
@@ -2676,7 +2688,7 @@ window.perlin = perlinInstance;
                     if (!heldItem) {
                         heldItem = { ...ref.state.output };
                         ref.state.output = null;
-                    } else if (heldItem.id === ref.state.output.id && heldItem.count + ref.state.output.count <= 64) {
+                    } else if (heldItem.id === ref.state.output.id && heldItem.count + ref.state.output.count <= getMaxStackSize(ref.state.output.id)) {
                         heldItem.count += ref.state.output.count;
                         ref.state.output = null;
                     }
@@ -2703,7 +2715,7 @@ window.perlin = perlinInstance;
                         }
                     } 
                     // 2. If heldItem is the same and not full, combine one craft's worth
-                    else if (heldItem.id === recipeResult.id && heldItem.count + recipeResult.recipeOutputPerCraft <= 64) {
+                    else if (heldItem.id === recipeResult.id && heldItem.count + recipeResult.recipeOutputPerCraft <= getMaxStackSize(recipeResult.id)) {
                         
                         if (consumeCraftingInputForOne(inputGrid, recipeResult, gridWidth)) {
                             heldItem.count += recipeResult.recipeOutputPerCraft; 
@@ -2742,7 +2754,7 @@ window.perlin = perlinInstance;
                     if (!targetItem) {
                         ref.state[ref.key] = { id: heldItem.id, count: 1 };
                         heldItem.count -= 1;
-                    } else if (targetItem.id === heldItem.id && targetItem.count < 64) {
+                    } else if (targetItem.id === heldItem.id && targetItem.count < getMaxStackSize(targetItem.id)) {
                         targetItem.count += 1;
                         heldItem.count -= 1;
                     }
@@ -2832,7 +2844,7 @@ window.perlin = perlinInstance;
                     const countSpan = document.createElement('span');
                     countSpan.className = 'item-count';
                     countSpan.textContent = item.count;
-                    slot.appendChild(countSpan);
+                    if (shouldShowItemCount(item)) slot.appendChild(countSpan);
                 }
                 return slot;
             };
@@ -2850,7 +2862,7 @@ window.perlin = perlinInstance;
             if (isCreativeMenuOpen) {
                 for (let i = 0; i < creativeCatalog.length; i++) {
                     const id = creativeCatalog[i];
-                    creativeGrid?.appendChild(createSlot({ id, count: 64 }, i, 'creative-item'));
+                    creativeGrid?.appendChild(createSlot({ id, count: getMaxStackSize(id) }, i, 'creative-item'));
                 }
                 for (let i = 0; i < HOTBAR_SLOTS; i++) {
                     creativeHotbarGrid?.appendChild(createSlot(inventory[i], i, 'creative-hotbar'));
@@ -2933,7 +2945,7 @@ window.perlin = perlinInstance;
                 const countSpan = document.createElement('span');
                 countSpan.className = 'item-count !text-lg !right-1 !bottom-0'; // make count larger for clarity
                 countSpan.textContent = item.count;
-                heldDiv.appendChild(countSpan);
+                if (shouldShowItemCount(item)) heldDiv.appendChild(countSpan);
             } else {
                 heldDiv.style.opacity = 0;
                 heldDiv.style.backgroundColor = 'transparent';
