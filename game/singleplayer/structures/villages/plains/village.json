@@ -102,13 +102,16 @@
       }
     ],
     "road": {
-      "maxDoorLinkDistance": 26,
-      "wellConnectorExtension": 8,
-      "doorExtension": 5,
-      "width": 1
+      "maxDoorLinkDistance": 20,
+      "wellConnectorExtension": 10,
+      "doorExtension": 4,
+      "width": 1,
+      "mainRoadLength": 20
     },
-    "minPointSpacing": 34,
-    "maxPointSpacing": 64,
-    "maxBuildings": 9
+    "minPointSpacing": 28,
+    "maxPointSpacing": 46,
+    "maxBuildings": 12,
+    "maxBranchDepth": 2,
+    "maxFoundationSlope": 3
   }
 }
