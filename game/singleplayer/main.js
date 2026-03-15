@@ -2279,8 +2279,15 @@ window.perlin = perlinInstance;
 
                     if (goal.key === 'panic' && panicActive) {
                         speed = Math.max(speed, 1.04);
-                        const panicVec = new THREE.Vector3((Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2);
-                        if (panicVec.lengthSq() > 0.0001) desiredDir.add(panicVec.normalize().multiplyScalar(1.3));
+                        villager.nextPanicTurnMs = (villager.nextPanicTurnMs || 0) - deltaMs;
+                        if (villager.nextPanicTurnMs <= 0 || !villager.panicDir || villager.panicDir.lengthSq() < 0.0001) {
+                            villager.nextPanicTurnMs = 220 + Math.random() * 280;
+                            villager.panicDir = new THREE.Vector3((Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2);
+                            if (villager.panicDir.lengthSq() > 0.0001) villager.panicDir.normalize();
+                        }
+                        if (villager.panicDir && villager.panicDir.lengthSq() > 0.0001) {
+                            desiredDir.add(villager.panicDir.clone().multiplyScalar(1.15));
+                        }
                         continue;
                     }
 
@@ -2350,24 +2357,82 @@ window.perlin = perlinInstance;
                         continue;
                     }
 
-                    if (goal.key === 'wanderHome' && home && homeDist > villager.roamRadius + 0.4) {
+                    if ((goal.key === 'wanderHome' || goal.key === 'moveToHome') && home && homeDist > villager.roamRadius + 0.4) {
                         speed = Math.max(speed, 0.66);
                         const toHome = new THREE.Vector3(homeDx, 0, homeDz);
                         if (toHome.lengthSq() > 0.0001) desiredDir.add(toHome.normalize().multiplyScalar(0.88));
                         continue;
                     }
 
-                    if (goal.key === 'observe') {
+                    if (goal.key === 'villageInteractionStroll' && center) {
+                        villager.nextMeetingStrollMs = (villager.nextMeetingStrollMs || 0) - deltaMs;
+                        if (villager.nextMeetingStrollMs <= 0 || !villager.meetingStrollTarget) {
+                            villager.nextMeetingStrollMs = 1400 + Math.random() * 2000;
+                            const angle = Math.random() * Math.PI * 2;
+                            const radius = 1.2 + Math.random() * 2.6;
+                            villager.meetingStrollTarget = {
+                                x: center.x + Math.cos(angle) * radius,
+                                z: center.z + Math.sin(angle) * radius,
+                            };
+                        }
+                        applyVillagerTargetSteer(desiredDir, villager, villager.meetingStrollTarget, 0.42);
+                        continue;
+                    }
+
+                    if ((goal.key === 'randomStroll' || goal.key === 'randomStrollFar') && center) {
+                        const far = goal.key === 'randomStrollFar';
+                        villager.nextStrollPickMs = (villager.nextStrollPickMs || 0) - deltaMs;
+                        if (villager.nextStrollPickMs <= 0 || !villager.randomStrollTarget || villager.randomStrollTarget.far !== far) {
+                            villager.nextStrollPickMs = (far ? 2400 : 1200) + Math.random() * (far ? 2600 : 1600);
+                            const angle = Math.random() * Math.PI * 2;
+                            const radius = (far ? 3.5 : 1.2) + Math.random() * (far ? 4.5 : 2.8);
+                            villager.randomStrollTarget = {
+                                x: center.x + Math.cos(angle) * radius,
+                                z: center.z + Math.sin(angle) * radius,
+                                far,
+                            };
+                        }
+                        applyVillagerTargetSteer(desiredDir, villager, villager.randomStrollTarget, far ? 0.3 : 0.46);
+                        speed = Math.max(speed, far ? 0.64 : 0.61);
+                        continue;
+                    }
+
+                    if (goal.key === 'lookAtPlayer') {
+                        const toPlayer = new THREE.Vector3(yawObject.position.x - villager.root.position.x, 0, yawObject.position.z - villager.root.position.z);
+                        if (toPlayer.length() < 6.5) {
+                            const yaw = Math.atan2(toPlayer.x, toPlayer.z) - villager.root.rotation.y;
+                            villager.lookTargetYaw = THREE.MathUtils.clamp(yaw, -0.85, 0.85);
+                            villager.lookTargetPitch = 0;
+                        }
+                        continue;
+                    }
+
+                    if (goal.key === 'lookAtEntity' && threatPos && threatDist < 6.8) {
+                        const toThreat = new THREE.Vector3(threatPos.x - villager.root.position.x, 0, threatPos.z - villager.root.position.z);
+                        const yaw = Math.atan2(toThreat.x, toThreat.z) - villager.root.rotation.y;
+                        villager.lookTargetYaw = THREE.MathUtils.clamp(yaw, -0.9, 0.9);
+                        continue;
+                    }
+
+                    if (goal.key === 'lookAtTradingPlayer' || goal.key === 'tradeWithPlayer') {
+                        continue;
+                    }
+
+                    if (goal.key === 'observe' || goal.key === 'lookAround') {
                         villager.nextLookChangeMs -= deltaMs;
                         if (villager.nextLookChangeMs <= 0) {
-                            villager.nextLookChangeMs = 700 + Math.random() * 1500;
-                            villager.lookTargetYaw = (Math.random() - 0.5) * 1.1;
-                            villager.lookTargetPitch = (Math.random() - 0.5) * 0.45;
+                            villager.nextLookChangeMs = 900 + Math.random() * 1700;
+                            villager.lookTargetYaw = (Math.random() - 0.5) * 0.75;
+                            villager.lookTargetPitch = (Math.random() - 0.5) * 0.28;
                         }
                     }
                 }
 
-                if (desiredDir.lengthSq() > 0.00001) villager.dir.copy(desiredDir.normalize());
+                if (desiredDir.lengthSq() > 0.00001) {
+                    const nextDir = desiredDir.normalize();
+                    villager.dir.lerp(nextDir, Math.min(1, dt * 4.2));
+                    if (villager.dir.lengthSq() > 0.00001) villager.dir.normalize();
+                }
 
                 const nx = villager.root.position.x + villager.dir.x * speed * dt;
                 const nz = villager.root.position.z + villager.dir.z * speed * dt;
