@@ -389,13 +389,16 @@ window.perlin = perlinInstance;
         const pigEntities = [];
         const zombieEntities = [];
         const wolfEntities = [];
+        const pandaEntities = [];
         const pigMobDef = window.SingleplayerMobData?.categories?.passive?.pig || null;
         const pigGoalPriority = Array.isArray(pigMobDef?.behavior?.goals)
             ? [...pigMobDef.behavior.goals].sort((a, b) => a.priority - b.priority)
             : [];
         let pigTexture = null;
+        let pandaTexture = null;
         let zombieTexture = null;
         let zombieSpawnTimerMs = 0;
+        let bambooGrowthTimerMs = 0;
         let eatOverlayEl = null;
         let eatItemEl = null;
         let eatingAnimState = { active: false, timeMs: 0, durationMs: 0, itemId: 0, particleMs: 0 };
@@ -621,10 +624,12 @@ window.perlin = perlinInstance;
 
     
             await loadPigTexture();
+            await loadPandaTexture();
             await loadZombieTexture();
             generateWorld();
             spawnInitialPigs();
             spawnInitialWolves();
+            spawnInitialPandas();
             setupPointerLockControls();
             setupKeyboardControls();
             setupBlockInteraction();
@@ -1111,6 +1116,21 @@ window.perlin = perlinInstance;
             });
         }
 
+        async function loadPandaTexture() {
+            const path = window.SingleplayerConfig?.ASSET_FILEPATHS?.PANDA_TEXTURE;
+            if (!path) return;
+            pandaTexture = await new Promise((resolve) => {
+                new THREE.TextureLoader().load(path, (t) => {
+                    t.magFilter = THREE.NearestFilter;
+                    t.minFilter = THREE.NearestFilter;
+                    t.flipY = false;
+                    t.wrapS = THREE.ClampToEdgeWrapping;
+                    t.wrapT = THREE.ClampToEdgeWrapping;
+                    resolve(t);
+                }, undefined, () => resolve(null));
+            });
+        }
+
         async function loadZombieTexture() {
             const path = window.SingleplayerConfig?.ASSET_FILEPATHS?.ZOMBIE_TEXTURE;
             if (!path) return;
@@ -1234,6 +1254,61 @@ window.perlin = perlinInstance;
             wolf.userData.wolfHitbox = hitbox;
             wolf.userData.wolfParts = { head, legs, tailPivot, neck };
             return wolf;
+        }
+
+
+        function getPandaPartRects(partName) {
+            if (partName === 'head') return buildMobPartFaceRects(0, 0, 13, 10, 9);
+            if (partName === 'body') return buildMobPartFaceRects(0, 19, 19, 12, 9);
+            if (partName === 'leg') return buildMobPartFaceRects(0, 47, 6, 9, 6);
+            return null;
+        }
+
+        function createPandaPart(dim, rects) {
+            const mats = [];
+            for (let i = 0; i < 6; i++) {
+                const faceTex = createAtlasFaceTexture(pandaTexture, rects[i], 64, 64);
+                mats.push(new THREE.MeshStandardMaterial({ map: faceTex || null, color: faceTex ? 0xffffff : 0xf2f2f2, roughness: 0.88 }));
+            }
+            return new THREE.Mesh(new THREE.BoxGeometry(dim[0], dim[1], dim[2]), mats);
+        }
+
+        function createPandaMesh() {
+            const U = 1 / 16;
+            const panda = new THREE.Group();
+
+            const body = createPandaPart([19 * U, 12 * U, 13 * U], getPandaPartRects('body'));
+            body.position.y = 11 * U;
+            panda.add(body);
+
+            const head = createPandaPart([13 * U, 10 * U, 9 * U], getPandaPartRects('head'));
+            head.position.set(0, 14 * U, 9.5 * U);
+            panda.add(head);
+
+            const earMat = new THREE.MeshStandardMaterial({ color: 0x1f1f1f, roughness: 0.9 });
+            const leftEar = new THREE.Mesh(new THREE.BoxGeometry(2 * U, 2 * U, 2 * U), earMat);
+            const rightEar = leftEar.clone();
+            leftEar.position.set(-4 * U, 20 * U, 6 * U);
+            rightEar.position.set(4 * U, 20 * U, 6 * U);
+            panda.add(leftEar, rightEar);
+
+            const legOffsets = [[-6*U, 4.5*U, 4*U], [6*U, 4.5*U, 4*U], [-6*U, 4.5*U, -4*U], [6*U, 4.5*U, -4*U]];
+            const legs = [];
+            for (const off of legOffsets) {
+                const leg = createPandaPart([6 * U, 9 * U, 6 * U], getPandaPartRects('leg'));
+                leg.position.set(off[0], off[1], off[2]);
+                panda.add(leg);
+                legs.push(leg);
+            }
+
+            const hitbox = new THREE.Mesh(new THREE.BoxGeometry(1.15, 1.15, 1.1), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
+            hitbox.position.set(0, 0.6, 0);
+            hitbox.userData.pandaHitbox = true;
+            panda.add(hitbox);
+            panda.userData.pandaHitbox = hitbox;
+            panda.userData.pandaHead = head;
+            panda.userData.pandaLegs = legs;
+            return panda;
         }
 
         function getZombiePartRects(partName) {
@@ -1418,6 +1493,15 @@ window.perlin = perlinInstance;
             }
         }
 
+        function spawnInitialPandas() {
+            let spawned = 0;
+            for (let i = 0; i < 220 && spawned < 8; i++) {
+                const wx = (Math.random() * 2 - 1) * (WORLD_RADIUS * CHUNK_SIZE * 0.7);
+                const wz = (Math.random() * 2 - 1) * (WORLD_RADIUS * CHUNK_SIZE * 0.7);
+                if (spawnPandaAt(wx, wz)) spawned++;
+            }
+        }
+
         function spawnMobById(mobId, amount = 1) {
             const id = Number.parseInt(mobId, 10);
             if (!Number.isFinite(id)) return 0;
@@ -1429,7 +1513,7 @@ window.perlin = perlinInstance;
                 const dist = 3 + Math.random() * 6;
                 const wx = yawObject.position.x + Math.cos(angle) * dist;
                 const wz = yawObject.position.z + Math.sin(angle) * dist;
-                const ok = id === 1 ? spawnPigAt(wx, wz) : (id === 2 ? spawnZombieAt(wx, wz) : (id === 3 ? spawnWolfForCommand(wx, wz) : false));
+                const ok = id === 1 ? spawnPigAt(wx, wz) : (id === 2 ? spawnZombieAt(wx, wz) : (id === 3 ? spawnWolfForCommand(wx, wz) : (id === 4 ? spawnPandaForCommand(wx, wz) : false)));
                 if (ok) spawned++;
             }
             return spawned;
@@ -1630,6 +1714,46 @@ window.perlin = perlinInstance;
             return true;
         }
 
+
+        function spawnPandaAt(wx, wz) {
+            const y = getSurfaceYForEntity(wx, wz);
+            if (y < SEA_LEVEL || y > SEA_LEVEL + 26) return false;
+            const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
+            if (under !== 1 && under !== 2) return false;
+            const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(Math.floor(wx), y, Math.floor(wz)) : 15;
+            if (lightLevel < 7) return false;
+            const biome = getBiome(Math.floor(wx), Math.floor(wz));
+            if (biome !== 'Jungle Forest') return false;
+            return spawnPandaAtExact(wx, y, wz);
+        }
+
+        function spawnPandaAtExact(wx, y, wz) {
+            const root = createPandaMesh();
+            root.position.set(Math.floor(wx) + 0.5, y, Math.floor(wz) + 0.5);
+            scene.add(root);
+            pandaEntities.push({
+                root,
+                hp: 20,
+                angerUntilMs: 0,
+                attackCooldownMs: 0,
+                dir: new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize(),
+                changeDirMs: 900 + Math.random() * 1500,
+                groundProbeMs: 0,
+                targetY: y,
+                bobPhase: Math.random() * Math.PI * 2,
+            });
+            return true;
+        }
+
+        function spawnPandaForCommand(wx, wz) {
+            if (spawnPandaAt(wx, wz)) return true;
+            const y = getSurfaceYForEntity(wx, wz);
+            if (y < SEA_LEVEL || y > SEA_LEVEL + 36) return false;
+            const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
+            if (under !== 1 && under !== 2 && under !== 3 && under !== 7 && under !== 15) return false;
+            return spawnPandaAtExact(wx, y, wz);
+        }
+
         function spawnWolfForCommand(wx, wz) {
             if (spawnWolfAt(wx, wz)) return true;
             const y = getSurfaceYForEntity(wx, wz);
@@ -1777,7 +1901,87 @@ window.perlin = perlinInstance;
             }
         }
 
+
+        function getPandaHitFromCrosshair() {
+            if (!pandaEntities.length) return null;
+            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            const hitboxes = pandaEntities.map(p => p.root.userData.pandaHitbox).filter(Boolean);
+            const hits = raycaster.intersectObjects(hitboxes, false);
+            if (!hits.length) return null;
+            const hitObj = hits[0].object;
+            return pandaEntities.find((p) => p.root.userData.pandaHitbox === hitObj) || null;
+        }
+
+        function hurtPanda(panda, amount = 4, source = 'player') {
+            if (!panda) return;
+            panda.hp -= amount;
+            if (panda.hp > 0) {
+                panda.changeDirMs = 0;
+                panda.angerUntilMs = performance.now() + (window.JungleDecorationConfig?.panda?.angerMsOnHit || 6000);
+                if (source === 'player') showGameMessage('Panda: huff!');
+                return;
+            }
+            const idx = pandaEntities.indexOf(panda);
+            if (idx >= 0) pandaEntities.splice(idx, 1);
+            scene.remove(panda.root);
+            const drops = 1 + Math.floor(Math.random() * 2);
+            addToInventory(101, drops);
+            showGameMessage(`+${drops} Bamboo Stalk`);
+        }
+
+        function updatePandas(time, deltaMs) {
+            if (!pandaEntities.length) return;
+            const dt = Math.max(0.001, Math.min(0.05, deltaMs / 1000));
+            const playerPos = yawObject.position;
+            for (let i = pandaEntities.length - 1; i >= 0; i--) {
+                const panda = pandaEntities[i];
+                if (!isEntityActiveAt(panda.root.position)) continue;
+                panda.changeDirMs -= deltaMs;
+                panda.attackCooldownMs = Math.max(0, panda.attackCooldownMs - deltaMs);
+                const angry = performance.now() < panda.angerUntilMs;
+                if (angry) {
+                    const toPlayer = new THREE.Vector3(playerPos.x - panda.root.position.x, 0, playerPos.z - panda.root.position.z);
+                    const d = toPlayer.length();
+                    if (d > 0.001) {
+                        toPlayer.normalize();
+                        panda.dir.copy(toPlayer);
+                    }
+                    if (d < 1.45 && panda.attackCooldownMs <= 0) {
+                        panda.attackCooldownMs = 850;
+                        takeDamage(2);
+                    }
+                } else if (panda.changeDirMs <= 0) {
+                    panda.changeDirMs = 1000 + Math.random() * 1800;
+                    panda.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
+                }
+
+                const speed = angry ? 1.0 : 0.72;
+                const nx = panda.root.position.x + panda.dir.x * speed * dt;
+                const nz = panda.root.position.z + panda.dir.z * speed * dt;
+
+                panda.groundProbeMs -= deltaMs;
+                if (panda.groundProbeMs <= 0) {
+                    panda.groundProbeMs = 180;
+                    panda.targetY = getSurfaceYForEntity(nx, nz, panda.targetY);
+                }
+                if (panda.targetY > 0) {
+                    panda.root.position.x = nx;
+                    panda.root.position.z = nz;
+                    panda.root.position.y += (panda.targetY - panda.root.position.y) * Math.min(1, dt * 10);
+                }
+                panda.root.rotation.y = Math.atan2(panda.dir.x, panda.dir.z);
+
+                const legs = panda.root.userData.pandaLegs || [];
+                const walk = Math.sin(time * 0.01 + panda.bobPhase) * (angry ? 0.32 : 0.2);
+                if (legs[0]) legs[0].rotation.x = walk;
+                if (legs[1]) legs[1].rotation.x = -walk;
+                if (legs[2]) legs[2].rotation.x = -walk;
+                if (legs[3]) legs[3].rotation.x = walk;
+            }
+        }
+
         function getZombieHitFromCrosshair() {
+
             if (!zombieEntities.length) return null;
             raycaster.setFromCamera({ x: 0, y: 0 }, camera);
             const hitboxes = zombieEntities.map(z => z.root.userData.zombieHitbox).filter(Boolean);
@@ -3214,7 +3418,8 @@ window.perlin = perlinInstance;
             );
 
             if (!playerBox.intersectsBox(blockBox)) {
-                if (modifyWorld(placePos, item.id)) consumeSelectedItem();
+                const placedId = item.id === 101 ? 99 : item.id;
+                if (modifyWorld(placePos, placedId)) consumeSelectedItem();
             }
         }
 
@@ -3245,6 +3450,12 @@ window.perlin = perlinInstance;
                     } else {
                         hurtWolf(wolfHit, 4);
                     }
+                    return;
+                }
+
+                const pandaHit = getPandaHitFromCrosshair();
+                if (pandaHit) {
+                    hurtPanda(pandaHit, 4, 'player');
                     return;
                 }
 
@@ -5358,11 +5569,14 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
              const heightmap = buildChunkHeightmap(data);
              const spawnedPigs = [];
              const spawnedWolves = [];
+             const spawnedPandas = [];
              placeIglooInChunk(data, cx, cz, spawnedGnomes);
              const placedVillage = placeVillageInChunk(data, cx, cz);
              if (!placedVillage) placeDesertWellInChunk(data, cx, cz, spawnedPigs);
              placeWolfPackInChunk(data, heightmap, cx, cz, spawnedWolves);
-             return { data, heightmap, spawnedGnomes, spawnedPigs, spawnedWolves };
+             placePandaPackInChunk(data, heightmap, cx, cz, spawnedPandas);
+             placeBambooInChunk(data, cx, cz);
+             return { data, heightmap, spawnedGnomes, spawnedPigs, spawnedWolves, spawnedPandas };
         }
 
         function placeIglooInChunk(data, cx, cz, spawnedGnomes) {
@@ -6047,7 +6261,82 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             }
         }
 
+
+        function placePandaPackInChunk(data, heightmap, cx, cz, spawnedPandas) {
+            const centerX = Math.floor(CHUNK_SIZE / 2);
+            const centerZ = Math.floor(CHUNK_SIZE / 2);
+            const worldX = cx * CHUNK_SIZE + centerX;
+            const worldZ = cz * CHUNK_SIZE + centerZ;
+            if (getBiome(worldX, worldZ) !== 'Jungle Forest') return;
+
+            const cfg = window.JungleDecorationConfig?.panda || {};
+            const chance = Number(cfg.packSpawnChancePerChunk) || 0.14;
+            if (hashRand2D(cx, cz, 9901) > chance) return;
+
+            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
+            const getColumnTop = (lx, lz) => {
+                for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
+                    const t = data[idx(lx, y, lz)];
+                    if (t !== 0 && t !== 4) return y;
+                }
+                return -1;
+            };
+
+            const minPack = Math.max(1, Number(cfg.minPack) || 1);
+            const maxPack = Math.max(minPack, Number(cfg.maxPack) || 3);
+            const packSize = minPack + Math.floor(hashRand2D(cx, cz, 9902) * (maxPack - minPack + 1));
+            for (let i = 0; i < packSize; i++) {
+                const rx = Math.floor(hashRand2D(cx * 17 + i * 5, cz * 23 + i * 3, 9903) * CHUNK_SIZE);
+                const rz = Math.floor(hashRand2D(cx * 13 + i * 7, cz * 31 + i * 11, 9904) * CHUNK_SIZE);
+                if (rx < 1 || rz < 1 || rx >= CHUNK_SIZE - 1 || rz >= CHUNK_SIZE - 1) continue;
+                const topY = getColumnTop(rx, rz);
+                if (topY < SEA_LEVEL || topY > SEA_LEVEL + 28) continue;
+                const under = data[idx(rx, topY, rz)];
+                if (under !== 1 && under !== 2) continue;
+                spawnedPandas.push({ wx: cx * CHUNK_SIZE + rx + 0.5, wy: topY + 1, wz: cz * CHUNK_SIZE + rz + 0.5 });
+            }
+        }
+
+        function placeBambooInChunk(data, cx, cz) {
+            const centerX = Math.floor(CHUNK_SIZE / 2);
+            const centerZ = Math.floor(CHUNK_SIZE / 2);
+            const worldX = cx * CHUNK_SIZE + centerX;
+            const worldZ = cz * CHUNK_SIZE + centerZ;
+            if (getBiome(worldX, worldZ) !== 'Jungle Forest') return;
+
+            const cfg = window.JungleDecorationConfig?.bamboo || {};
+            const baseChance = Number(cfg.baseSpawnChancePerColumn) || 0.055;
+            const nearTreeBoost = Number(cfg.nearTreeBoost) || 0.03;
+
+            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
+            const getColumnTop = (lx, lz) => {
+                for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
+                    const t = data[idx(lx, y, lz)];
+                    if (t !== 0 && t !== 4 && t !== 6 && t !== 97) return y;
+                }
+                return -1;
+            };
+
+            for (let x = 1; x < CHUNK_SIZE - 1; x++) {
+                for (let z = 1; z < CHUNK_SIZE - 1; z++) {
+                    const wx = cx * CHUNK_SIZE + x;
+                    const wz = cz * CHUNK_SIZE + z;
+                    const topY = getColumnTop(x, z);
+                    if (topY < SEA_LEVEL - 1 || topY >= CHUNK_HEIGHT - 2) continue;
+                    const ground = data[idx(x, topY, z)];
+                    if (ground !== 1 && ground !== 2) continue;
+                    if (data[idx(x, topY + 1, z)] !== 0) continue;
+
+                    const nearbyTree = hasNearbyTreeTrunk(data, x, z, 2);
+                    const chance = baseChance + (nearbyTree ? nearTreeBoost : 0);
+                    if (hashRand2D(wx, wz, 9910) > chance) continue;
+                    data[idx(x, topY + 1, z)] = 99;
+                }
+            }
+        }
+
         function createChunk(cx, cz) {
+
             const generated = generateChunkData(cx, cz);
             const data = generated.data;
             const heightmap = generated.heightmap || buildChunkHeightmap(data);
@@ -6072,6 +6361,9 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             }
             if (generated.spawnedWolves && generated.spawnedWolves.length) {
                 for (const wolf of generated.spawnedWolves) spawnWolfAtExact(wolf.wx, wolf.wy, wolf.wz);
+            }
+            if (generated.spawnedPandas && generated.spawnedPandas.length) {
+                for (const panda of generated.spawnedPandas) spawnPandaAtExact(panda.wx, panda.wy, panda.wz);
             }
             return group;
         }
@@ -6258,6 +6550,23 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 { name: 'bottom', dir: [0,-1,0], corners: [[0.4375,0.05,0.4375],[0.5625,0.05,0.4375],[0.5625,0.05,0.5625],[0.4375,0.05,0.5625]], uv: [0,1,0,0,1,0,1,1] },
                 { name: 'posZ', dir: [0,0,1], corners: [[0.4375,0.8,0.5625],[0.4375,0.05,0.5625],[0.5625,0.05,0.5625],[0.5625,0.8,0.5625]], uv: [0,1,0,0,1,0,1,1] },
                 { name: 'negZ', dir: [0,0,-1], corners: [[0.5625,0.8,0.4375],[0.5625,0.05,0.4375],[0.4375,0.05,0.4375],[0.4375,0.8,0.4375]], uv: [0,1,0,0,1,0,1,1] }
+            ];
+
+            const bambooStageFaces = [
+                { name: 'posX', dir: [1,0,0], corners: [[0.56,0.72,0.56],[0.56,0.0,0.56],[0.56,0.0,0.44],[0.56,0.72,0.44]], uv: [0,1,0,0,1,0,1,1] },
+                { name: 'negX', dir: [-1,0,0], corners: [[0.44,0.72,0.44],[0.44,0.0,0.44],[0.44,0.0,0.56],[0.44,0.72,0.56]], uv: [0,1,0,0,1,0,1,1] },
+                { name: 'top', dir: [0,1,0], corners: [[0.44,0.72,0.56],[0.56,0.72,0.56],[0.56,0.72,0.44],[0.44,0.72,0.44]], uv: [0,1,0,0,1,0,1,1] },
+                { name: 'bottom', dir: [0,-1,0], corners: [[0.44,0.0,0.44],[0.56,0.0,0.44],[0.56,0.0,0.56],[0.44,0.0,0.56]], uv: [0,1,0,0,1,0,1,1] },
+                { name: 'posZ', dir: [0,0,1], corners: [[0.44,0.72,0.56],[0.44,0.0,0.56],[0.56,0.0,0.56],[0.56,0.72,0.56]], uv: [0,1,0,0,1,0,1,1] },
+                { name: 'negZ', dir: [0,0,-1], corners: [[0.56,0.72,0.44],[0.56,0.0,0.44],[0.44,0.0,0.44],[0.44,0.72,0.44]], uv: [0,1,0,0,1,0,1,1] }
+            ];
+            const bambooStalkFaces = [
+                { name: 'posX', dir: [1,0,0], corners: [[0.55,1.0,0.55],[0.55,0.0,0.55],[0.55,0.0,0.45],[0.55,1.0,0.45]], uv: [0,1,0,0,1,0,1,1] },
+                { name: 'negX', dir: [-1,0,0], corners: [[0.45,1.0,0.45],[0.45,0.0,0.45],[0.45,0.0,0.55],[0.45,1.0,0.55]], uv: [0,1,0,0,1,0,1,1] },
+                { name: 'top', dir: [0,1,0], corners: [[0.45,1.0,0.55],[0.55,1.0,0.55],[0.55,1.0,0.45],[0.45,1.0,0.45]], uv: [0,1,0,0,1,0,1,1] },
+                { name: 'bottom', dir: [0,-1,0], corners: [[0.45,0.0,0.45],[0.55,0.0,0.45],[0.55,0.0,0.55],[0.45,0.0,0.55]], uv: [0,1,0,0,1,0,1,1] },
+                { name: 'posZ', dir: [0,0,1], corners: [[0.45,1.0,0.55],[0.45,0.0,0.55],[0.55,0.0,0.55],[0.55,1.0,0.55]], uv: [0,1,0,0,1,0,1,1] },
+                { name: 'negZ', dir: [0,0,-1], corners: [[0.55,1.0,0.45],[0.55,0.0,0.45],[0.45,0.0,0.45],[0.45,1.0,0.45]], uv: [0,1,0,0,1,0,1,1] }
             ];
 
             const CH = CHUNK_HEIGHT;
@@ -6567,16 +6876,18 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                         if (id === 0) continue;
                         const mat = blockMaterials[id];
                         const isTorch = id === 22;
+                        const isBambooStage = id === 99 || id === 100;
+                        const isBambooStalk = id === 101;
                         if (isTorch) torchPositions.push({ x: x + cx * CS, y, z: z + cz * CS });
                         const isTrans = mat.transparent || (mat.textured && mat.textureKey === 'LEAVES');
-                        if (!isTorch && !isTrans) continue;
-                        const activeFaces = isTorch ? torchFaces : faces;
+                        if (!isTorch && !isBambooStage && !isBambooStalk && !isTrans) continue;
+                        const activeFaces = isTorch ? torchFaces : (isBambooStalk ? bambooStalkFaces : (isBambooStage ? bambooStageFaces : faces));
 
                         for (let i = 0; i < 6; i++) {
                             const f = activeFaces[i];
                             const nid = get(x + f.dir[0], y + f.dir[1], z + f.dir[2]);
                             let draw = false;
-                            if (isTorch) draw = true;
+                            if (isTorch || isBambooStage || isBambooStalk) draw = true;
                             else if (shouldDrawFace(id, nid)) draw = true;
                             if (!draw) continue;
 
@@ -6586,7 +6897,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                             const wx = x + cx * CS;
                             const wz = z + cz * CS;
                             const corners = f.corners.map((c) => [wx + c[0], y + c[1], wz + c[2]]);
-                            emitQuad(id, materialKey, f.dir, corners, uvInfo.uv, !isTorch);
+                            emitQuad(id, materialKey, f.dir, corners, uvInfo.uv, !(isTorch || isBambooStage || isBambooStalk));
                         }
                     }
                 }
@@ -7129,7 +7440,47 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
         }
 
 
+
+        function updateBambooGrowth(deltaMs) {
+            bambooGrowthTimerMs += deltaMs;
+            const tickMs = Number(window.JungleDecorationConfig?.bamboo?.growthTickMs) || 1100;
+            if (bambooGrowthTimerMs < tickMs) return;
+            bambooGrowthTimerMs = 0;
+
+            const growthRollChance = Number(window.JungleDecorationConfig?.bamboo?.growthRollChance) || 0.18;
+            const chunkEntries = Array.from(chunks.values());
+            if (!chunkEntries.length) return;
+            const sampleCount = Math.min(3, chunkEntries.length);
+            for (let sIdx = 0; sIdx < sampleCount; sIdx++) {
+                const g = chunkEntries[Math.floor(Math.random() * chunkEntries.length)];
+                if (!g?.userData?.chunkData) continue;
+                const data = g.userData.chunkData;
+                const cx = g.userData.cx;
+                const cz = g.userData.cz;
+                for (let tries = 0; tries < 24; tries++) {
+                    const lx = Math.floor(Math.random() * CHUNK_SIZE);
+                    const lz = Math.floor(Math.random() * CHUNK_SIZE);
+                    const y = getColumnTopFromData(data, lx, lz) + 1;
+                    if (y <= 0 || y >= CHUNK_HEIGHT - 1) continue;
+                    const idx = lx + y * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
+                    const id = data[idx];
+                    if (id !== 99 && id !== 100) continue;
+                    if (Math.random() > growthRollChance) continue;
+                    data[idx] = id === 99 ? 100 : 101;
+                    const wx = cx * CHUNK_SIZE + lx;
+                    const wz = cz * CHUNK_SIZE + lz;
+                    updateChunkAndNeighbors(g, lx, lz);
+                    if (id === 100 && y + 1 < CHUNK_HEIGHT && getBlockType(wx, y + 1, wz) === 0 && Math.random() < 0.45) {
+                        setBlockTypeRaw(wx, y + 1, wz, 101, true);
+                        updateChunkAndNeighbors(g, lx, lz);
+                    }
+                    break;
+                }
+            }
+        }
+
         function animate(time) {
+
             requestAnimationFrame(animate);
             const delta = lastTime ? (time - lastTime) : 0;
             lastTime = time;
@@ -7151,6 +7502,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 updateGnomes(time);
                 updatePigs(time, delta);
                 updateWolves(time, delta);
+                updatePandas(time, delta);
+                updateBambooGrowth(delta);
                 trySpawnNightZombie(delta);
                 updateZombies(time, delta);
                 updateEatingAnimation(delta, time);
@@ -7167,6 +7520,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 updateFirstPersonHand(time);
                 updatePigs(time, delta);
                 updateWolves(time, delta);
+                updatePandas(time, delta);
                 updateZombies(time, delta);
                 updateEatingAnimation(delta, time);
                 maybeSpawnLavaParticles(delta);
