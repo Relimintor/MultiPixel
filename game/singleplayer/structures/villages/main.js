@@ -147,7 +147,31 @@
 
   function normalizeBiomeName(biomeName) {
     if (typeof biomeName !== 'string') return '';
-    return biomeName.trim().toLowerCase();
+    const normalized = biomeName
+      .trim()
+      .toLowerCase()
+      .replace(/[_-]+/g, ' ')
+      .replace(/\s+/g, ' ');
+
+    const aliases = {
+      plains: 'plains',
+      desert: 'desert',
+      forest: 'oak_forest',
+      'oak forest': 'oak_forest',
+      jungle: 'jungle_forest',
+      'jungle forest': 'jungle_forest',
+      snowy: 'snowy_plains',
+      snow: 'snowy_plains',
+      'snowy plains': 'snowy_plains',
+      ocean: 'ocean',
+      'warm ocean': 'ocean',
+      'lukewarm ocean': 'ocean',
+      'cold ocean': 'ocean',
+      'frozen ocean': 'ocean',
+      'coast ocean': 'ocean'
+    };
+
+    return aliases[normalized] || normalized.replace(/\s+/g, '_');
   }
 
   function isVillageBiome(biomeName) {
