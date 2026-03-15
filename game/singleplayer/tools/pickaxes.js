@@ -77,6 +77,7 @@
       if (Math.random() < 0.5) return { id: 46, count: 1 };
       return { id: 28, count: 1 };
     }
+    if (blockId === 99 || blockId === 100) return { id: 101, count: 1 };
     return { id: blockId, count: 1 };
   }
 
