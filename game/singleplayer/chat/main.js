@@ -159,7 +159,7 @@
                     <img id="chat-close-icon" alt="close chat" draggable="false" />
                 </button>
                 <div id="chat-log"></div>
-                <input id="chat-input" type="text" maxlength="180" placeholder="Type message or /give, /spawn, /tp, /time, /gamemode, /grantme, /ungrantme, /set, /help" autocomplete="off" />
+                <input id="chat-input" type="text" maxlength="180" placeholder="Type message or /give, /spawn, /tp, /time, /gamemode, /grantme, /ungrantme, /set, /enchant, /help" autocomplete="off" />
             </div>
             <div id="chat-help-overlay" role="dialog" aria-label="Command help">
                 <div id="chat-help-panel">
@@ -172,6 +172,7 @@
                     <p><strong>/set render_distance</strong> &lt;amount&gt; — set chunk render distance (no hard upper cap).</p>
                     <p><strong>/set fov</strong> &lt;amount&gt; — set camera field of view (no hard upper cap).</p>
                     <p><strong>/gamemode creative</strong> — switch to creative and open creative menu.</p>
+                    <p><strong>/enchant</strong> &lt;holding|itemId&gt; &lt;knockback&gt; &lt;amount&gt; — apply knockback enchant (max 400).</p>
                     <p><strong>/grantme</strong> &lt;fly|speed|noclip|all&gt; — grant yourself movement privileges.</p>
                     <p><strong>/ungrantme</strong> &lt;fly|speed|noclip|all&gt; — remove movement privileges.</p>
                     <p><strong>/help</strong> — open this command help panel.</p>
@@ -233,7 +234,7 @@
         context = initContext || {};
         buildUI();
         loadCensorWords();
-        pushMessage('Chat ready. Use /give, /spawn, /tp, /time, /set, /gamemode, /grantme, /ungrantme, /help. Try /spawn structure:village biome:plains building:house_small', 'chat-info');
+        pushMessage('Chat ready. Use /give, /spawn, /tp, /time, /set, /enchant, /gamemode, /grantme, /ungrantme, /help. Try /spawn structure:village biome:plains building:house_small', 'chat-info');
     }
 
     window.SingleplayerChat = {

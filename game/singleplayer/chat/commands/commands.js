@@ -67,6 +67,11 @@
       return window.SingleplayerChatCommandUnGrantMe.execute(parts, ctx);
     }
 
+
+    if (command === '/enchant' && window.SingleplayerChatCommandEnchant?.execute) {
+      return window.SingleplayerChatCommandEnchant.execute(parts, ctx);
+    }
+
     if (command === '/set') {
       if (window.SingleplayerChatCommandSet?.execute) {
         return window.SingleplayerChatCommandSet.execute(parts, ctx);
