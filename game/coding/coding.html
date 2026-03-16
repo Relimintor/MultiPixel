@@ -256,7 +256,7 @@
 
     <!-- Header / Title -->
     <div class="max-w-7xl mx-auto mb-4">
-        <h1 class="text-3xl font-bold text-white tracking-wider">MultiRaptor IDE (<span class="text-blue-400">M.R.I.D.E.</span>) <span class="text-xl text-gray-500">(v5.1 - AST Interpreter)
+        <h1 class="text-3xl font-bold text-white tracking-wider">MultiRaptor IDE (<span class="text-blue-400">M.R.I.D.E.</span>) <span class="text-xl text-gray-500">(v6.0 - Advanced AST Interpreter)
                     <span id="info-icon" class="ml-2 inline-block cursor-pointer text-blue-400 hover:text-white transition duration-150 relative">
                         <!-- Info Icon SVG -->
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
@@ -491,14 +491,27 @@ proc proc_demo() {
     vault computed_value = proc_data_message(result_1, 2); // Pass 60 and 2
 
     Signal("Function Call Result: " + computed_value); // 60 * 2 = 120 (from proc_data_message)
+
+    // 7. Branching + loops (new in v6)
+    if (computed_value >= 120) {
+        Signal("Power threshold reached.");
+    } else {
+        Signal("Power below threshold.");
+    }
+
+    vault tick = 0;
+    while (tick < 3) {
+        Signal("Tick " + tick);
+        tick = tick + 1;
+    }
     
-    // 7. Built-in Math object usage
+    // 8. Built-in Math object usage
     vault radius = 10;
     vault area = Math.PI * Math.pow(radius, 2);
     Signal("Area of Circle (Radius 10): " + area); // Math object works!
 }
 
-// 8. GLOBAL STATEMENT (Code outside proc_demo, executed on 2nd pass)
+// 9. GLOBAL STATEMENT (Code outside proc_demo, executed on 2nd pass)
 Signal("Global statements loaded successfully.");
 `
             },
@@ -532,7 +545,7 @@ proc proc_data_message(base_value, multiplier) {
 // =======================================================
 // MultiRaptor Settings (src/config/settings.mr)
 // =======================================================
-seal VERSION = "5.1.0";
+seal VERSION = "6.0.0";
 Signal("Config loaded. Version: " + VERSION);
 `
                             }
@@ -563,6 +576,11 @@ Signal("Config loaded. Version: " + VERSION);
             KEYWORD_SEAL: 'KEYWORD_SEAL',   // const
             KEYWORD_PROC: 'KEYWORD_PROC',   // function
             KEYWORD_RETURN: 'KEYWORD_RETURN', // return
+            KEYWORD_IF: 'KEYWORD_IF',
+            KEYWORD_ELSE: 'KEYWORD_ELSE',
+            KEYWORD_WHILE: 'KEYWORD_WHILE',
+            KEYWORD_TRUE: 'KEYWORD_TRUE',
+            KEYWORD_FALSE: 'KEYWORD_FALSE',
             
             // Built-ins
             BUILTIN_SIGNAL: 'BUILTIN_SIGNAL',
@@ -587,7 +605,17 @@ Signal("Config loaded. Version: " + VERSION);
             OPERATOR_SUB: 'OPERATOR_SUB', // -
             OPERATOR_MUL: 'OPERATOR_MUL', // *
             OPERATOR_DIV: 'OPERATOR_DIV', // /
+            OPERATOR_MOD: 'OPERATOR_MOD', // %
             OPERATOR_DOT: 'OPERATOR_DOT', // . (for method access)
+            OPERATOR_EQUAL: 'OPERATOR_EQUAL', // ==
+            OPERATOR_NOT_EQUAL: 'OPERATOR_NOT_EQUAL', // !=
+            OPERATOR_LT: 'OPERATOR_LT', // <
+            OPERATOR_LTE: 'OPERATOR_LTE', // <=
+            OPERATOR_GT: 'OPERATOR_GT', // >
+            OPERATOR_GTE: 'OPERATOR_GTE', // >=
+            OPERATOR_AND: 'OPERATOR_AND', // &&
+            OPERATOR_OR: 'OPERATOR_OR', // ||
+            OPERATOR_NOT: 'OPERATOR_NOT', // !
 
             // End of File
             EOF: 'EOF',
@@ -598,6 +626,11 @@ Signal("Config loaded. Version: " + VERSION);
             'seal': Tokens.KEYWORD_SEAL,
             'proc': Tokens.KEYWORD_PROC,
             'return': Tokens.KEYWORD_RETURN,
+            'if': Tokens.KEYWORD_IF,
+            'else': Tokens.KEYWORD_ELSE,
+            'while': Tokens.KEYWORD_WHILE,
+            'true': Tokens.KEYWORD_TRUE,
+            'false': Tokens.KEYWORD_FALSE,
             'Signal': Tokens.BUILTIN_SIGNAL,
             'Import': Tokens.BUILTIN_IMPORT,
         };
@@ -636,6 +669,22 @@ Signal("Config loaded. Version: " + VERSION);
                         continue;
                     }
 
+                    // Handle double-character operators first
+                    const twoChar = this.source.substring(this.cursor, this.cursor + 2);
+                    const twoCharMap = {
+                        '==': Tokens.OPERATOR_EQUAL,
+                        '!=': Tokens.OPERATOR_NOT_EQUAL,
+                        '<=': Tokens.OPERATOR_LTE,
+                        '>=': Tokens.OPERATOR_GTE,
+                        '&&': Tokens.OPERATOR_AND,
+                        '||': Tokens.OPERATOR_OR,
+                    };
+                    if (twoCharMap[twoChar]) {
+                        this._advance(2);
+                        this.tokens.push(new Token(twoCharMap[twoChar], twoChar, this.line, this.column - 2));
+                        continue;
+                    }
+
                     // Handle single-character tokens
                     switch (char) {
                         case ';': this._advance(1); this.tokens.push(new Token(Tokens.SEPARATOR_SEMICOLON, ';', this.line, this.column - 1)); break;
@@ -644,6 +693,10 @@ Signal("Config loaded. Version: " + VERSION);
                         case '-': this._advance(1); this.tokens.push(new Token(Tokens.OPERATOR_SUB, '-', this.line, this.column - 1)); break;
                         case '*': this._advance(1); this.tokens.push(new Token(Tokens.OPERATOR_MUL, '*', this.line, this.column - 1)); break;
                         case '/': this._advance(1); this.tokens.push(new Token(Tokens.OPERATOR_DIV, '/', this.line, this.column - 1)); break;
+                        case '%': this._advance(1); this.tokens.push(new Token(Tokens.OPERATOR_MOD, '%', this.line, this.column - 1)); break;
+                        case '!': this._advance(1); this.tokens.push(new Token(Tokens.OPERATOR_NOT, '!', this.line, this.column - 1)); break;
+                        case '<': this._advance(1); this.tokens.push(new Token(Tokens.OPERATOR_LT, '<', this.line, this.column - 1)); break;
+                        case '>': this._advance(1); this.tokens.push(new Token(Tokens.OPERATOR_GT, '>', this.line, this.column - 1)); break;
                         case '(': this._advance(1); this.tokens.push(new Token(Tokens.SEPARATOR_LPAREN, '(', this.line, this.column - 1)); break;
                         case ')': this._advance(1); this.tokens.push(new Token(Tokens.SEPARATOR_RPAREN, ')', this.line, this.column - 1)); break;
                         case '{': this._advance(1); this.tokens.push(new Token(Tokens.SEPARATOR_LBRACE, '{', this.line, this.column - 1)); break;
@@ -742,6 +795,9 @@ Signal("Config loaded. Version: " + VERSION);
             Identifier: 'Identifier',
             AssignmentExpression: 'AssignmentExpression',
             ReturnStatement: 'ReturnStatement',
+            UnaryExpression: 'UnaryExpression',
+            IfStatement: 'IfStatement',
+            WhileStatement: 'WhileStatement',
         };
 
         class Parser {
@@ -761,7 +817,11 @@ Signal("Config loaded. Version: " + VERSION);
             peek() {
                 return this.tokens[this.cursor];
             }
-            
+
+            previous() {
+                return this.tokens[this.cursor - 1];
+            }
+
             consume(expectedType, expectedValue = null) {
                 const token = this.peek();
                 if (token.type !== expectedType || (expectedValue && token.value !== expectedValue)) {
@@ -769,6 +829,14 @@ Signal("Config loaded. Version: " + VERSION);
                 }
                 this.cursor++;
                 return token;
+            }
+
+            match(...types) {
+                if (types.includes(this.peek().type)) {
+                    this.cursor++;
+                    return true;
+                }
+                return false;
             }
 
             parseStatement() {
@@ -781,18 +849,22 @@ Signal("Config loaded. Version: " + VERSION);
                         return this.parseVariableDeclaration();
                     case Tokens.BUILTIN_IMPORT:
                         this.parseImportStatement();
-                        return { type: 'NoOp' }; 
+                        return { type: 'NoOp' };
                     case Tokens.KEYWORD_RETURN:
                         return this.parseReturnStatement();
+                    case Tokens.KEYWORD_IF:
+                        return this.parseIfStatement();
+                    case Tokens.KEYWORD_WHILE:
+                        return this.parseWhileStatement();
                     default:
                         return this.parseExpressionStatement();
                 }
             }
-            
+
             parseImportStatement() {
                 this.consume(Tokens.BUILTIN_IMPORT);
                 this.consume(Tokens.SEPARATOR_LPAREN);
-                this.consume(Tokens.LITERAL_STRING); 
+                this.consume(Tokens.LITERAL_STRING);
                 this.consume(Tokens.SEPARATOR_RPAREN);
                 this.consume(Tokens.SEPARATOR_SEMICOLON);
             }
@@ -804,10 +876,52 @@ Signal("Config loaded. Version: " + VERSION);
                 return { type: AST.ReturnStatement, argument: argument };
             }
 
+            parseIfStatement() {
+                this.consume(Tokens.KEYWORD_IF);
+                this.consume(Tokens.SEPARATOR_LPAREN);
+                const test = this.parseExpression();
+                this.consume(Tokens.SEPARATOR_RPAREN);
+                this.consume(Tokens.SEPARATOR_LBRACE);
+
+                const consequent = [];
+                while (this.peek().type !== Tokens.SEPARATOR_RBRACE) {
+                    consequent.push(this.parseStatement());
+                }
+                this.consume(Tokens.SEPARATOR_RBRACE);
+
+                let alternate = null;
+                if (this.match(Tokens.KEYWORD_ELSE)) {
+                    this.consume(Tokens.SEPARATOR_LBRACE);
+                    alternate = [];
+                    while (this.peek().type !== Tokens.SEPARATOR_RBRACE) {
+                        alternate.push(this.parseStatement());
+                    }
+                    this.consume(Tokens.SEPARATOR_RBRACE);
+                }
+
+                return { type: AST.IfStatement, test, consequent, alternate };
+            }
+
+            parseWhileStatement() {
+                this.consume(Tokens.KEYWORD_WHILE);
+                this.consume(Tokens.SEPARATOR_LPAREN);
+                const test = this.parseExpression();
+                this.consume(Tokens.SEPARATOR_RPAREN);
+                this.consume(Tokens.SEPARATOR_LBRACE);
+
+                const body = [];
+                while (this.peek().type !== Tokens.SEPARATOR_RBRACE) {
+                    body.push(this.parseStatement());
+                }
+                this.consume(Tokens.SEPARATOR_RBRACE);
+
+                return { type: AST.WhileStatement, test, body };
+            }
+
             parseProcDeclaration() {
                 this.consume(Tokens.KEYWORD_PROC);
                 const name = this.consume(Tokens.LITERAL_IDENTIFIER).value;
-                
+
                 this.consume(Tokens.SEPARATOR_LPAREN);
                 const params = [];
                 while (this.peek().type !== Tokens.SEPARATOR_RPAREN) {
@@ -817,13 +931,13 @@ Signal("Config loaded. Version: " + VERSION);
                     params.push(this.consume(Tokens.LITERAL_IDENTIFIER).value);
                 }
                 this.consume(Tokens.SEPARATOR_RPAREN);
-                this.consume(Tokens.SEPARATOR_LBRACE); 
+                this.consume(Tokens.SEPARATOR_LBRACE);
 
                 const body = [];
                 while (this.peek().type !== Tokens.SEPARATOR_RBRACE) {
                     body.push(this.parseStatement());
                 }
-                this.consume(Tokens.SEPARATOR_RBRACE); 
+                this.consume(Tokens.SEPARATOR_RBRACE);
 
                 return {
                     type: AST.ProcDeclaration,
@@ -837,13 +951,13 @@ Signal("Config loaded. Version: " + VERSION);
                 const kindToken = this.peek();
                 const kind = kindToken.type === Tokens.KEYWORD_VAULT ? 'vault' : 'seal';
                 this.cursor++;
-                
+
                 const name = this.consume(Tokens.LITERAL_IDENTIFIER).value;
                 this.consume(Tokens.OPERATOR_ASSIGN);
-                
+
                 const initializer = this.parseExpression();
                 this.consume(Tokens.SEPARATOR_SEMICOLON);
-                
+
                 return {
                     type: AST.VariableDeclaration,
                     kind: kind,
@@ -851,46 +965,97 @@ Signal("Config loaded. Version: " + VERSION);
                     initializer: initializer
                 };
             }
-            
+
             parseExpressionStatement() {
-                // Check if the expression is an assignment (e.g., 'count = 5;')
                 const token1 = this.peek();
                 const token2 = this.tokens[this.cursor + 1];
-                
+
                 if (token1.type === Tokens.LITERAL_IDENTIFIER && token2 && token2.type === Tokens.OPERATOR_ASSIGN) {
                     const name = this.consume(Tokens.LITERAL_IDENTIFIER).value;
                     this.consume(Tokens.OPERATOR_ASSIGN);
                     const right = this.parseExpression();
                     this.consume(Tokens.SEPARATOR_SEMICOLON);
-                    
+
                     return { type: AST.AssignmentExpression, name: name, value: right };
                 }
 
-                // Otherwise, it must be a function call or identifier alone
                 const expr = this.parseExpression();
                 this.consume(Tokens.SEPARATOR_SEMICOLON);
-                
+
                 return { type: 'ExpressionStatement', expression: expr };
             }
 
             parseExpression() {
-                // Simple operator precedence (left to right, no complex grouping yet)
-                let left = this.parsePrimaryExpression();
+                return this.parseLogicalOr();
+            }
 
-                while ([Tokens.OPERATOR_ADD, Tokens.OPERATOR_SUB, Tokens.OPERATOR_MUL, Tokens.OPERATOR_DIV].includes(this.peek().type)) {
-                    const operatorToken = this.peek();
-                    this.cursor++;
-                    const right = this.parsePrimaryExpression();
-                    
-                    left = {
-                        type: AST.BinaryExpression,
-                        operator: operatorToken.value,
-                        left: left,
-                        right: right
-                    };
+            parseLogicalOr() {
+                let expr = this.parseLogicalAnd();
+                while (this.match(Tokens.OPERATOR_OR)) {
+                    const operator = this.previous().value;
+                    const right = this.parseLogicalAnd();
+                    expr = { type: AST.BinaryExpression, operator, left: expr, right };
                 }
-                
-                return left;
+                return expr;
+            }
+
+            parseLogicalAnd() {
+                let expr = this.parseEquality();
+                while (this.match(Tokens.OPERATOR_AND)) {
+                    const operator = this.previous().value;
+                    const right = this.parseEquality();
+                    expr = { type: AST.BinaryExpression, operator, left: expr, right };
+                }
+                return expr;
+            }
+
+            parseEquality() {
+                let expr = this.parseComparison();
+                while (this.match(Tokens.OPERATOR_EQUAL, Tokens.OPERATOR_NOT_EQUAL)) {
+                    const operator = this.previous().value;
+                    const right = this.parseComparison();
+                    expr = { type: AST.BinaryExpression, operator, left: expr, right };
+                }
+                return expr;
+            }
+
+            parseComparison() {
+                let expr = this.parseTerm();
+                while (this.match(Tokens.OPERATOR_LT, Tokens.OPERATOR_LTE, Tokens.OPERATOR_GT, Tokens.OPERATOR_GTE)) {
+                    const operator = this.previous().value;
+                    const right = this.parseTerm();
+                    expr = { type: AST.BinaryExpression, operator, left: expr, right };
+                }
+                return expr;
+            }
+
+            parseTerm() {
+                let expr = this.parseFactor();
+                while (this.match(Tokens.OPERATOR_ADD, Tokens.OPERATOR_SUB)) {
+                    const operator = this.previous().value;
+                    const right = this.parseFactor();
+                    expr = { type: AST.BinaryExpression, operator, left: expr, right };
+                }
+                return expr;
+            }
+
+            parseFactor() {
+                let expr = this.parseUnary();
+                while (this.match(Tokens.OPERATOR_MUL, Tokens.OPERATOR_DIV, Tokens.OPERATOR_MOD)) {
+                    const operator = this.previous().value;
+                    const right = this.parseUnary();
+                    expr = { type: AST.BinaryExpression, operator, left: expr, right };
+                }
+                return expr;
+            }
+
+            parseUnary() {
+                if (this.match(Tokens.OPERATOR_NOT, Tokens.OPERATOR_SUB)) {
+                    const operator = this.previous().value;
+                    const argument = this.parseUnary();
+                    return { type: AST.UnaryExpression, operator, argument };
+                }
+                return this.parsePrimaryExpression();
             }
 
             parsePrimaryExpression() {
@@ -903,23 +1068,27 @@ Signal("Config loaded. Version: " + VERSION);
                         this.cursor++;
                         expression = { type: AST.Literal, value: token.value };
                         break;
+                    case Tokens.KEYWORD_TRUE:
+                        this.cursor++;
+                        expression = { type: AST.Literal, value: true };
+                        break;
+                    case Tokens.KEYWORD_FALSE:
+                        this.cursor++;
+                        expression = { type: AST.Literal, value: false };
+                        break;
                     case Tokens.BUILTIN_SIGNAL:
                     case Tokens.LITERAL_IDENTIFIER:
-                        // Check for method access (e.g., Math.PI, Math.pow)
                         if (this.tokens[this.cursor + 1] && this.tokens[this.cursor + 1].type === Tokens.OPERATOR_DOT) {
                              const objName = this.consume(Tokens.LITERAL_IDENTIFIER).value;
                              this.consume(Tokens.OPERATOR_DOT);
                              const propName = this.consume(Tokens.LITERAL_IDENTIFIER).value;
-                             
-                             // If the property is followed by '(', it's a method call
+
                              if (this.peek().type === Tokens.SEPARATOR_LPAREN) {
                                  expression = this.parseCallExpression(objName + '.' + propName);
                              } else {
-                                // Simple property access (e.g., Math.PI)
                                 expression = { type: AST.Identifier, name: objName + '.' + propName };
                              }
-                        } 
-                        // Could be a function call or just an identifier
+                        }
                         else if (this.tokens[this.cursor + 1] && this.tokens[this.cursor + 1].type === Tokens.SEPARATOR_LPAREN) {
                             expression = this.parseCallExpression();
                         } else {
@@ -928,7 +1097,6 @@ Signal("Config loaded. Version: " + VERSION);
                         }
                         break;
                     case Tokens.SEPARATOR_LPAREN:
-                        // Grouping: (Expression)
                         this.consume(Tokens.SEPARATOR_LPAREN);
                         expression = this.parseExpression();
                         this.consume(Tokens.SEPARATOR_RPAREN);
@@ -940,9 +1108,9 @@ Signal("Config loaded. Version: " + VERSION);
             }
 
             parseCallExpression(explicitName = null) {
-                const name = explicitName || this.consume(this.peek().type).value; 
+                const name = explicitName || this.consume(this.peek().type).value;
                 this.consume(Tokens.SEPARATOR_LPAREN);
-                
+
                 const args = [];
                 while (this.peek().type !== Tokens.SEPARATOR_RPAREN) {
                     if (args.length > 0) {
@@ -950,9 +1118,9 @@ Signal("Config loaded. Version: " + VERSION);
                     }
                     args.push(this.parseExpression());
                 }
-                
+
                 this.consume(Tokens.SEPARATOR_RPAREN);
-                
+
                 return {
                     type: AST.CallExpression,
                     name: name,
@@ -960,6 +1128,7 @@ Signal("Config loaded. Version: " + VERSION);
                 };
             }
         }
+
 
 
         // --- 3. INTERPRETER (Execution Context) ---
@@ -1081,6 +1250,12 @@ Signal("Config loaded. Version: " + VERSION);
                             return this.evaluateCallExpression(node);
                         case AST.BinaryExpression:
                             return this.evaluateBinaryExpression(node);
+                        case AST.UnaryExpression:
+                            return this.evaluateUnaryExpression(node);
+                        case AST.IfStatement:
+                            return this.evaluateIfStatement(node);
+                        case AST.WhileStatement:
+                            return this.evaluateWhileStatement(node);
                         case AST.Literal:
                             return node.value;
                         case AST.Identifier:
@@ -1110,6 +1285,23 @@ Signal("Config loaded. Version: " + VERSION);
             evaluateAssignmentExpression(node) {
                 const value = this.evaluate(node.value);
                 this.currentScope.set(node.name, value);
+            }
+
+            evaluateIfStatement(node) {
+                if (this.evaluate(node.test)) {
+                    node.consequent.forEach(stmt => this.evaluate(stmt));
+                    return;
+                }
+
+                if (node.alternate) {
+                    node.alternate.forEach(stmt => this.evaluate(stmt));
+                }
+            }
+
+            evaluateWhileStatement(node) {
+                while (this.evaluate(node.test)) {
+                    node.body.forEach(stmt => this.evaluate(stmt));
+                }
             }
 
             evaluateCallExpression(node) {
@@ -1165,27 +1357,64 @@ Signal("Config loaded. Version: " + VERSION);
                 return result;
             }
 
+            evaluateUnaryExpression(node) {
+                const value = this.evaluate(node.argument);
+                switch (node.operator) {
+                    case '!': return !value;
+                    case '-':
+                        if (typeof value !== 'number') {
+                            throw new Error(`Unary '-' requires a number, got ${typeof value}.`);
+                        }
+                        return -value;
+                    default:
+                        throw new Error(`Unknown unary operator ${node.operator}`);
+                }
+            }
+
             evaluateBinaryExpression(node) {
                 const left = this.evaluate(node.left);
                 const right = this.evaluate(node.right);
 
-                // Check for type coercion (e.g., string + number)
-                if (node.operator === '+') {
-                    return String(left) + String(right);
-                }
-
-                // Must be numbers for other ops
-                if (typeof left !== 'number' || typeof right !== 'number') {
-                    throw new Error(`Operator '${node.operator}' requires two numbers, got ${typeof left} and ${typeof right}.`);
-                }
-
                 switch (node.operator) {
-                    case '-': return left - right;
-                    case '*': return left * right;
-                    case '/': 
-                        if (right === 0) throw new Error("Division by zero.");
-                        return left / right;
-                    default: throw new Error(`Unknown operator ${node.operator}`);
+                    case '+':
+                        if (typeof left === 'string' || typeof right === 'string') {
+                            return String(left) + String(right);
+                        }
+                        if (typeof left !== 'number' || typeof right !== 'number') {
+                            throw new Error(`Operator '+' requires numbers or strings, got ${typeof left} and ${typeof right}.`);
+                        }
+                        return left + right;
+                    case '-':
+                    case '*':
+                    case '/':
+                    case '%':
+                        if (typeof left !== 'number' || typeof right !== 'number') {
+                            throw new Error(`Operator '${node.operator}' requires two numbers, got ${typeof left} and ${typeof right}.`);
+                        }
+                        if ((node.operator === '/' || node.operator === '%') && right === 0) {
+                            throw new Error("Division by zero.");
+                        }
+                        if (node.operator === '-') return left - right;
+                        if (node.operator === '*') return left * right;
+                        if (node.operator === '/') return left / right;
+                        return left % right;
+                    case '==': return left == right;
+                    case '!=': return left != right;
+                    case '<':
+                    case '<=':
+                    case '>':
+                    case '>=':
+                        if (typeof left !== 'number' || typeof right !== 'number') {
+                            throw new Error(`Operator '${node.operator}' requires two numbers, got ${typeof left} and ${typeof right}.`);
+                        }
+                        if (node.operator === '<') return left < right;
+                        if (node.operator === '<=') return left <= right;
+                        if (node.operator === '>') return left > right;
+                        return left >= right;
+                    case '&&': return Boolean(left) && Boolean(right);
+                    case '||': return Boolean(left) || Boolean(right);
+                    default:
+                        throw new Error(`Unknown operator ${node.operator}`);
                 }
             }
         }
@@ -1636,14 +1865,15 @@ Signal("Config loaded. Version: " + VERSION);
             switchTab('console'); 
 
             const raptorHelp = `
--- MultiRaptor Help (v5.1 AST Mode) --
+-- MultiRaptor Help (v6.0 Advanced AST Mode) --
 The language now uses a proper Tokenizer, Parser, and Scope-based Interpreter.
 Supported features:
 - Variable declaration: vault (mutable), seal (constant)
 - Function declaration/call: proc <name>(params) { ... }
 - Built-in: Signal("message" + value)
-- Control Flow: return expression;
-- Expressions: +, -, *, / (supports basic arithmetic and string concatenation)
+- Control Flow: if/else, while, return expression;
+- Expressions: +, -, *, /, %, ==, !=, <, <=, >, >=, &&, ||, unary ! and -
+- Boolean literals: true, false
 - Built-in Math object access (e.g., Math.PI, Math.pow(x, y))
 - Variable Assignment: variable = expression;
 
@@ -1809,15 +2039,15 @@ CLI: rap run, rap help, rap doctor
 
 
             infoTooltip.textContent = 
-`MultiRaptor v5.1 IDE: AST Interpreter Core.
+`MultiRaptor v6.0 IDE: Advanced AST Interpreter Core.
 - Execution is now handled by a custom Tokenizer, Parser, and Scope-based Interpreter.
-- Supports variables (vault/seal), procedures (proc), Signal(), and arithmetic expressions.
+- Supports variables (vault/seal), procedures (proc), Signal(), loops/branches, booleans, and advanced expressions.
 - This is a proper compiler/interpreter foundation!`;
             
             infoIcon.onmouseenter = () => infoTooltip.classList.remove('hidden');
             infoIcon.onmouseleave = () => infoTooltip.classList.add('hidden');
             
-            __mr_console_log("Welcome to MultiRaptor IDE v5.1. Core language interpretation has been upgraded to use AST.", 'cli_output');
+            __mr_console_log("Welcome to MultiRaptor IDE v6.0. Advanced language features are online.", 'cli_output');
             cliInput.focus();
         }
         
