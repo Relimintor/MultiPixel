@@ -54,6 +54,25 @@
     },
     treeClusterBonus: 0.14,
     treeMinSpacingChance: 0.75,
+    decorations: {
+      amethystGeodes: {
+        enabled: true,
+        chancePerChunk: 0.075,
+        maxPerChunk: 2,
+      },
+      pumpkins: {
+        enabled: true,
+        chancePerChunk: 1 / 32,
+        minPatch: 3,
+        maxPatch: 7,
+      },
+      melons: {
+        enabled: true,
+        chancePerJungleChunk: 0.25,
+        minPatch: 4,
+        maxPatch: 9,
+      },
+    },
   };
 
   const CAVE_SCALE = 0.05;

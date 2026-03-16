@@ -119,6 +119,8 @@
         const DAY_CYCLE_DURATION = DAY_SEGMENTS.sunrise + DAY_SEGMENTS.day + DAY_SEGMENTS.sunset + DAY_SEGMENTS.night;
         let cycleTimeMs = DAY_SEGMENTS.sunrise + DAY_SEGMENTS.day / 2; // Start near noon
         let lastTime = 0; // For delta time calculation
+        let inventoryEntityUpdateAccumulatorMs = 0;
+        const INVENTORY_ENTITY_UPDATE_INTERVAL_MS = 100;
         let ambientLight, hemiLight, moonLight, dirLight; // global lighting rig
 
         const SWIM_SPEED_FACTOR = 0.58;
@@ -7150,8 +7152,11 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
 
         function placePumpkinPatchInChunk(data, cx, cz) {
-            const chancePerChunk = 1 / 32;
-            if (hashRand2D(cx, cz, 12101) > chancePerChunk) return;
+            const pumpkinCfg = worldGenSettings.decorations?.pumpkins || {};
+            if (pumpkinCfg.enabled === false) return;
+            const chancePerChunk = Number(pumpkinCfg.chancePerChunk);
+            const spawnChance = Number.isFinite(chancePerChunk) ? chancePerChunk : (1 / 32);
+            if (hashRand2D(cx, cz, 12101) > spawnChance) return;
 
             const PUMPKIN_BLOCK_ID = 107;
             const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
@@ -7163,7 +7168,9 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 return -1;
             };
 
-            const count = 3 + Math.floor(hashRand2D(cx * 5, cz * 7, 12102) * 5);
+            const minPatch = Math.max(1, Math.floor(Number(pumpkinCfg.minPatch) || 3));
+            const maxPatch = Math.max(minPatch, Math.floor(Number(pumpkinCfg.maxPatch) || 7));
+            const count = minPatch + Math.floor(hashRand2D(cx * 5, cz * 7, 12102) * (maxPatch - minPatch + 1));
             for (let i = 0; i < count; i++) {
                 const lx = 1 + Math.floor(hashRand2D(cx * 19 + i * 3, cz * 23 - i * 5, 12103) * (CHUNK_SIZE - 2));
                 const lz = 1 + Math.floor(hashRand2D(cx * 29 - i * 7, cz * 31 + i * 11, 12104) * (CHUNK_SIZE - 2));
@@ -7177,12 +7184,16 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
         }
 
         function placeMelonsInChunk(data, cx, cz) {
+            const melonCfg = worldGenSettings.decorations?.melons || {};
+            if (melonCfg.enabled === false) return;
             const centerX = Math.floor(CHUNK_SIZE / 2);
             const centerZ = Math.floor(CHUNK_SIZE / 2);
             const worldX = cx * CHUNK_SIZE + centerX;
             const worldZ = cz * CHUNK_SIZE + centerZ;
             if (getBiome(worldX, worldZ) !== 'Jungle Forest') return;
-            if (hashRand2D(cx, cz, 12201) > 0.25) return;
+            const chancePerJungleChunk = Number(melonCfg.chancePerJungleChunk);
+            const spawnChance = Number.isFinite(chancePerJungleChunk) ? chancePerJungleChunk : 0.25;
+            if (hashRand2D(cx, cz, 12201) > spawnChance) return;
 
             const MELON_BLOCK_ID = 108;
             const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
@@ -7194,7 +7205,9 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 return -1;
             };
 
-            const count = 4 + Math.floor(hashRand2D(cx * 13, cz * 17, 12202) * 6);
+            const minPatch = Math.max(1, Math.floor(Number(melonCfg.minPatch) || 4));
+            const maxPatch = Math.max(minPatch, Math.floor(Number(melonCfg.maxPatch) || 9));
+            const count = minPatch + Math.floor(hashRand2D(cx * 13, cz * 17, 12202) * (maxPatch - minPatch + 1));
             for (let i = 0; i < count; i++) {
                 const lx = 1 + Math.floor(hashRand2D(cx * 37 + i * 13, cz * 41 - i * 9, 12203) * (CHUNK_SIZE - 2));
                 const lz = 1 + Math.floor(hashRand2D(cx * 43 - i * 7, cz * 47 + i * 5, 12204) * (CHUNK_SIZE - 2));
@@ -7208,6 +7221,8 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
         }
 
         function placeAmethystGeodesInChunk(data, cx, cz) {
+            const geodeCfg = worldGenSettings.decorations?.amethystGeodes || {};
+            if (geodeCfg.enabled === false) return;
             // Block palette for geodes:
             // - 106 Basalt: outer shell
             // - 105 Chalk: middle shell
@@ -7216,11 +7231,13 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             const CHALK_ID = 105;
             const AMETHYST_ID = 104;
 
-            const geodeChancePerChunk = 0.075;
-            if (hashRand2D(cx, cz, 12001) > geodeChancePerChunk) return;
+            const geodeChancePerChunk = Number(geodeCfg.chancePerChunk);
+            const spawnChance = Number.isFinite(geodeChancePerChunk) ? geodeChancePerChunk : 0.075;
+            if (hashRand2D(cx, cz, 12001) > spawnChance) return;
 
             const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
-            const geodeCount = hashRand2D(cx * 7, cz * 11, 12002) > 0.84 ? 2 : 1;
+            const maxPerChunk = Math.max(1, Math.floor(Number(geodeCfg.maxPerChunk) || 2));
+            const geodeCount = maxPerChunk <= 1 ? 1 : (hashRand2D(cx * 7, cz * 11, 12002) > 0.84 ? maxPerChunk : 1);
 
             for (let g = 0; g < geodeCount; g++) {
                 const lx = 2 + Math.floor(hashRand2D(cx * 37 + g * 13, cz * 29 - g * 7, 12003) * (CHUNK_SIZE - 4));
@@ -7244,14 +7261,23 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 const minZ = Math.max(1, Math.floor(lz - radiusZ - 2));
                 const maxZ = Math.min(CHUNK_SIZE - 2, Math.ceil(lz + radiusZ + 2));
 
+                const eggNoiseByXZ = [];
                 for (let x = minX; x <= maxX; x++) {
+                    eggNoiseByXZ[x] = [];
+                    for (let z = minZ; z <= maxZ; z++) {
+                        eggNoiseByXZ[x][z] = (hashRand2D(wx + x * 5, wz + z * 3, 12009) - 0.5) * 0.12;
+                    }
+                }
+
+                for (let x = minX; x <= maxX; x++) {
+                    const dx = (x - lx) / radiusX;
+                    const dx2 = dx * dx;
                     for (let y = minY; y <= maxY; y++) {
+                        const dy = (y - centerY) / radiusY;
+                        const dy2 = dy * dy;
                         for (let z = minZ; z <= maxZ; z++) {
-                            const dx = (x - lx) / radiusX;
-                            const dy = (y - centerY) / radiusY;
                             const dz = (z - lz) / radiusZ;
-                            const eggNoise = (hashRand2D(wx + x * 5 + y, wz + z * 3 - y, 12009) - 0.5) * 0.12;
-                            const norm = Math.sqrt(dx * dx + dy * dy + dz * dz) + eggNoise;
+                            const norm = Math.sqrt(dx2 + dy2 + dz * dz) + eggNoiseByXZ[x][z];
                             if (norm > outerRim) continue;
 
                             const at = idx(x, y, z);
@@ -8457,12 +8483,17 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             } else {
                 updatePlayerAvatarVisuals(time);
                 updateFirstPersonHand(time);
-                updatePigs(time, delta);
-                updateWolves(time, delta);
-                updatePandas(time, delta);
-                updateVillagers(time, delta);
-                updateZombies(time, delta);
-                resolveMobEntityPushing();
+                inventoryEntityUpdateAccumulatorMs += delta;
+                if (inventoryEntityUpdateAccumulatorMs >= INVENTORY_ENTITY_UPDATE_INTERVAL_MS) {
+                    const simDelta = Math.min(250, inventoryEntityUpdateAccumulatorMs);
+                    inventoryEntityUpdateAccumulatorMs = 0;
+                    updatePigs(time, simDelta);
+                    updateWolves(time, simDelta);
+                    updatePandas(time, simDelta);
+                    updateVillagers(time, simDelta);
+                    updateZombies(time, simDelta);
+                    resolveMobEntityPushing();
+                }
                 updateEatingAnimation(delta, time);
                 maybeSpawnLavaParticles(delta);
                 updateWorldParticles(delta);
