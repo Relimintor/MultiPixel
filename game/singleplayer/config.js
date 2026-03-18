@@ -239,6 +239,11 @@
     PANDA_TEXTURE: getAssetPath('textures/mobs/neutral/panda.png'),
     BAMBOO_STAGE0: getAssetPath('textures/halfblock/bamboo/bamboo_stage0.png'),
     BAMBOO_STALK: getAssetPath('textures/halfblock/bamboo/bamboo_stalk.png'),
+
+    //Pumpkin
+    PUMPKIN_TOP:getAssetPath('textures/pumpkin/pumpkin_top.png'),
+    PUMPKIN_BOTTOM:getAssetPath('textures/pumpkin/pumpkin_bottom.png'),
+    PUMPKIN_SIDE: getAssetPath('textures/pumpkin/pumpkin_side.png'),
   };
 
   const blockMaterials = {
@@ -521,7 +526,16 @@
     100: { name: 'Bamboo Young', id: 100, textured: true, textureKey: 'BAMBOO_STAGE0', transparent: true, opacity: 1 },
     101: { name: 'Bamboo Stalk', id: 101, textured: true, textureKey: 'BAMBOO_STALK', transparent: true, opacity: 1 },
     109: { name: 'Melon Slice', id: 109, textured: false, color: 0x7bcf5b },
-    110: { name: 'Pumpkin', id: 110, textured: false, color: 0xd9872a },
+    110: { name: 'Pumpkin', id: 110, textured: true, textureKey: 'Pumpkin',
+          textureKey: 'FURNACE',  
+      textureByFace: {
+        top: 'PUMPKIN_TOP',
+        bottom: 'PUMPKIN_BOTTOM',
+        posX: 'PUMPKIN_SIDE',
+        negX: 'PUMPKIN_SIDE',
+        posZ: 'PUMPKIN_SIDE',
+        negZ: 'PUMPKIN_SIDE'
+      } },
     111: { name: 'Pumpkin Slice', id: 111, textured: false, color: 0xf5a623 },
     112: { name: 'Cooked Pumpkin Slice', id: 112, textured: false, color: 0xe38b1f },
   }; 
