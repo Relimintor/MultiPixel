@@ -7158,7 +7158,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             const spawnChance = Number.isFinite(chancePerChunk) ? chancePerChunk : (1 / 32);
             if (hashRand2D(cx, cz, 12101) > spawnChance) return;
 
-            const PUMPKIN_BLOCK_ID = 107;
+            const PUMPKIN_BLOCK_ID = 110;
             const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
             const getColumnTop = (lx, lz) => {
                 for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
