@@ -244,6 +244,10 @@
     PUMPKIN_TOP:getAssetPath('textures/pumpkin/pumpkin_top.png'),
     PUMPKIN_BOTTOM:getAssetPath('textures/pumpkin/pumpkin_bottom.png'),
     PUMPKIN_SIDE: getAssetPath('textures/pumpkin/pumpkin_side.png'),
+
+    //melon
+    MELON_TOP: getAssetPath('textures/melon/melon_top.png'),
+    MELON_SIDE: getAssetPath('textures/melon/melon_side.png'),
   };
 
   const blockMaterials = {
@@ -335,8 +339,17 @@
     104: { name: 'Amethyst Block', id: 104, textured: true, textureKey: 'AMETHYST_BLOCK' },
     105: { name: 'Chalk', id: 105, textured: true, textureKey: 'CHALK_BLOCK' },
     106: { name: 'Basalt', id: 106, textured: true, textureKey: 'BASALT_BLOCK' },
-    107: { name: 'Pumpkin Block', id: 107, textured: true, textureKey: 'PUMPKIN_BLOCK' },
-    108: { name: 'Melon Block', id: 108, textured: true, textureKey: 'MELON_BLOCK' },
+    108: { name: 'Melon Block', id: 108, textured: true, 
+      textureKey: 'MELON_SIDE',
+           textureByFace: {
+        top: 'MELON_TOP',
+        bottom: 'MELON_TOP',
+        posX: 'MELON_SIDE',
+        negX: 'MELON_SIDE',
+        posZ: 'MELON_SIDE',
+        negZ: 'MELON_SIDE'
+      }
+         },
     
     /*Glass*/
     26: { name: 'Glass', id: 26, textured: true, textureKey: 'GLASS_BLOCK', transparent: true, opacity: 0.8 },
@@ -527,7 +540,7 @@
     101: { name: 'Bamboo Stalk', id: 101, textured: true, textureKey: 'BAMBOO_STALK', transparent: true, opacity: 1 },
     109: { name: 'Melon Slice', id: 109, textured: false, color: 0x7bcf5b },
     110: { name: 'Pumpkin', id: 110, textured: true, textureKey: 'Pumpkin',
-          textureKey: 'FURNACE',  
+          textureKey: 'PUMPKIN_TOP',  
       textureByFace: {
         top: 'PUMPKIN_TOP',
         bottom: 'PUMPKIN_BOTTOM',
