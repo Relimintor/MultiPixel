@@ -44,21 +44,21 @@
       regionHillChance: 0.08,
     },
     treeDensityByBiome: {
-      Forest: 0.22,
-      'Jungle Forest': 0.28,
+      Forest: 0.30,
+      'Jungle Forest': 0.60,
       Plains: 0.065,
       Mountains: 0.02,
       'Snowy Plains': 0.01,
       Desert: 0,
       Ocean: 0,
     },
-    treeClusterBonus: 0.14,
-    treeMinSpacingChance: 0.75,
+    treeClusterBonus: 0.17,
+    treeMinSpacingChance: 0.78,
     decorations: {
       amethystGeodes: {
         enabled: true,
         chancePerChunk: 0.075,
-        maxPerChunk: 2,
+        maxPerChunk: 1,
       },
       pumpkins: {
         enabled: true,
@@ -178,11 +178,12 @@
     EMERALD_BLOCK: getAssetPath('textures/emerald_block.png'),
     EMERALD:  getAssetPath('textures/item/emerald.png'),
     CHISELED_STONE_BRICK: getAssetPath('textures/chiseled_stone_bricks.png'),
-    AMETHYST_BLOCK: getAssetPath('textures/diamond_block.png'),
-    CHALK_BLOCK: getAssetPath('textures/smooth_stone.png'),
-    BASALT_BLOCK: getAssetPath('textures/obsidian.png'),
-    PUMPKIN_BLOCK: getAssetPath('textures/gold_ore.png'),
-    MELON_BLOCK: getAssetPath('textures/emerald_block.png'),
+
+    //Amethyst cluster
+    AMETHYST_BLOCK: getAssetPath('textures/amethyst_block.png'),
+    CHALK_BLOCK: getAssetPath('textures/calcite.png'),
+    BASALT_BLOCK: getAssetPath('textures/smooth_basalt.png'),
+    
     BAMBOO_PLANKS_SIDE: getAssetPath('textures/bamboo_block.png'),
     BAMBOO_PLANKS_TOP:getAssetPath('textures/bamboo_block_top.png'),
 
