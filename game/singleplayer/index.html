@@ -3,193 +3,798 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MultiPixel</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-        <link rel="stylesheet" href="./style.css">
-        <script src="config.js?v=10"></script>
-    <script src="noise/perlin.js?v=10"></script>
-    <script src="terrain/ocean/biome.js?v=10"></script>
-    <script src="terrain/river/biome.js?v=10"></script>
-    <script src="terrain/oak_forest/biome.js?v=10"></script>
-    <script src="terrain/desert/biome.js?v=10"></script>
-    <script src="terrain/plains/biome.js?v=10"></script>
-    <script src="terrain/mountains/biome.js?v=10"></script>
-    <script src="terrain/snowy_plains/biome.js?v=10"></script>
-    
-    <script src="terrain/jungle_forest/biome.js?v=1"></script>
-    <script src="terrain/jungle_forest/dec_config.js?v=1"></script>
-    <script src="trees/jungle/small.js?v=1"></script>
-    <script src="trees/jungle/large.js?v=1"></script>
-    <script src="crafting/recipes.js?v=10"></script>
-    <script src="crafting/furnace.js?v=10"></script>
-    <script src="tools/blocks/hardness.js?v=1"></script>
-    <script src="tools/blocks/breakable.js?v=1"></script>
-    <script src="tools/pickaxes.js?v=10"></script>
-    <script src="lighting/spawn_lighting.js?v=10"></script>
-    <script src="ui/hunger.js?v=10"></script>
-    <script src="BlockPhysics/water.js?v=10"></script>
-    <script src="BlockPhysics/sand.js?v=10"></script>
-    <script src="BlockPhysics/lava.js?v=10"></script>
-    <script src="skin/init.js?v=1"></script>
-    <script src="structures/villages/main.js?v=1"></script>
-    <script src="mobs/passive/pig.js?v=1"></script>
-    <script src="mobs/neutral/wolf.js?v=1"></script>
-    <script src="mobs/neutral/panda.js?v=1"></script>
-    <script src="mobs/hostile/zombie.js?v=1"></script>
-    <script src="chat/commands/mobs/config.js?v=1"></script>
-    <script src="chat/commands/give/main.js?v=1"></script>
-    <script src="chat/commands/spawn/main.js?v=1"></script>
-    <script src="chat/commands/tp/main.js?v=1"></script>
-    <script src="chat/commands/time/main.js?v=1"></script>
-    <script src="chat/commands/help/main.js?v=1"></script>
-    <script src="chat/commands/set/main.js?v=2"></script>
-    <script src="chat/commands/gamemode/main.js?v=1"></script>
-    <script src="chat/commands/grantme/main.js?v=1"></script>
-    <script src="chat/commands/ungrantme/main.js?v=1"></script>
-    <script src="chat/commands/enchant/main.js?v=1"></script>
-    <script src="chat/commands/commands.js?v=6"></script>
-    <script src="chat/main.js?v=6"></script>
+    <title>Main Menu</title>
+    <style>
+        /* --- CSS Variables --- */
+        :root {
+            /* General UI */
+            --ui-scale: 1;
+            --symbol-size: 1rem;
+            --font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            --font-color: #ffffff;
+            --container-width: 850px;
+            --container-height: 550px;
+            --tab-alignment: flex-start;
+            
+            /* Visual Filters */
+            --filter-brightness: 1;
+            --filter-warmth: 0;
+            --filter-coldness: 0;
+            --filter-nightlight: 0;
 
+            /* Theming */
+            --menu-bg-color: rgba(45, 50, 55, 0.85); /* Classic Minetest grey */
+            --btn-bg-img-unified: none;
+            --btn-bg-img-sp: none; /* Singleplayer btn */
+            --btn-bg-img-gh: none; /* Github btn */
+        }
 
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
 
+        body {
+            font-family: var(--font-family);
+            color: var(--font-color);
+            overflow: hidden;
+            background-color: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            width: 100vw;
+        }
 
+        /* --- Boot & Splash Screens --- */
+        #boot-overlay, #splash-screen, #black-flash {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 9999;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+        }
 
+        #boot-overlay {
+            background: rgba(0,0,0,0.95);
+            color: white;
+            font-size: 2rem;
+        }
 
+        #splash-screen {
+            background: #ffffff;
+            display: none;
+            z-index: 9998;
+        }
+        
+        #splash-screen img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
 
-    <script src="main.js?v=23"></script>
-    <!-- Removed external script links to ensure functionality in this single-file preview -->
+        #black-flash {
+            background: #000000;
+            display: none;
+            z-index: 9997;
+        }
+
+        /* --- Background System --- */
+        #background-container {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: -5;
+            background-color: #5ab1ee; /* Minetest sky fallback */
+            filter: brightness(var(--filter-brightness));
+        }
+
+        .bg-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            object-fit: cover;
+            opacity: 0;
+            transition: opacity 1s ease-in-out;
+            image-rendering: pixelated; /* Blocky aesthetic */
+        }
+
+        .bg-layer.active {
+            opacity: 1;
+        }
+
+        /* --- Visual Filters Overlays --- */
+        .filter-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: -4;
+            pointer-events: none;
+        }
+        #warmth-overlay { background-color: rgba(255, 120, 0, var(--filter-warmth)); mix-blend-mode: overlay; }
+        #coldness-overlay { background-color: rgba(0, 100, 255, var(--filter-coldness)); mix-blend-mode: overlay; }
+        #nightlight-overlay { background-color: rgba(255, 160, 0, var(--filter-nightlight)); mix-blend-mode: multiply; z-index: 9990; } /* Over everything */
+
+        /* --- Main App Container --- */
+        #app-wrapper {
+            display: none; /* Shown after splash */
+            flex-direction: column;
+            align-items: center;
+            transform: scale(var(--ui-scale));
+            transition: transform 0.2s;
+        }
+
+        /* Header / Logo above menu */
+        #main-header {
+            margin-bottom: -40px;
+            height: 200px;
+        }
+        #main-header img {
+            height: 100%;
+            object-fit: contain;
+            filter: drop-shadow(4px 4px 0px rgba(0,0,0,0.5)); /* Blocky shadow */
+        }
+
+        /* The Menu Window */
+        #main-menu {
+            width: var(--container-width);
+            height: var(--container-height);
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        /* --- Menu Animations --- */
+        .anim-breathe { animation: breathe 4s infinite ease-in-out; }
+        .anim-pulse { animation: pulse 2s infinite ease-in-out; }
+        .anim-float { animation: float 6s infinite ease-in-out; }
+
+        @keyframes breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.02); } }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.85; } }
+        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-15px); } }
+
+        /* --- Tabs --- */
+        #tabs-bar {
+            display: flex;
+            justify-content: var(--tab-alignment);
+            width: 100%;
+        }
+
+        .tab-btn {
+            background-color: rgba(180, 180, 180, 0.4);
+            color: var(--font-color);
+            border: 1px solid #777;
+            border-bottom: none;
+            padding: 10px 20px;
+            font-family: inherit;
+            font-size: var(--symbol-size);
+            cursor: pointer;
+            text-shadow: 1px 1px 2px #000;
+            transition: background 0.2s;
+        }
+
+        .tab-btn:hover { background-color: rgba(200, 200, 200, 0.6); }
+        .tab-btn.active {
+            background-color: var(--menu-bg-color);
+            font-weight: bold;
+        }
+
+        /* Specifically target the settings tab to push it right if needed */
+        #tab-settings {
+            margin-left: auto;
+        }
+
+        /* --- Content Area --- */
+        #content-area {
+            flex: 1;
+            background-color: var(--menu-bg-color);
+            border: 1px solid #555;
+            padding: 20px;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        .view { display: none; height: 100%; }
+        .view.active { display: block; animation: fadeIn 0.2s; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* --- Shared Buttons (Image texturing support) --- */
+        .action-btn {
+            background-color: #555;
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            color: #fff;
+            border: 2px solid #333;
+            padding: 15px 30px;
+            font-size: calc(var(--symbol-size) * 1.2);
+            cursor: pointer;
+            box-shadow: inset 2px 2px 0px rgba(255,255,255,0.2), inset -2px -2px 0px rgba(0,0,0,0.5);
+            text-shadow: 1px 1px 0px #000;
+        }
+        .action-btn:hover { filter: brightness(1.2); }
+        .action-btn:active { box-shadow: inset 2px 2px 0px rgba(0,0,0,0.5), inset -2px -2px 0px rgba(255,255,255,0.2); }
+
+        /* Specific Button mappings */
+        #btn-singleplayer { background-image: var(--btn-bg-img-sp); }
+        #btn-github { background-image: var(--btn-bg-img-gh); }
+
+        /* --- View: Singleplayer --- */
+        .centered-view {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100%;
+        }
+
+        /* --- View: Developers / Credits (Matching Image 2) --- */
+        .credits-container {
+            display: flex;
+            height: 100%;
+            gap: 20px;
+        }
+        .credits-left {
+            flex: 0 0 200px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding-top: 20px;
+        }
+        .credits-left img { width: 100%; object-fit: contain; }
+        .credits-right {
+            flex: 1;
+            background-color: rgba(0,0,0,0.3);
+            padding: 15px;
+            overflow-y: auto;
+            border: 1px solid #444;
+        }
+        .credits-right h2 { color: #ffd700; margin-bottom: 10px; font-size: calc(var(--symbol-size) * 1.5); }
+        .credits-right p { margin-bottom: 5px; font-size: var(--symbol-size); }
+        .credits-footer { margin-top: 20px; text-align: center; }
+
+        /* --- View: Settings --- */
+        .settings-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            padding-bottom: 20px;
+        }
+        .setting-group {
+            background: rgba(0,0,0,0.2);
+            padding: 10px;
+            border: 1px solid #444;
+        }
+        .setting-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: var(--font-color);
+            font-size: var(--symbol-size);
+        }
+        .setting-group select, .setting-group input[type="range"] {
+            width: 100%;
+            padding: 5px;
+            background: #222;
+            color: #fff;
+            border: 1px solid #555;
+            font-size: var(--symbol-size);
+        }
+        
+        /* --- Drawing Canvas Modal --- */
+        #drawing-modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9);
+            z-index: 10000;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        #drawing-toolbar {
+            background: #333;
+            padding: 10px;
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        #drawing-canvas {
+            background: #fff;
+            border: 2px solid #555;
+            cursor: crosshair;
+        }
+
+    </style>
 </head>
 <body>
-    <div id="info-panel">
-        <p><strong>MultiPixel 0.2.0 pre-classic</strong></p>
-        <a href="https://relimintor.github.io/MultiPixel-wiki/"
-            target="_blank"
-            class="text-blue-400 underline hover:text-blue-300">
-            MultiPixel wiki
-        </a>
-        <p><span id="fps-counter"></span></p>
-    </div>
-    <div id="hud" class="absolute inset-0 pointer-events-none z-20 flex flex-col justify-end items-center pb-2">
-        <div id="coordinates-display" class="absolute top-3 right-3 text-white text-sm font-mono px-2 py-1 rounded bg-black/55">XYZ: 0, 0, 0</div>
-        <div id="status-bars" class="flex items-end space-x-3 mb-2">
-            <div id="health-container" class="flex space-x-1"></div>
-            <div class="flex flex-col items-start space-y-1">
-                <div id="air-container" class="flex space-x-1" style="display: none;"></div>
-                <div id="hunger-container" class="flex space-x-1"></div>
-            </div>
-        </div>
-        <div id="hotbar" class="flex space-x-1 p-1 bg-black/40 rounded-lg pointer-events-auto">
-        </div>
-        <div id="game-message" class="absolute bottom-24 text-white font-bold text-shadow-md opacity-0 transition-opacity duration-1000"></div>
-    </div>
-    <div id="instructions" class="font-mono">
-        <p class="text-xl font-bold mb-2 text-yellow-400">Survival Mode</p>
-        <p>Movement: <span class="text-neon-green">W A S D</span></p>
-        <p>Jump: <span class="text-neon-green">SPACE</span></p>
-        <p>Sprint: <span class="text-neon-green">E + WASD</span></p>
-        <p>Break: <span class="text-neon-green">LMB</span> | Place: <span class="text-neon-green">RMB</span></p>
-        <p>Inventory: <span class="text-neon-green">Y</span> or <span class="text-neon-green">I</span></p>
-        <p>Scroll/1-9: <span class="text-neon-green">Select Item</span></p>
-        <p class="mt-3 text-sm text-gray-300">Choose controls:</p>
-        <div id="input-mode-buttons" class="mt-2 flex justify-center gap-3">
-            <button id="mode-mobile-btn" class="mode-btn">Mobile</button>
-            <button id="mode-pc-btn" class="mode-btn">PC</button>
-        </div>
-        <p class="mt-3 text-sm text-gray-400">Then tap/click to Start</p>
-    </div>
-    <div id="inventory-screen" class="hidden absolute inset-0 flex items-center justify-center z-[200]">
-        <div id="inventory-panel" class="menu-panel inventory-mode text-black font-sans pointer-events-auto">
-            <button id="inventory-close-btn" class="inventory-close-btn" type="button" aria-label="Close inventory">
-                <img id="inventory-close-icon" alt="close inventory" draggable="false" />
-            </button>
-            <button id="edit-skin-btn" class="edit-skin-btn" type="button" aria-label="Edit skin">
-                <img id="edit-skin-icon" alt="edit skin" draggable="false" />
-            </button>
-            <div id="inventory-skin-preview" aria-hidden="true">
-                <div id="inventory-skin-head"></div>
-            </div>
 
-            <div id="crafting-2x2-container" class="menu-top-layout">
-                <div id="crafting-input-grid" class="slot-grid grid-2x2"></div>
-                <div id="crafting-output-slot-container" class="slot-grid-single"></div>
-            </div>
+    <!-- Filter Overlays -->
+    <div id="warmth-overlay" class="filter-overlay"></div>
+    <div id="coldness-overlay" class="filter-overlay"></div>
+    <div id="nightlight-overlay"></div> <!-- Fixed above all -->
 
-            <div id="crafting-3x3-container" class="menu-top-layout hidden">
-                <div id="crafting-table-grid" class="slot-grid grid-3x3"></div>
-                <div id="crafting-table-output-slot" class="slot-grid-single"></div>
-            </div>
-
-            <div id="menu-lower-inventory" class="menu-lower">
-                <div id="main-inventory-grid" class="slot-grid grid-9x3"></div>
-                <div id="inventory-hotbar-grid" class="slot-grid grid-9x1"></div>
-            </div>
-        </div>
+    <!-- Background System -->
+    <div id="background-container">
+        <!-- These are updated by JS. Using an array of images to manage states -->
+        <img id="active-bg" class="bg-layer active" src="" onerror="this.src=''; this.style.backgroundColor='#5ab1ee';">
     </div>
 
-    <div id="furnace-screen" class="hidden absolute inset-0 flex items-center justify-center z-[210]">
-        <div id="furnace-workbench-panel" class="menu-panel furnace-mode text-black font-sans pointer-events-auto">
-            <button id="furnace-close-btn" class="inventory-close-btn" type="button" aria-label="Close furnace">
-                <img id="furnace-close-icon" alt="close furnace" draggable="false" />
-            </button>
+    <!-- Background Music -->
+    <audio id="bg-music" loop>
+        <source src="assets/sounds/music/main-menu//The_Stranglers_by_Jesusavgn_-_Golden_Brown_(mp3.pm).mp3" type="audio/mp3">
+    </audio>
 
-            <div id="furnace-top-layout" class="menu-top-layout">
-                <div id="furnace-input-slot" class="slot-grid-single"></div>
-                <div id="furnace-fuel-slot" class="slot-grid-single"></div>
-                <div id="furnace-output-slot" class="slot-grid-single"></div>
+    <!-- 1. Boot Screen -->
+    <div id="boot-overlay" onclick="initBootSequence()">
+        Need click to enable sound :D
+    </div>
+
+    <!-- 2. Splash Screen -->
+    <div id="splash-screen">
+        <img src="assets/main-menu/logo.png" alt="Luanti Logo" onerror="this.outerHTML='<h1 style=\'color:black; font-size:5rem;\'>MultiPixel</h1>'">
+    </div>
+
+    <!-- 3. Black Flash -->
+    <div id="black-flash"></div>
+
+    <!-- 4. Main Application -->
+    <div id="app-wrapper">
+        
+        <!-- Header Image -->
+        <div id="main-header">
+            <img src="assets/main-menu/header.png" alt="Minetest Header" onerror="this.outerHTML='<h1 style=\'font-size: 4rem; letter-spacing: 5px; text-shadow: 3px 3px 0px #000;\'>MultiPixel FallBack</h1>'">
+        </div>
+
+        <div id="main-menu">
+            <!-- Tabs -->
+            <div id="tabs-bar">
+                <button class="tab-btn active" onclick="switchTab('singleplayer')">Singleplayer</button>
+                <button class="tab-btn" onclick="switchTab('multiplayer')">Multiplayer</button>
+                <button class="tab-btn" onclick="switchTab('developers')">Developers</button>
+                <button class="tab-btn" id="tab-settings" onclick="switchTab('settings')">Settings</button>
             </div>
 
-            <div id="furnace-menu-lower" class="menu-lower">
-                <div id="furnace-main-inventory-grid" class="slot-grid grid-9x3"></div>
-                <div id="furnace-hotbar-grid" class="slot-grid grid-9x1"></div>
+            <!-- Content Area -->
+            <div id="content-area">
+                
+                <!-- SINGLEPLAYER -->
+                <div id="view-singleplayer" class="view active">
+                    <div class="centered-view">
+                        <!-- Instantly directs to singleplayer.html -->
+                        <button id="btn-singleplayer" class="action-btn" onclick="window.location.href='singleplayer.html'">
+                            New World
+                        </button>
+                    </div>
+                </div>
+
+                <!-- MULTIPLAYER -->
+                <div id="view-multiplayer" class="view">
+                    <div class="centered-view">
+                        <img src="assets/main-menu/multiplayer.png" style="max-width: 100%; max-height: 100%; border:1px solid #555;" onerror="this.outerHTML='<h2>Multiplayer Placeholder Image</h2>'">
+                    </div>
+                </div>
+
+                <!-- DEVELOPERS (Matching Image 2) -->
+                <div id="view-developers" class="view">
+                    <div class="credits-container">
+                        <!-- Left Side Logo -->
+                        <div class="credits-left">
+                            <img src="assets/main-menu/logo.png" alt="Dev Logo" onerror="this.outerHTML='<div style=\'width:100px;height:100px;background:#555;display:flex;align-items:center;justify-content:center;\'>LOGO</div>'">
+                        </div>
+                        <!-- Right Side List -->
+                        <div class="credits-right">
+                            <h2>Core Developers</h2>
+                            <p>Raptor4</p>
+                            <h2>Ideas</h2>
+                            <p>Arfon</p>
+                            <p>Dulen</p>
+                            <p>Cippaleta</p>
+                            <p>NotMythxc4l (for a lot of song ideas)</p>
+                            <p>Jolethen (for moderating our dear discord server</p>
+                            <p>Folanta our dearest music maker</p>
+                            <h2>Credits to other stuff</h2>
+                            <p>The stranglers</p>
+                            <p>MineTest</p>
+                            <p>Our beloved discord server</p>
+                            
+                            <div class="credits-footer">
+                                <button id="btn-github" class="action-btn" style="font-size: 1rem; padding: 10px 15px;" onclick="window.open('https://github.com/Relimintor/MultiPixel/', '_blank')">
+                                    MultiPixel GitHub
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SETTINGS -->
+                <div id="view-settings" class="view">
+                    <div class="settings-grid">
+                        
+                        <!-- Layout & Sizing -->
+                        <div class="setting-group">
+                            <label>Tab Alignment</label>
+                            <select onchange="updateCSS('--tab-alignment', this.value)">
+                                <option value="flex-start">Left</option>
+                                <option value="center">Center</option>
+                                <option value="flex-end">Right</option>
+                            </select>
+                        </div>
+                        <div class="setting-group">
+                            <label>Menu Width</label>
+                            <input type="range" min="400" max="1400" step="10" value="850" oninput="updateCSS('--container-width', this.value + 'px')">
+                        </div>
+                        <div class="setting-group">
+                            <label>Menu Height</label>
+                            <input type="range" min="300" max="1000" step="10" value="550" oninput="updateCSS('--container-height', this.value + 'px')">
+                        </div>
+                        <div class="setting-group">
+                            <label>UI Scale</label>
+                            <input type="range" min="0.6" max="1.5" step="0.1" value="1" oninput="updateCSS('--ui-scale', this.value)">
+                        </div>
+                        <div class="setting-group">
+                            <label>Symbol / Font Size</label>
+                            <input type="range" min="0.8" max="2" step="0.1" value="1" oninput="updateCSS('--symbol-size', this.value + 'rem')">
+                        </div>
+
+                        <!-- Font & Appearance -->
+                        <div class="setting-group">
+                            <label>Font Family</label>
+                            <select onchange="updateCSS('--font-family', this.value)">
+                                <option value="'Segoe UI', Tahoma, Geneva, Verdana, sans-serif">Default (Segoe UI)</option>
+                                <option value="Arial, sans-serif">Arial</option>
+                                <option value="'Courier New', Courier, monospace">Courier New (Monospace)</option>
+                                <option value="'Times New Roman', Times, serif">Times New Roman (Serif)</option>
+                                <option value="Impact, fantasy">Impact</option>
+                            </select>
+                        </div>
+                        <div class="setting-group">
+                            <label>Font Color</label>
+                            <input type="color" id="font-color-picker" value="#ffffff" onchange="updateCSS('--font-color', this.value)">
+                        </div>
+
+                        <!-- Menu Styling -->
+                        <div class="setting-group">
+                            <label>Menu Background Color</label>
+                            <input type="color" id="menu-bg-color-picker" value="#2d3237" onchange="updateMenuBg()">
+                        </div>
+                        <div class="setting-group">
+                            <label>Menu Opacity</label>
+                            <input type="range" id="menu-bg-opacity-slider" min="0" max="1" step="0.05" value="0.85" oninput="updateMenuBg()">
+                        </div>
+
+                        <!-- Light / Dark Mode -->
+                        <div class="setting-group" style="grid-column: span 2; display: flex; gap: 10px; align-items: center;">
+                            <label style="margin: 0;">Theme Presets:</label>
+                            <button class="action-btn" style="padding: 5px 15px; font-size: 1rem;" onclick="toggleTheme('dark')">Dark Mode</button>
+                            <button class="action-btn" style="padding: 5px 15px; font-size: 1rem; background-color: #ddd; color: #000; text-shadow: none; box-shadow: inset 2px 2px 0px rgba(255,255,255,0.8), inset -2px -2px 0px rgba(0,0,0,0.2);" onclick="toggleTheme('light')">Light Mode</button>
+                        </div>
+                        
+                        <!-- Audio & Animation -->
+                        <div class="setting-group">
+                            <label>Music Volume</label>
+                            <input type="range" min="0" max="1" step="0.05" value="0.5" oninput="document.getElementById('bg-music').volume = this.value">
+                        </div>
+                        <div class="setting-group">
+                            <label>Soundtrack</label>
+                            <select onchange="changeTrack(this.value)">
+                                <option value="The_Stranglers_by_Jesusavgn_-_Golden_Brown_(mp3.pm).mp3">Golden Brown (Default)</option>
+                                <option value="/Scott_D._Davis_-_The_Final_Countdown_(mp3.pm).mp3">Its the final countdown</option>
+                                <option value="/1382827_Slash--Inferno.mp3">Slash Inferno</option>
+                                <option value="/Zachz_Winner_frozi_joyful_-_Boogie_(mp3.pm).mp3">Boogie by zach</option>
+                                <option value="/zachs_winner_-_doodle_slowed_(mp3.pm).mp3">Doodle by zach</option>
+                                <option value="C418_-_Minecraft_-_Moog_City_2_(mp3.pm).mp3">Moog City by c418</option>
+                                <option value="song4.mp4">No song at all :D</option>
+                            </select>
+                        </div>
+                        <div class="setting-group">
+                            <label>Menu Animation</label>
+                            <select onchange="changeAnimation(this.value)">
+                                <option value="">None</option>
+                                <option value="anim-breathe">Breathe</option>
+                                <option value="anim-pulse">Pulse</option>
+                                <option value="anim-float">Float</option>
+                            </select>
+                        </div>
+
+                        <!-- Theming (Buttons) -->
+                        <div class="setting-group" style="grid-column: span 2;">
+                            <label>Button Theming</label>
+                            <div style="display:flex; gap:10px; align-items:center; margin-bottom: 5px;">
+                                <input type="checkbox" id="chk-unified" checked onchange="toggleUnifiedColors()">
+                                <span>Use Unified Button Color</span>
+                            </div>
+                            <!-- Unified Color Picker -->
+                            <select id="sel-color-unified" onchange="updateButtonTheme()">
+                                <option value="none">Default Grey</option>
+                                <option value="main-menu/buttons/new-world/blue.png">Blue</option>
+                                <option value="main-menu/buttons/new-world/red.png">Red</option>
+                                <option value="main-menu/buttons/new-world/green.png">Green</option>
+                            </select>
+
+                            <!-- Separate Color Pickers (Hidden by default) -->
+                            <div id="separate-colors" style="display: none; margin-top:10px; gap: 10px;">
+                                <div>
+                                    <label style="font-size:0.8rem">Singleplayer Btn</label>
+                                    <select id="sel-color-sp" onchange="updateButtonTheme()">
+                                        <option value="none">Default</option>
+                                        <option value="assets/main-menu/buttons/new-world/blue.png">Blue</option>
+                                        <option value="assets/main-menu/buttons/new-world/red.png">Red</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style="font-size:0.8rem">Github Btn</label>
+                                    <select id="sel-color-gh" onchange="updateButtonTheme()">
+                                        <option value="none">Default</option>
+                                        <option value="main-menu/buttons/new-world/blue.png">Blue</option>
+                                        <option value="main-menu/buttons/new-world/green.png">Green</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Backgrounds -->
+                        <div class="setting-group">
+                            <label>Background</label>
+                            <select onchange="changeBackgroundMode(this.value)">
+                                <option value="rotating">Rotating (6 Default Images)</option>
+                                <option value="assets/main-menu/background.png">Default 1</option>
+                                <option value="assets/main-menu/background1.png">Default 2</option>
+                                <option value="assets/main-menu/background2.png">Default 3</option>
+                                <option value="assets/main-menu/background3.png">Default 4</option>
+                                <option value="assets/main-menu/background4.png">Default 5</option>
+                                <option value="assets/main-menu/background5.png">Default 6</option>
+                                <option value="assets/main-menu/background/dirt.png">Dirt</option>
+                                <option value="assets/main-menu/background/stone.png">Stone</option>
+                                <option value="assets/main-menu/background/grass.png">Grass</option>
+                                <option value="custom">Custom Draw</option>
+                            </select>
+                            <button class="action-btn" style="width:100%; margin-top:10px; padding: 5px; font-size: 1rem;" onclick="openDrawingApp()">
+                                Draw Background
+                            </button>
+                        </div>
+
+                        <!-- Visual Filters -->
+                        <div class="setting-group">
+                            <label>Brightness</label>
+                            <input type="range" min="0.2" max="2" step="0.1" value="1" oninput="updateCSS('--filter-brightness', this.value)">
+                            <label>Warmth</label>
+                            <input type="range" min="0" max="1" step="0.1" value="0" oninput="updateCSS('--filter-warmth', this.value)">
+                            <label>Coldness</label>
+                            <input type="range" min="0" max="1" step="0.1" value="0" oninput="updateCSS('--filter-coldness', this.value)">
+                            <label>Nightlight</label>
+                            <input type="range" min="0" max="0.8" step="0.1" value="0" oninput="updateCSS('--filter-nightlight', this.value)">
+                        </div>
+
+                    </div>
+                </div>
+
             </div>
         </div>
     </div>
 
-    <div id="chest-screen" class="hidden absolute inset-0 flex items-center justify-center z-[210]">
-        <div id="chest-workbench-panel" class="menu-panel chest-mode text-black font-sans pointer-events-auto">
-            <button id="chest-close-btn" class="inventory-close-btn" type="button" aria-label="Close chest">
-                <img id="chest-close-icon" alt="close chest" draggable="false" />
-            </button>
-
-            <div id="chest-top-layout" class="menu-top-layout">
-                <div id="chest-grid" class="slot-grid grid-9x3"></div>
-            </div>
-
-            <div id="chest-menu-lower" class="menu-lower">
-                <div id="chest-main-inventory-grid" class="slot-grid grid-9x3"></div>
-                <div id="chest-hotbar-grid" class="slot-grid grid-9x1"></div>
-            </div>
+    <!-- Custom Drawing Canvas Modal -->
+    <div id="drawing-modal">
+        <div id="drawing-toolbar">
+            <input type="color" id="draw-color" value="#000000">
+            <input type="range" id="draw-size" min="1" max="50" value="5">
+            <button onclick="clearCanvas()">Clear</button>
+            <button onclick="saveCanvas()" style="background:#4CAF50; color:white; border:none; padding:5px 10px;">Save & Apply</button>
+            <button onclick="closeDrawingApp()">Cancel</button>
         </div>
+        <canvas id="drawing-canvas" width="800" height="600"></canvas>
     </div>
 
-    <div id="creative-screen" class="hidden absolute inset-0 flex items-center justify-center z-[220]">
-        <div id="creative-panel" class="pointer-events-auto">
-            <button id="creative-close-btn" class="inventory-close-btn" type="button" aria-label="Close creative menu">
-                <img id="creative-close-icon" alt="close creative menu" draggable="false" />
-            </button>
-            <button id="creative-inventory-btn" type="button" aria-label="Open inventory from creative">
-                <img id="creative-inventory-icon" alt="open inventory" draggable="false" />
-            </button>
-            <div id="creative-item-grid" class="slot-grid grid-9x5"></div>
-            <div id="creative-hotbar-grid" class="slot-grid grid-9x1"></div>
-        </div>
-    </div>
-    <div id="mobile-controls" class="hidden">
-        <div id="mobile-joystick" class="mobile-btn-area">
-            <img id="mobile-joystick-bg" alt="joystick" draggable="false" />
-            <img id="mobile-joystick-center" alt="joystick center" draggable="false" />
-        </div>
-        <div id="mobile-right-controls" class="mobile-btn-area">
-            <img id="mobile-jump-btn" class="mobile-btn" alt="jump" draggable="false" />
-            <img id="mobile-inventory-btn" class="mobile-btn" alt="inventory" draggable="false" />
-            <img id="mobile-fast-btn" class="mobile-btn" alt="sprint" draggable="false" />
-            <img id="mobile-camera-btn" class="mobile-btn" alt="camera" draggable="false" />
-            <img id="mobile-chat-btn" class="mobile-btn" alt="chat" draggable="false" />
-        </div>
-    </div>
-    <div id="crosshair"></div>
-    <div id="breaking-overlay"></div>
-    <div id="held-item-cursor" style="opacity: 0;"></div>
+    <!-- Main Logic Script -->
+    <script>
+        const root = document.documentElement;
+        
+        /* --- Boot Sequence --- */
+        function initBootSequence() {
+            // Hide boot text
+            document.getElementById('boot-overlay').style.display = 'none';
+            // Show splash (logo on white)
+            document.getElementById('splash-screen').style.display = 'flex';
+
+            // Wait a few seconds
+            setTimeout(() => {
+                // Flash black for a milisecond (using 100ms so it's visible to the human eye)
+                document.getElementById('splash-screen').style.display = 'none';
+                document.getElementById('black-flash').style.display = 'block';
+
+                setTimeout(() => {
+                    document.getElementById('black-flash').style.display = 'none';
+                    // Start Main Engine
+                    startEngine();
+                }, 100);
+            }, 2500);
+        }
+
+        /* --- Engine Start --- */
+        function startEngine() {
+            document.getElementById('app-wrapper').style.display = 'flex';
+            
+            // Audio
+            const audio = document.getElementById('bg-music');
+            audio.volume = 0.5;
+            audio.play().catch(e => console.log("Audio play failed: ", e));
+
+            // Backgrounds
+            startBackgroundRotation();
+        }
+
+        /* --- Tabs --- */
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+
+            document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+            document.getElementById('view-' + tabId).classList.add('active');
+        }
+
+        /* --- Settings System --- */
+        function updateCSS(variable, value) {
+            root.style.setProperty(variable, value);
+        }
+
+        // Color & Theme Adjustments
+        function updateMenuBg() {
+            const hex = document.getElementById('menu-bg-color-picker').value;
+            const alpha = document.getElementById('menu-bg-opacity-slider').value;
+            
+            // Extract Red, Green, and Blue from Hex
+            let r = parseInt(hex.slice(1, 3), 16);
+            let g = parseInt(hex.slice(3, 5), 16);
+            let b = parseInt(hex.slice(5, 7), 16);
+            
+            updateCSS('--menu-bg-color', `rgba(${r}, ${g}, ${b}, ${alpha})`);
+        }
+
+        function toggleTheme(mode) {
+            const fontColorPicker = document.getElementById('font-color-picker');
+            const menuBgColorPicker = document.getElementById('menu-bg-color-picker');
+            const opacitySlider = document.getElementById('menu-bg-opacity-slider');
+
+            if (mode === 'light') {
+                updateCSS('--font-color', '#111111');
+                fontColorPicker.value = '#111111';
+                
+                menuBgColorPicker.value = '#e0e5eb';
+                opacitySlider.value = 0.9;
+                updateMenuBg();
+            } else {
+                updateCSS('--font-color', '#ffffff');
+                fontColorPicker.value = '#ffffff';
+                
+                menuBgColorPicker.value = '#2d3237';
+                opacitySlider.value = 0.85;
+                updateMenuBg();
+            }
+        }
+
+        // Animations
+        function changeAnimation(animClass) {
+            const menu = document.getElementById('main-menu');
+            menu.className = ''; // reset
+            if(animClass) menu.classList.add(animClass);
+        }
+
+        // Audio Track Switching
+        function changeTrack(filename) {
+            const audio = document.getElementById('bg-music');
+            audio.src = 'assets/sounds/music/main-menu/' + filename;
+            audio.play().catch(() => {});
+        }
+
+        // Button Colors
+        function toggleUnifiedColors() {
+            const isUnified = document.getElementById('chk-unified').checked;
+            document.getElementById('sel-color-unified').style.display = isUnified ? 'block' : 'none';
+            document.getElementById('separate-colors').style.display = isUnified ? 'none' : 'flex';
+            updateButtonTheme();
+        }
+
+        function updateButtonTheme() {
+            const isUnified = document.getElementById('chk-unified').checked;
+            
+            if (isUnified) {
+                const val = document.getElementById('sel-color-unified').value;
+                const url = val === 'none' ? 'none' : `url('${val}')`;
+                updateCSS('--btn-bg-img-sp', url);
+                updateCSS('--btn-bg-img-gh', url);
+            } else {
+                const spVal = document.getElementById('sel-color-sp').value;
+                const ghVal = document.getElementById('sel-color-gh').value;
+                updateCSS('--btn-bg-img-sp', spVal === 'none' ? 'none' : `url('${spVal}')`);
+                updateCSS('--btn-bg-img-gh', ghVal === 'none' ? 'none' : `url('${ghVal}')`);
+            }
+        }
+
+        /* --- Background Management --- */
+        let bgInterval;
+        const rotatingImages = [
+            'assets/main-menu/background.png',
+            'assets/main-menu/background1.png',
+            'assets/main-menu/background2.png',
+            'assets/main-menu/background3.png',
+            'assets/main-menu/background4.png',
+            'assets/main-menu/background5.png'
+        ];
+        let customBgDataUrl = null;
+
+        function startBackgroundRotation() {
+            clearInterval(bgInterval);
+            let idx = 0;
+            const imgEl = document.getElementById('active-bg');
+            imgEl.src = rotatingImages[idx];
+            
+            bgInterval = setInterval(() => {
+                idx = (idx + 1) % rotatingImages.length;
+                imgEl.style.opacity = 0; // fade out
+                setTimeout(() => {
+                    imgEl.src = rotatingImages[idx];
+                    imgEl.style.opacity = 1; // fade in
+                }, 1000); // 1s transition
+            }, 6000);
+        }
+
+        function changeBackgroundMode(mode) {
+            const imgEl = document.getElementById('active-bg');
+            if (mode === 'rotating') {
+                startBackgroundRotation();
+            } else if (mode === 'custom') {
+                clearInterval(bgInterval);
+                imgEl.style.opacity = 1;
+                imgEl.src = customBgDataUrl || ''; // Use custom if exists
+                if(!customBgDataUrl) alert("No custom drawing found. Please draw one!");
+            } else {
+                // Static image selected (e.g. dirt.png)
+                clearInterval(bgInterval);
+                imgEl.style.opacity = 1;
+                imgEl.src = mode;
+            }
+        }
+
+        /* --- Custom Drawing App --- */
+        const canvas = document.getElementById('drawing-canvas');
+        const ctx = canvas.getContext('2d');
+        let isDrawing = false;
+
+        // Init white bg
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        canvas.addEventListener('mousedown', (e) => {
+            isDrawing = true;
+            ctx.beginPath();
+            ctx.moveTo(e.offsetX, e.offsetY);
+        });
+        canvas.addEventListener('mousemove', (e) => {
+            if (isDrawing) {
+                ctx.lineTo(e.offsetX, e.offsetY);
+                ctx.strokeStyle = document.getElementById('draw-color').value;
+                ctx.lineWidth = document.getElementById('draw-size').value;
+                ctx.lineCap = 'round';
+                ctx.stroke();
+            }
+        });
+        canvas.addEventListener('mouseup', () => isDrawing = false);
+        canvas.addEventListener('mouseleave', () => isDrawing = false);
+
+        function openDrawingApp() { document.getElementById('drawing-modal').style.display = 'flex'; }
+        function closeDrawingApp() { document.getElementById('drawing-modal').style.display = 'none'; }
+        function clearCanvas() {
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+        function saveCanvas() {
+            customBgDataUrl = canvas.toDataURL('image/png');
+            closeDrawingApp();
+            
+            // Automatically switch to custom mode dropdown
+            const bgSelect = document.querySelector('select[onchange="changeBackgroundMode(this.value)"]');
+            bgSelect.value = 'custom';
+            changeBackgroundMode('custom');
+        }
+
+    </script>
 </body>
 </html>
