@@ -38,61 +38,49 @@ body {
 }
 
 #crosshair {
-    --crosshair-color: rgba(255, 255, 255, 0.95);
-    --crosshair-thickness: 2px;
-    --crosshair-gap: 4px;
-    --crosshair-arm: 6px;
     --crosshair-scale: 1;
     position: absolute;
     top: 50%;
     left: 50%;
-    width: calc(var(--crosshair-gap) * 2 + var(--crosshair-arm) * 2 + var(--crosshair-thickness));
-    height: calc(var(--crosshair-gap) * 2 + var(--crosshair-arm) * 2 + var(--crosshair-thickness));
-    margin-top: calc((var(--crosshair-gap) * 2 + var(--crosshair-arm) * 2 + var(--crosshair-thickness)) / -2);
-    margin-left: calc((var(--crosshair-gap) * 2 + var(--crosshair-arm) * 2 + var(--crosshair-thickness)) / -2);
-    color: var(--crosshair-color);
+    width: 34px;
+    height: 34px;
     z-index: 99;
     pointer-events: none;
-    transform: scale(var(--crosshair-scale));
-    transition: color 0.12s ease, transform 0.12s ease, opacity 0.12s ease;
+    transform: translate(-50%, -50%) scale(var(--crosshair-scale));
+    transform-origin: center;
+    transition: transform 0.12s ease, opacity 0.12s ease, filter 0.12s ease;
     filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.9));
-}
-
-#crosshair::before,
-#crosshair::after {
-    content: '';
-    position: absolute;
-    inset: 0;
     background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
 }
 
-#crosshair::before {
-    background-image:
-        linear-gradient(currentColor, currentColor),
-        linear-gradient(currentColor, currentColor),
-        linear-gradient(currentColor, currentColor),
-        linear-gradient(currentColor, currentColor);
-    background-size:
-        var(--crosshair-thickness) var(--crosshair-arm),
-        var(--crosshair-thickness) var(--crosshair-arm),
-        var(--crosshair-arm) var(--crosshair-thickness),
-        var(--crosshair-arm) var(--crosshair-thickness);
-    background-position:
-        center top,
-        center bottom,
-        left center,
-        right center;
+#crosshair.crosshair-hidden {
+    opacity: 0;
 }
 
-#crosshair::after {
-    width: var(--crosshair-thickness);
-    height: var(--crosshair-thickness);
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    border-radius: 999px;
-    background: currentColor;
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+#crosshair[data-crosshair-state="default"] {
+    --crosshair-scale: 1;
+}
+
+#crosshair[data-crosshair-state="interact"],
+#crosshair[data-crosshair-state="use"],
+#crosshair[data-crosshair-state="use_self"] {
+    --crosshair-scale: 1.06;
+}
+
+#crosshair[data-crosshair-state="mine"] {
+    --crosshair-scale: 0.96;
+}
+
+#crosshair[data-crosshair-state="attack"] {
+    --crosshair-scale: 1.1;
+}
+
+#crosshair[data-crosshair-state="clear"] {
+    --crosshair-scale: 1;
 }
 
 #held-item-cursor {
