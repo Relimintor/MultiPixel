@@ -39,49 +39,63 @@ window.SingleplayerAdaptiveCrosshair = (() => {
     }
 
     function createController(options = {}) {
-        const element = typeof options.element === 'string'
-            ? document.getElementById(options.element)
-            : (options.element || document.getElementById('crosshair'));
+        const resolveElement = () => {
+            const candidate = typeof options.element === 'string'
+                ? document.getElementById(options.element)
+                : (options.element || document.getElementById('crosshair'));
+            return candidate || null;
+        };
         const textureMap = buildTextureMap(options.basePath);
-
-        if (!element) {
-            return {
-                getState: () => 'default',
-                getVisible: () => true,
-                refresh: () => {},
-                setState: () => {},
-                setVisible: () => {},
-            };
-        }
-
-        let currentState = '';
+        let currentState = resolveTextureKey(options.initialState || 'default');
         let isVisible = true;
+
+        function syncElement() {
+            const element = resolveElement();
+            if (!element) return null;
+            element.dataset.crosshairState = currentState;
+            element.style.backgroundImage = `url('${textureMap[currentState]}')`;
+            element.classList.toggle('crosshair-hidden', !isVisible);
+            element.setAttribute('aria-hidden', isVisible ? 'false' : 'true');
+            return element;
+        }
 
         function applyState(nextState) {
             const resolvedState = resolveTextureKey(nextState);
-            if (currentState === resolvedState) return resolvedState;
+            if (currentState === resolvedState) {
+                syncElement();
+                return resolvedState;
+            }
             currentState = resolvedState;
-            element.dataset.crosshairState = resolvedState;
-            element.style.backgroundImage = `url('${textureMap[resolvedState]}')`;
+            const element = resolveElement();
+            if (element) {
+                element.dataset.crosshairState = resolvedState;
+                element.style.backgroundImage = `url('${textureMap[resolvedState]}')`;
+            }
             return resolvedState;
         }
 
         function setVisible(visible) {
             const nextVisible = visible !== false;
-            if (isVisible === nextVisible) return isVisible;
+            if (isVisible === nextVisible) {
+                syncElement();
+                return isVisible;
+            }
             isVisible = nextVisible;
-            element.classList.toggle('crosshair-hidden', !nextVisible);
-            element.setAttribute('aria-hidden', nextVisible ? 'false' : 'true');
+            const element = resolveElement();
+            if (element) {
+                element.classList.toggle('crosshair-hidden', !nextVisible);
+                element.setAttribute('aria-hidden', nextVisible ? 'false' : 'true');
+            }
             return isVisible;
         }
 
-        applyState(options.initialState || 'default');
+        syncElement();
         setVisible(options.visible);
 
         return {
             getState: () => currentState || 'default',
             getVisible: () => isVisible,
-            refresh: () => applyState(currentState || 'default'),
+            refresh: syncElement,
             setState: applyState,
             setVisible,
         };
