@@ -90,7 +90,7 @@
   const HOTBAR_SLOTS = 9;
   const TOTAL_INV_SIZE = INV_ROWS * INV_COLS + HOTBAR_SLOTS;
 
-  const REPO_BASE_PREFIX = '/MultiPixel3';
+  const REPO_BASE_PREFIX = '/MultiPixel';
   const getAssetPath = (subPath) => {
     const ASSET_BASE_DIR = 'game/singleplayer/assets';
     if (REPO_BASE_PREFIX) return `${REPO_BASE_PREFIX}/${ASSET_BASE_DIR}/${subPath}`;
