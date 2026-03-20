@@ -121,18 +121,40 @@
         let cycleTimeMs = DAY_SEGMENTS.sunrise + DAY_SEGMENTS.day / 2; // Start near noon
         let lastTime = 0; // For delta time calculation
         let inventoryEntityUpdateAccumulatorMs = 0;
-        const INVENTORY_ENTITY_UPDATE_INTERVAL_MS = 100;
         let ambientLight, hemiLight, moonLight, dirLight; // global lighting rig
 
-        const SWIM_SPEED_FACTOR = 0.58;
-        const SWIM_VERTICAL_SPEED = 0.1;
-        const SWIM_SINK_SPEED = -0.028;
-        const SWIM_SPRINT_MULTIPLIER = 1.35;
         const BREATH_MAX = 20;
-        const BREATH_DRAIN_PER_SEC = BREATH_MAX / 15;
-        const BREATH_REGEN_PER_SEC = BREATH_MAX / 4;
-        const DROWN_DAMAGE_INTERVAL_SEC = 1;
-        const AIR_POP_DURATION_SEC = 0.5;
+        const playerRuntime = window.SingleplayerPlayerCore.createRuntime({
+            THREE,
+            DEFAULT_PLAYER,
+            TOTAL_INV_SIZE,
+            BREATH_MAX,
+            coarsePointer: window.matchMedia ? window.matchMedia('(pointer: coarse)').matches : false,
+            noHover: window.matchMedia ? window.matchMedia('(hover: none)').matches : false,
+            touchCapable: ('ontouchstart' in window) || navigator.maxTouchPoints > 0,
+            PLAYER_HEIGHT,
+        });
+        const {
+            constants: {
+                INVENTORY_ENTITY_UPDATE_INTERVAL_MS,
+                SWIM_SPEED_FACTOR,
+                SWIM_VERTICAL_SPEED,
+                SWIM_SINK_SPEED,
+                SWIM_SPRINT_MULTIPLIER,
+                BREATH_DRAIN_PER_SEC,
+                BREATH_REGEN_PER_SEC,
+                DROWN_DAMAGE_INTERVAL_SEC,
+                AIR_POP_DURATION_SEC,
+                DEFAULT_LOOK_SENSITIVITY,
+                DEFAULT_INTERACTION_REACH,
+                FLY_VERTICAL_SPEED,
+                PLAYER_EYE_HEIGHT_RATIO,
+                MOB_COLLISION_RADIUS,
+            },
+            player,
+        } = playerRuntime;
+        let currentLookSensitivity = DEFAULT_LOOK_SENSITIVITY;
+        let currentInteractionReach = DEFAULT_INTERACTION_REACH;
 
         // Three.js specific materials created after textures are loaded
         let materials = {};
@@ -145,29 +167,6 @@ const perlinInstance = new PerlinNoise(worldSeed);
 window.perlin = perlinInstance;
 
         // --- 2. GAME STATE & THREE.JS SETUP ---
-
-      
-        const player = {
-            velocity: new THREE.Vector3(),
-            direction: new THREE.Vector3(),
-            moveSpeed: DEFAULT_PLAYER.moveSpeed,
-            baseMoveSpeed: DEFAULT_PLAYER.moveSpeed,
-            sprintMultiplier: DEFAULT_PLAYER.sprintMultiplier,
-            rotationSpeed: DEFAULT_PLAYER.rotationSpeed,
-            isJumping: false,
-            canMove: false,
-            keys: {},
-            health: DEFAULT_PLAYER.health,
-            maxHealth: DEFAULT_PLAYER.maxHealth,
-            fallStartY: 0, 
-            inAir: false,
-            isMoving: false,
-            isSwimming: false
-        };
-        const DEFAULT_LOOK_SENSITIVITY = 10;
-        const DEFAULT_INTERACTION_REACH = 5;
-        let currentLookSensitivity = DEFAULT_LOOK_SENSITIVITY;
-        let currentInteractionReach = DEFAULT_INTERACTION_REACH;
 
         function setSensitivity(amount) {
             const parsed = Number(amount);
@@ -201,17 +200,16 @@ window.perlin = perlinInstance;
         }
 
       
-        let inventory = new Array(TOTAL_INV_SIZE).fill(null);
+        let inventory = playerRuntime.inventory;
         const knockbackEnchantByItemId = new Map();
-        let selectedHotbarIndex = 0; // 0-8
-        let isInventoryOpen = false;
-        let isCreativeMode = false;
-        let isCreativeMenuOpen = false;
-        const creativeCatalog = [];
-        const playerPrivileges = { fly: false, speed: false, noclip: false };
-        let isFlyActive = false;
-        let lastSpaceTapAt = 0;
-        const FLY_VERTICAL_SPEED = 0.24;
+        let selectedHotbarIndex = playerRuntime.selectedHotbarIndex; // 0-8
+        let isInventoryOpen = playerRuntime.isInventoryOpen;
+        let isCreativeMode = playerRuntime.isCreativeMode;
+        let isCreativeMenuOpen = playerRuntime.isCreativeMenuOpen;
+        const creativeCatalog = playerRuntime.creativeCatalog;
+        const playerPrivileges = playerRuntime.playerPrivileges;
+        let isFlyActive = playerRuntime.isFlyActive;
+        let lastSpaceTapAt = playerRuntime.lastSpaceTapAt;
 
         // --- NEW CRAFTING STATE VARIABLES ---
         let isCraftingTableOpen = false;
@@ -234,12 +232,7 @@ window.perlin = perlinInstance;
         let miningSwingTimerMs = 0;
         let isLeftMouseDown = false;
         const breakingStageTextures = new Array(10).fill(null);
-        const airState = {
-            value: BREATH_MAX,
-            drownTimerSec: 0,
-            popTimerSec: 0,
-            wasUnderLiquid: false,
-        };
+        const airState = playerRuntime.airState;
         let breakingCrackMesh = null;
         let breakParticleTexture = null;
         let lavaParticleTexture = null;
@@ -330,28 +323,7 @@ window.perlin = perlinInstance;
         let physicsCursorY = 1;
 
         const MOBILE_ASSET_BASE = `${window.SingleplayerConfig?.REPO_BASE_PREFIX || ''}/game/singleplayer/assets/mobile`;
-        const coarsePointer = window.matchMedia ? window.matchMedia('(pointer: coarse)').matches : false;
-        const noHover = window.matchMedia ? window.matchMedia('(hover: none)').matches : false;
-        const touchCapable = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
-        const mobileControls = {
-            // User can choose mode from the start screen; this is the suggested default.
-            autoEnabled: coarsePointer || (touchCapable && noHover) || (touchCapable && window.innerWidth <= 1024),
-            enabled: false,
-            initialized: false,
-            moveX: 0,
-            moveY: 0,
-            sprint: false,
-            jump: false,
-            joystickPointerId: null,
-            worldTouchActive: false,
-            worldTouchStartMs: 0,
-            worldTouchPointerId: null,
-            miningTimer: null,
-            isMiningTouch: false,
-            lookPointerId: null,
-            lastLookX: 0,
-            lastLookY: 0,
-        };
+        const mobileControls = playerRuntime.mobileControls;
 
         const deviceMemoryGb = typeof navigator.deviceMemory === 'number' ? navigator.deviceMemory : null;
         const cpuThreads = typeof navigator.hardwareConcurrency === 'number' ? navigator.hardwareConcurrency : null;
@@ -411,8 +383,7 @@ window.perlin = perlinInstance;
         const sparseAirChunkKeys = new Set();
         const worldGroup = new THREE.Group();
         let yawObject, pitchObject; 
-        const PLAYER_EYE_HEIGHT_RATIO = 1.62 / 1.8;
-        let currentPlayerHeight = PLAYER_HEIGHT;
+        let currentPlayerHeight = playerRuntime.currentPlayerHeight;
 
         function getPlayerEyeHeight(height = currentPlayerHeight) {
             return height * PLAYER_EYE_HEIGHT_RATIO;
@@ -439,17 +410,17 @@ window.perlin = perlinInstance;
             syncPlayerHeightVisuals();
             return true;
         }
-        let cameraViewMode = 0; // 0=first, 1=second, 2=third
-        let playerAvatar = null;
-        let playerAvatarParts = null;
-        let steveSkinTexture = null;
-        let steveSkinFailed = false;
-        let steveSkinReady = false;
-        let steveSkinLoadPromise = null;
-        let firstPersonHandEl = null;
-        let firstPersonHeldItemEl = null;
-        let inventorySkinRigEl = null;
-        let skinSystem = null;
+        let cameraViewMode = playerRuntime.cameraViewMode; // 0=first, 1=second, 2=third
+        let playerAvatar = playerRuntime.playerAvatar;
+        let playerAvatarParts = playerRuntime.playerAvatarParts;
+        let steveSkinTexture = playerRuntime.steveSkinTexture;
+        let steveSkinFailed = playerRuntime.steveSkinFailed;
+        let steveSkinReady = playerRuntime.steveSkinReady;
+        let steveSkinLoadPromise = playerRuntime.steveSkinLoadPromise;
+        let firstPersonHandEl = playerRuntime.firstPersonHandEl;
+        let firstPersonHeldItemEl = playerRuntime.firstPersonHeldItemEl;
+        let inventorySkinRigEl = playerRuntime.inventorySkinRigEl;
+        let skinSystem = playerRuntime.skinSystem;
         let iglooStructureDef = null;
         const villageTemplatesByBiomeKey = new Map();
         const gnomeEntities = [];
@@ -471,133 +442,37 @@ window.perlin = perlinInstance;
         let zombieTexture = null;
         let zombieSpawnTimerMs = 0;
         let bambooGrowthTimerMs = 0;
-        let eatOverlayEl = null;
-        let eatItemEl = null;
-        let eatingAnimState = { active: false, timeMs: 0, durationMs: 0, itemId: 0, particleMs: 0 };
+        let eatOverlayEl = playerRuntime.eatOverlayEl;
+        let eatItemEl = playerRuntime.eatItemEl;
+        let eatingAnimState = playerRuntime.eatingAnimState;
         
         // Calculate the world boundary coordinates
         const WORLD_MAX_COORD = Number.POSITIVE_INFINITY;
         const WORLD_MIN_COORD = Number.NEGATIVE_INFINITY;
         
 
-        const MOB_COLLISION_RADIUS = {
-            pig: 0.4,
-            wolf: 0.46,
-            panda: 0.56,
-            zombie: 0.42,
-            villager: 0.44,
-            gnome: 0.34,
-        };
-
-        function applyDamageFlashToRoot(root, active) {
-            if (!root) return;
-            root.traverse((obj) => {
-                if (!obj?.isMesh || !obj.material) return;
-                const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-                for (const mat of mats) {
-                    if (!mat) continue;
-                    if (typeof mat.emissive !== 'undefined') {
-                        if (mat.userData.baseEmissiveHex == null) mat.userData.baseEmissiveHex = mat.emissive.getHex();
-                        mat.emissive.setHex(active ? 0x7a0000 : mat.userData.baseEmissiveHex);
-                        if (typeof mat.emissiveIntensity === 'number') mat.emissiveIntensity = active ? 1.15 : 1.0;
-                    } else if (mat.color) {
-                        if (mat.userData.baseColorHex == null) mat.userData.baseColorHex = mat.color.getHex();
-                        mat.color.setHex(active ? 0xff4a4a : mat.userData.baseColorHex);
-                    }
-                }
-            });
-        }
+        const PlayerMobInteractions = window.SingleplayerPlayerMobInteractions;
 
         function applyHitFeedback(entity, sourcePos = null, amount = 4, extraKnockback = 0) {
-            if (!entity?.root) return;
-            const baseStrength = Math.max(0.12, Math.min(0.42, 0.07 + amount * 0.018));
-            const enchantScale = Math.max(0, Number(extraKnockback) || 0);
-            const strength = Math.min(6.0, baseStrength + enchantScale * 0.015);
-            const src = sourcePos || yawObject?.position || null;
-            if (src) {
-                const away = new THREE.Vector3(entity.root.position.x - src.x, 0, entity.root.position.z - src.z);
-                if (away.lengthSq() < 0.0001) away.set(Math.random() - 0.5, 0, Math.random() - 0.5);
-                away.normalize().multiplyScalar(strength);
-                entity.knockbackVX = (entity.knockbackVX || 0) + away.x;
-                entity.knockbackVZ = (entity.knockbackVZ || 0) + away.z;
-                const lift = Math.min(2.6, 0.08 + enchantScale * 0.006);
-                entity.knockbackVY = Math.max(entity.knockbackVY || 0, lift);
-            }
-            entity.hitFlashMs = Math.max(entity.hitFlashMs || 0, 120);
-            applyDamageFlashToRoot(entity.root, true);
+            PlayerMobInteractions.applyHitFeedback({ entity, sourcePos, amount, extraKnockback, yawObject, THREE });
         }
 
         function tickMobHitFeedback(entity, deltaMs) {
-            if (!entity?.root) return;
-            const dt = Math.max(0.001, Math.min(0.05, deltaMs / 1000));
-            entity.hitFlashMs = Math.max(0, (entity.hitFlashMs || 0) - deltaMs);
-            applyDamageFlashToRoot(entity.root, entity.hitFlashMs > 0);
-
-            const kvx = entity.knockbackVX || 0;
-            const kvz = entity.knockbackVZ || 0;
-            let kvy = entity.knockbackVY || 0;
-            if (Math.abs(kvx) + Math.abs(kvz) + Math.abs(kvy) > 0.0002) {
-                entity.root.position.x += kvx;
-                entity.root.position.z += kvz;
-                entity.root.position.y += kvy;
-                kvy -= dt * 0.42;
-                entity.knockbackVX = kvx * Math.max(0, 1 - dt * 12);
-                entity.knockbackVZ = kvz * Math.max(0, 1 - dt * 12);
-                entity.knockbackVY = kvy * Math.max(0, 1 - dt * 3);
-            } else {
-                entity.knockbackVX = 0;
-                entity.knockbackVZ = 0;
-                entity.knockbackVY = 0;
-            }
-        }
-
-        function resolveCircleOverlap(ax, az, ar, bx, bz, br) {
-            const dx = bx - ax;
-            const dz = bz - az;
-            const distSq = dx * dx + dz * dz;
-            const minDist = ar + br;
-            if (distSq >= minDist * minDist) return null;
-            const dist = Math.sqrt(Math.max(0.000001, distSq));
-            const nx = dx / dist;
-            const nz = dz / dist;
-            const push = (minDist - dist);
-            return { nx, nz, push };
+            PlayerMobInteractions.tickMobHitFeedback(entity, deltaMs);
         }
 
         function resolveMobEntityPushing() {
-            const colliders = [];
-            for (const pig of pigEntities) colliders.push({ kind: 'pig', ref: pig, pos: pig.root.position, radius: MOB_COLLISION_RADIUS.pig });
-            for (const wolf of wolfEntities) colliders.push({ kind: 'wolf', ref: wolf, pos: wolf.root.position, radius: MOB_COLLISION_RADIUS.wolf });
-            for (const panda of pandaEntities) colliders.push({ kind: 'panda', ref: panda, pos: panda.root.position, radius: MOB_COLLISION_RADIUS.panda });
-            for (const zombie of zombieEntities) colliders.push({ kind: 'zombie', ref: zombie, pos: zombie.root.position, radius: MOB_COLLISION_RADIUS.zombie });
-            for (const villager of villagerEntities) colliders.push({ kind: 'villager', ref: villager, pos: villager.root.position, radius: MOB_COLLISION_RADIUS.villager });
-            for (const gnome of gnomeEntities) colliders.push({ kind: 'gnome', ref: gnome, pos: gnome.root.position, radius: MOB_COLLISION_RADIUS.gnome });
-
-            // Player vs mobs
-            for (const c of colliders) {
-                const overlap = resolveCircleOverlap(yawObject.position.x, yawObject.position.z, PLAYER_RADIUS, c.pos.x, c.pos.z, c.radius);
-                if (!overlap) continue;
-                const pushHalf = overlap.push * 0.5 + 0.001;
-                yawObject.position.x -= overlap.nx * pushHalf;
-                yawObject.position.z -= overlap.nz * pushHalf;
-                c.pos.x += overlap.nx * pushHalf;
-                c.pos.z += overlap.nz * pushHalf;
-            }
-
-            // Mob vs mob
-            for (let i = 0; i < colliders.length; i++) {
-                for (let j = i + 1; j < colliders.length; j++) {
-                    const a = colliders[i];
-                    const b = colliders[j];
-                    const overlap = resolveCircleOverlap(a.pos.x, a.pos.z, a.radius, b.pos.x, b.pos.z, b.radius);
-                    if (!overlap) continue;
-                    const pushHalf = overlap.push * 0.5 + 0.001;
-                    a.pos.x -= overlap.nx * pushHalf;
-                    a.pos.z -= overlap.nz * pushHalf;
-                    b.pos.x += overlap.nx * pushHalf;
-                    b.pos.z += overlap.nz * pushHalf;
-                }
-            }
+            PlayerMobInteractions.resolveMobEntityPushing({
+                yawObject,
+                PLAYER_RADIUS,
+                pigEntities,
+                wolfEntities,
+                pandaEntities,
+                zombieEntities,
+                villagerEntities,
+                gnomeEntities,
+                mobCollisionRadius: MOB_COLLISION_RADIUS,
+            });
         }
 
         // --- 3. CORE UTILITIES ---
@@ -6014,7 +5889,9 @@ function buildPartFaceRects(x, y, w, h, d) {
             };
         }
 
-        function jungleTreeLayout(treeStyle, relY) {
+        function getMinecraftLikeTreeLayout(treeStyle, relY) {
+            const oakLayout = window.OakTreeGeneration?.getOakTreeLayout?.(treeStyle, relY);
+            if (oakLayout) return oakLayout;
             if (treeStyle === 'jungle_large') {
                 const profile = window.JungleLargeTree;
                 if (profile?.canopyRadius) return { radius: profile.canopyRadius(relY), trunkOffsets: profile.trunkOffsets || [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 }, { x: 1, z: 1 }] };
@@ -6039,7 +5916,7 @@ function buildPartFaceRects(x, y, w, h, d) {
             if (trunkTopY + 2 >= CHUNK_HEIGHT) return false;
 
             // Trunk clearance: validate every trunk column.
-            const trunkOffsets = treeStyle === 'jungle_mountain' ? [{ x: 0, z: 0 }] : jungleTreeLayout(treeStyle, 0).trunkOffsets;
+            const trunkOffsets = treeStyle === 'jungle_mountain' ? [{ x: 0, z: 0 }] : getMinecraftLikeTreeLayout(treeStyle, 0).trunkOffsets;
             for (let y = topY + 1; y <= trunkTopY; y++) {
                 for (const offset of trunkOffsets) {
                     const tx = x + offset.x;
@@ -6057,7 +5934,7 @@ function buildPartFaceRects(x, y, w, h, d) {
                 const rel = y - trunkTopY;
                 const radius = treeStyle === 'jungle_mountain'
                     ? (rel >= 1 ? 2 : (rel === 0 ? 3 : (rel === -1 ? 3 : 2)))
-                    : jungleTreeLayout(treeStyle, rel).radius;
+                    : getMinecraftLikeTreeLayout(treeStyle, rel).radius;
                 for (let ox = -radius; ox <= radius; ox++) {
                     for (let oz = -radius; oz <= radius; oz++) {
                         const tx = x + ox;
@@ -6080,7 +5957,7 @@ function buildPartFaceRects(x, y, w, h, d) {
             const isJungleTree = treeStyle === 'jungle_small' || treeStyle === 'jungle_large' || treeStyle === 'jungle_mountain';
             const trunkType = treeStyle === 'glass_mushroom' ? 80 : (isJungleTree ? 96 : 5);
             const leafType = treeStyle === 'glass_mushroom' ? 26 : (isJungleTree ? 97 : 6);
-            const trunkOffsets = treeStyle === 'jungle_mountain' ? [{ x: 0, z: 0 }] : jungleTreeLayout(treeStyle, 0).trunkOffsets;
+            const trunkOffsets = treeStyle === 'jungle_mountain' ? [{ x: 0, z: 0 }] : getMinecraftLikeTreeLayout(treeStyle, 0).trunkOffsets;
             for (let i = 1; i <= trunkHeight; i++) {
                 const ty = topY + i;
                 for (const offset of trunkOffsets) {
@@ -6097,7 +5974,7 @@ function buildPartFaceRects(x, y, w, h, d) {
                 const rel = y - trunkTopY;
                 const radius = treeStyle === 'jungle_mountain'
                     ? (rel >= 1 ? 2 : (rel === 0 ? 3 : (rel === -1 ? 3 : 2)))
-                    : jungleTreeLayout(treeStyle, rel).radius;
+                    : getMinecraftLikeTreeLayout(treeStyle, rel).radius;
                 for (let ox = -radius; ox <= radius; ox++) {
                     for (let oz = -radius; oz <= radius; oz++) {
                         if (Math.abs(ox) === radius && Math.abs(oz) === radius && hashRand2D(wx + ox * 31, wz + oz * 17 + y * 7, 611) < 0.35) continue;
@@ -6117,87 +5994,16 @@ function buildPartFaceRects(x, y, w, h, d) {
             }
         }
         
-        const oakTreeDecoration = {
-            tryGenerateTreeAtColumn({ data, x, z, wx, wz, biome, isRiver, riverInfluence, worldGenSettings, seaLevel, chunkSize, chunkHeight, octaveNoise2D, hashRand2D, fallbackTreeCandidates }) {
-                if (!isTreeBiome(biome) || isRiver) return false;
-
-                let topY = -1;
-                for (let yy = chunkHeight - 2; yy >= 1; yy--) {
-                    const tidx = x + yy * chunkSize + z * chunkSize * chunkHeight;
-                    const ttype = data[tidx];
-                    if (ttype !== 0 && ttype !== 4 && ttype !== 6 && ttype !== 97) {
-                        topY = yy;
-                        break;
-                    }
-                }
-
-                const minTreeY = Math.max(seaLevel - 2, 2);
-                const maxTreeY = Math.min(chunkHeight - 8, seaLevel + 68);
-                if (topY < minTreeY || topY > maxTreeY) return false;
-
-                const topIdx = x + topY * chunkSize + z * chunkSize * chunkHeight;
-                const topType = data[topIdx];
-                const validGround = (topType === 1 || topType === 2 || topType === 3 || topType === 7 || topType === 28);
-                if (!validGround) return false;
-
-                const treeNoise = octaveNoise2D(wx, wz, 2, 0.56, 2.0, 0.028, 700, -350) * 0.5 + 0.5;
-                const scatter = hashRand2D(wx, wz, 99);
-                const density = treeNoise * 0.6 + scatter * 0.4;
-                const chance = getTreeSpawnChanceForBiome(biome, topY);
-                const clusterBonus = Number(worldGenSettings.treeClusterBonus ?? 0.12);
-                const nearbyTree = hasNearbyTreeTrunk(data, x, z, 3);
-                const spacingGate = Number(worldGenSettings.treeMinSpacingChance ?? 0.65);
-                const spawnRoll = hashRand2D(wx, wz, 431);
-                const shouldTrySpawn = (spawnRoll < (chance + density * clusterBonus)) && (!nearbyTree || spawnRoll < spacingGate * 0.75);
-                if (!shouldTrySpawn) {
-                    fallbackTreeCandidates.push({ x, z, topY, wx, wz, biome });
-                    return false;
-                }
-
-                const isJungleForest = biome === 'Jungle Forest';
-                const jungleProfile = isJungleForest
-                    ? chooseJungleTreeProfile({ topY, wx, wz, seaLevel, hashRand2D })
-                    : null;
-                const trunkHeight = isJungleForest
-                    ? jungleProfile.trunkHeight
-                    : (4 + Math.floor(hashRand2D(wx, wz, 157) * 2));
-                const treeStyle = biome === 'Mushroom Fields'
-                    ? 'glass_mushroom'
-                    : (isJungleForest ? jungleProfile.style : 'oak');
-                if (!canPlaceMinecraftLikeTree(data, x, z, topY, trunkHeight, treeStyle)) {
-                    fallbackTreeCandidates.push({ x, z, topY, wx, wz, biome });
-                    return false;
-                }
-
-                if (data[topIdx] === 2) data[topIdx] = 1;
-                placeMinecraftLikeTree(data, x, z, topY, trunkHeight, wx, wz, treeStyle);
-                return true;
-            },
-            placeFallbackTree({ data, cx, cz, fallbackTreeCandidates, hashRand2D, chunkSize }) {
-                if (!fallbackTreeCandidates.length) return false;
-                const pick = Math.floor(hashRand2D(cx, cz, 6083) * fallbackTreeCandidates.length);
-                const candidate = fallbackTreeCandidates[Math.max(0, Math.min(fallbackTreeCandidates.length - 1, pick))];
-                if (!candidate) return false;
-
-                const { x, z, topY, wx, wz, biome } = candidate;
-                const isJungleForest = biome === 'Jungle Forest';
-                const jungleProfile = isJungleForest
-                    ? chooseJungleTreeProfile({ topY, wx, wz, seaLevel: SEA_LEVEL, hashRand2D })
-                    : null;
-                const trunkHeight = isJungleForest
-                    ? jungleProfile.trunkHeight
-                    : (4 + Math.floor(hashRand2D(wx, wz, 157) * 2));
-                const treeStyle = biome === 'Mushroom Fields'
-                    ? 'glass_mushroom'
-                    : (isJungleForest ? jungleProfile.style : 'oak');
-                if (!canPlaceMinecraftLikeTree(data, x, z, topY, trunkHeight, treeStyle)) return false;
-
-                const topIdx = x + topY * chunkSize + z * chunkSize * CHUNK_HEIGHT;
-                if (data[topIdx] === 2) data[topIdx] = 1;
-                placeMinecraftLikeTree(data, x, z, topY, trunkHeight, wx, wz, treeStyle);
-                return true;
-            }
-        };
+        const oakTreeDecoration = window.OakTreeGeneration?.createOakTreeDecoration?.({
+            isTreeBiome,
+            getTreeSpawnChanceForBiome,
+            hasNearbyTreeTrunk,
+            chooseJungleTreeProfile,
+            canPlaceMinecraftLikeTree,
+            placeMinecraftLikeTree,
+            seaLevel: SEA_LEVEL,
+            chunkHeight: CHUNK_HEIGHT,
+        });
 
         function generateChunkData(cx, cz) {
              const data = new Array(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
