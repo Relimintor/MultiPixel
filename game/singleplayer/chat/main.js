@@ -1,8 +1,6 @@
 (function () {
-    const CENSOR_WORDS_PATHS = [
-        './chat/cencor/words.txt',
-        './chat/cencor/fuck.txt'
-    ];
+    const CENSOR_WORDS_PATH = './chat/cencor/words.txt';
+    const CENCOR_WORDS_PATH = '.chat/cencor/fuck.txt';
     const FEED_COLLAPSE_MS = 4200;
 
     let root = null;
@@ -56,61 +54,29 @@
         scheduleFeedCollapse();
     }
 
-    // ✅ LOAD MULTIPLE FILES
     async function loadCensorWords() {
         try {
-            const results = await Promise.all(
-                CENSOR_WORDS_PATHS.map(path =>
-                    fetch(path, { cache: 'no-store' })
-                        .then(res => res.ok ? res.text() : '')
-                        .catch(() => '')
-                )
-            );
-
-            censorWords = results
-                .join('\n')
+            const response = await fetch(CENSOR_WORDS_PATH, { cache: 'no-store' });
+            if (!response.ok) return;
+            const text = await response.text();
+            censorWords = text
                 .split(/\r?\n/)
-                .map(word => word.trim().toLowerCase())
+                .map((word) => word.trim().toLowerCase())
                 .filter(Boolean);
-
-            console.log('[Chat] Loaded censor words:', censorWords.length);
         } catch (err) {
             console.warn('[Chat] Failed to load censor words', err);
         }
     }
 
-    // 🔥 NORMALIZE (kills leetspeak + symbols)
-    function normalize(str) {
-        return str
-            .toLowerCase()
-            .replace(/0/g, 'o')
-            .replace(/1/g, 'i')
-            .replace(/3/g, 'e')
-            .replace(/4/g, 'a')
-            .replace(/5/g, 's')
-            .replace(/7/g, 't')
-            .replace(/[@]/g, 'a')
-            .replace(/[!]/g, 'i')
-            .replace(/\$/g, 's')
-            .replace(/[^a-z]/g, '');
+    function escapeRegExp(value) {
+        return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
 
-    // 🔥 STRONG DETECTION
     function hasCensoredWord(input) {
-        const raw = String(input || '');
-        const normalized = normalize(raw);
-
-        return censorWords.find(word => {
-            if (!word) return false;
-
-            // direct normalized match
-            if (normalized.includes(word)) return true;
-
-            // pattern match (f.u.c.k, f u c k, etc)
-            const pattern = word.split('').join('[^a-z0-9]*');
-            const regex = new RegExp(pattern, 'i');
-
-            return regex.test(raw);
+        const normalized = String(input || '').toLowerCase();
+        return censorWords.find((word) => {
+            const pattern = new RegExp(`(^|[^a-z0-9])${escapeRegExp(word)}([^a-z0-9]|$)`, 'i');
+            return pattern.test(normalized);
         });
     }
 
@@ -190,11 +156,29 @@
         root.innerHTML = `
             <div id="chat-feed"></div>
             <div id="chat-compose-wrap">
-                <button id="chat-close-btn" type="button">
-                    <img id="chat-close-icon" draggable="false" />
+                <button id="chat-close-btn" type="button" aria-label="Close chat">
+                    <img id="chat-close-icon" alt="close chat" draggable="false" />
                 </button>
                 <div id="chat-log"></div>
-                <input id="chat-input" type="text" maxlength="180" placeholder="Type message..." autocomplete="off" />
+                <input id="chat-input" type="text" maxlength="180" placeholder="Type message or /give, /spawn, /tp, /time, /gamemode, /grantme, /ungrantme, /set, /enchant, /help" autocomplete="off" />
+            </div>
+            <div id="chat-help-overlay" role="dialog" aria-label="Command help">
+                <div id="chat-help-panel">
+                    <h3>Command Help</h3>
+                    <p><strong>/give</strong> &lt;itemId|itemName&gt; &lt;amount&gt; — give item stacks.</p>
+                    <p><strong>/spawn</strong> &lt;mobId|mobName&gt; &lt;amount&gt; — spawn mobs (1 = pig, 2 = zombie, 3 = wolf, 4 = panda).</p>
+                    <p><strong>/spawn structure:village biome:&lt;name&gt; building:&lt;json_name&gt;</strong> — place a village building near you (example: <em>building:house_small</em>).</p>
+                    <p><strong>/tp</strong> &lt;x y z&gt; or <strong>/tp biome:&lt;name&gt;</strong> or <strong>/tp structure:village biome:&lt;name&gt;</strong> — teleport to coordinates, nearest biome, or village candidate in a village biome.</p>
+                    <p><strong>/time</strong> &lt;HH:MM&gt; — set time with military clock (00:00 to 23:59).</p>
+                    <p><strong>/set render_distance</strong> &lt;amount&gt; — set chunk render distance (no hard upper cap).</p>
+                    <p><strong>/set fov</strong> &lt;amount&gt; — set camera field of view (no hard upper cap).</p>
+                    <p><strong>/gamemode creative</strong> — switch to creative and open creative menu.</p>
+                    <p><strong>/enchant</strong> &lt;holding|itemId&gt; &lt;knockback&gt; &lt;amount&gt; — apply knockback enchant (max 400).</p>
+                    <p><strong>/grantme</strong> &lt;fly|speed|noclip|all&gt; — grant yourself movement privileges.</p>
+                    <p><strong>/ungrantme</strong> &lt;fly|speed|noclip|all&gt; — remove movement privileges.</p>
+                    <p><strong>/help</strong> — open this command help panel.</p>
+                    <button id="chat-help-close" type="button">Close</button>
+                </div>
             </div>
         `;
         document.body.appendChild(root);
@@ -203,20 +187,55 @@
         logEl = document.getElementById('chat-log');
         inputEl = document.getElementById('chat-input');
         closeBtn = document.getElementById('chat-close-btn');
+        helpOverlayEl = document.getElementById('chat-help-overlay');
+        const helpCloseBtn = document.getElementById('chat-help-close');
+        const closeIcon = document.getElementById('chat-close-icon');
+        const mobileAssetBase = context?.mobileAssetBase || './assets/mobile';
+        if (closeIcon) closeIcon.src = `${mobileAssetBase}/cdb_clear.png`;
+
+        if (closeBtn) {
+            closeBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                close();
+            });
+        }
 
         inputEl.addEventListener('keydown', (e) => {
+            e.stopPropagation();
             if (e.key === 'Enter') {
                 e.preventDefault();
                 submitChatMessage();
+                return;
+            }
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                if (helpOverlayEl?.classList.contains('open')) {
+                    closeCommandHelp();
+                    return;
+                }
+                close();
             }
         });
+
+        if (helpCloseBtn) {
+            helpCloseBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                closeCommandHelp();
+            });
+        }
+
+        if (helpOverlayEl) {
+            helpOverlayEl.addEventListener('click', (e) => {
+                if (e.target === helpOverlayEl) closeCommandHelp();
+            });
+        }
     }
 
     function init(initContext) {
         context = initContext || {};
         buildUI();
         loadCensorWords();
-        pushMessage('Chat ready.', 'chat-info');
+        pushMessage('Chat ready. Use /give, /spawn, /tp, /time, /set, /enchant, /gamemode, /grantme, /ungrantme, /help. Try /spawn structure:village biome:plains building:house_small', 'chat-info');
     }
 
     window.SingleplayerChat = {
@@ -224,6 +243,7 @@
         open,
         close,
         toggle,
+        openCommandHelp,
         isOpen: () => isOpen
     };
 })();
