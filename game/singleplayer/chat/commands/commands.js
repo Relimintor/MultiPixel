@@ -55,6 +55,10 @@
       return window.SingleplayerChatCommandHelp.execute(parts, ctx);
     }
 
+    if (command === '/height' && window.SingleplayerChatCommandHeight?.execute) {
+      return window.SingleplayerChatCommandHeight.execute(parts, ctx);
+    }
+
     if (command === '/gamemode' && window.SingleplayerChatCommandGamemode?.execute) {
       return window.SingleplayerChatCommandGamemode.execute(parts, ctx);
     }
