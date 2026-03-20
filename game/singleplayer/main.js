@@ -3,6 +3,7 @@
             CHUNK_SIZE,
             CHUNK_HEIGHT,
             WORLD_RADIUS,
+            BLOCK_SIZE,
             SEA_LEVEL,
             BASE_LAND_Y,
             ISLAND_RADIUS,
@@ -375,6 +376,34 @@ window.perlin = perlinInstance;
         const sparseAirChunkKeys = new Set();
         const worldGroup = new THREE.Group();
         let yawObject, pitchObject; 
+        const PLAYER_EYE_HEIGHT_RATIO = 1.62 / 1.8;
+        let currentPlayerHeight = PLAYER_HEIGHT;
+
+        function getPlayerEyeHeight(height = currentPlayerHeight) {
+            return height * PLAYER_EYE_HEIGHT_RATIO;
+        }
+
+        function syncPlayerHeightVisuals() {
+            if (pitchObject) {
+                pitchObject.position.y = getPlayerEyeHeight();
+            }
+            if (playerAvatar) {
+                const avatarScale = currentPlayerHeight / PLAYER_HEIGHT;
+                playerAvatar.scale.set(avatarScale, avatarScale, avatarScale);
+            }
+        }
+
+        function getPlayerHeight() {
+            return currentPlayerHeight / BLOCK_SIZE;
+        }
+
+        function setPlayerHeight(heightBlocks) {
+            const parsed = Number(heightBlocks);
+            if (!Number.isFinite(parsed) || parsed <= 0) return false;
+            currentPlayerHeight = parsed * BLOCK_SIZE;
+            syncPlayerHeightVisuals();
+            return true;
+        }
         let cameraViewMode = 0; // 0=first, 1=second, 2=third
         let playerAvatar = null;
         let playerAvatarParts = null;
@@ -726,7 +755,7 @@ window.perlin = perlinInstance;
             
             yawObject = new THREE.Object3D();
             pitchObject = new THREE.Object3D();
-            pitchObject.position.y = 1.6; 
+            syncPlayerHeightVisuals();
             
             pitchObject.add(camera);
             yawObject.add(pitchObject);
@@ -3043,6 +3072,8 @@ window.perlin = perlinInstance;
                 getRenderDistance: () => currentChunkLoadRadius,
                 setFov: setCameraFov,
                 getFov: getCameraFov,
+                setPlayerHeight,
+                getPlayerHeight,
                 setGameMode,
                 openCreativeMenu,
                 closeCreativeMenu,
@@ -4212,7 +4243,7 @@ window.perlin = perlinInstance;
             const px = Math.floor(placePos.x), py = Math.floor(placePos.y), pz = Math.floor(placePos.z);
             const playerBox = new THREE.Box3(
                 new THREE.Vector3(yawObject.position.x - PLAYER_RADIUS, yawObject.position.y, yawObject.position.z - PLAYER_RADIUS),
-                new THREE.Vector3(yawObject.position.x + PLAYER_RADIUS, yawObject.position.y + PLAYER_HEIGHT, yawObject.position.z + PLAYER_RADIUS)
+                new THREE.Vector3(yawObject.position.x + PLAYER_RADIUS, yawObject.position.y + currentPlayerHeight, yawObject.position.z + PLAYER_RADIUS)
             );
             const blockBox = new THREE.Box3(
                 new THREE.Vector3(px, py, pz), new THREE.Vector3(px + 1, py + 1, pz + 1)
@@ -4497,8 +4528,8 @@ window.perlin = perlinInstance;
             const px = Math.floor(yawObject.position.x);
             const pz = Math.floor(yawObject.position.z);
             const feetY = Math.floor(yawObject.position.y + 0.1);
-            const bodyY = Math.floor(yawObject.position.y + PLAYER_HEIGHT * 0.5);
-            const eyeY = Math.floor(yawObject.position.y + 1.62);
+            const bodyY = Math.floor(yawObject.position.y + currentPlayerHeight * 0.5);
+            const eyeY = Math.floor(yawObject.position.y + getPlayerEyeHeight());
 
             const feet = getBlockType(px, feetY, pz);
             const body = getBlockType(px, bodyY, pz);
@@ -4791,7 +4822,7 @@ window.perlin = perlinInstance;
             const py = yawObject.position.y;
             const pz = yawObject.position.z;
             const r = PLAYER_RADIUS;
-            const h = PLAYER_HEIGHT; 
+            const h = currentPlayerHeight; 
 
             const minX = Math.floor(px - r);
             const maxX = Math.floor(px + r);
