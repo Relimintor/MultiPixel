@@ -54,7 +54,7 @@
       }
     }
 
-    if (sawHeight && !Number.isFinite(heightValue)) {
+    if (sawHeight && (!Number.isFinite(heightValue) || heightValue <= 0)) {
       return { ok: false, message: 'Usage: /spawn <mobId|mobName> [amount] [height:<blocks>]' };
     }
 
@@ -114,13 +114,13 @@
       return { handled: true, ok: false, message: `Mob id ${mobId} was not found.` };
     }
 
-    // `height:` is accepted by the command syntax now, but mob spawning still uses the existing runtime path.
-    const spawned = ctx.spawnMobById ? ctx.spawnMobById(mobId, parsedMobArgs.amount) : 0;
+    const spawned = ctx.spawnMobById ? ctx.spawnMobById(mobId, parsedMobArgs.amount, parsedMobArgs.height) : 0;
     if (!spawned) {
       return { handled: true, ok: false, message: `Could not spawn ${mobDef.name}.` };
     }
 
-    return { handled: true, ok: true, message: `Spawned ${spawned}x ${mobDef.name}.` };
+    const heightSuffix = Number.isFinite(parsedMobArgs.height) ? ` with height ${parsedMobArgs.height}` : '';
+    return { handled: true, ok: true, message: `Spawned ${spawned}x ${mobDef.name}${heightSuffix}.` };
   }
 
   window.SingleplayerChatCommandSpawn = { execute };
