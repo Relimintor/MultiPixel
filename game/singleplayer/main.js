@@ -387,6 +387,10 @@ window.perlin = perlinInstance;
             if (pitchObject) {
                 pitchObject.position.y = getPlayerEyeHeight();
             }
+            if (playerAvatar) {
+                const avatarScale = currentPlayerHeight / PLAYER_HEIGHT;
+                playerAvatar.scale.set(avatarScale, avatarScale, avatarScale);
+            }
         }
 
         function getPlayerHeight() {
