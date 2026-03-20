@@ -5889,7 +5889,9 @@ function buildPartFaceRects(x, y, w, h, d) {
             };
         }
 
-        function jungleTreeLayout(treeStyle, relY) {
+        function getMinecraftLikeTreeLayout(treeStyle, relY) {
+            const oakLayout = window.OakTreeGeneration?.getOakTreeLayout?.(treeStyle, relY);
+            if (oakLayout) return oakLayout;
             if (treeStyle === 'jungle_large') {
                 const profile = window.JungleLargeTree;
                 if (profile?.canopyRadius) return { radius: profile.canopyRadius(relY), trunkOffsets: profile.trunkOffsets || [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 }, { x: 1, z: 1 }] };
@@ -5914,7 +5916,7 @@ function buildPartFaceRects(x, y, w, h, d) {
             if (trunkTopY + 2 >= CHUNK_HEIGHT) return false;
 
             // Trunk clearance: validate every trunk column.
-            const trunkOffsets = treeStyle === 'jungle_mountain' ? [{ x: 0, z: 0 }] : jungleTreeLayout(treeStyle, 0).trunkOffsets;
+            const trunkOffsets = treeStyle === 'jungle_mountain' ? [{ x: 0, z: 0 }] : getMinecraftLikeTreeLayout(treeStyle, 0).trunkOffsets;
             for (let y = topY + 1; y <= trunkTopY; y++) {
                 for (const offset of trunkOffsets) {
                     const tx = x + offset.x;
@@ -5932,7 +5934,7 @@ function buildPartFaceRects(x, y, w, h, d) {
                 const rel = y - trunkTopY;
                 const radius = treeStyle === 'jungle_mountain'
                     ? (rel >= 1 ? 2 : (rel === 0 ? 3 : (rel === -1 ? 3 : 2)))
-                    : jungleTreeLayout(treeStyle, rel).radius;
+                    : getMinecraftLikeTreeLayout(treeStyle, rel).radius;
                 for (let ox = -radius; ox <= radius; ox++) {
                     for (let oz = -radius; oz <= radius; oz++) {
                         const tx = x + ox;
@@ -5955,7 +5957,7 @@ function buildPartFaceRects(x, y, w, h, d) {
             const isJungleTree = treeStyle === 'jungle_small' || treeStyle === 'jungle_large' || treeStyle === 'jungle_mountain';
             const trunkType = treeStyle === 'glass_mushroom' ? 80 : (isJungleTree ? 96 : 5);
             const leafType = treeStyle === 'glass_mushroom' ? 26 : (isJungleTree ? 97 : 6);
-            const trunkOffsets = treeStyle === 'jungle_mountain' ? [{ x: 0, z: 0 }] : jungleTreeLayout(treeStyle, 0).trunkOffsets;
+            const trunkOffsets = treeStyle === 'jungle_mountain' ? [{ x: 0, z: 0 }] : getMinecraftLikeTreeLayout(treeStyle, 0).trunkOffsets;
             for (let i = 1; i <= trunkHeight; i++) {
                 const ty = topY + i;
                 for (const offset of trunkOffsets) {
@@ -5972,7 +5974,7 @@ function buildPartFaceRects(x, y, w, h, d) {
                 const rel = y - trunkTopY;
                 const radius = treeStyle === 'jungle_mountain'
                     ? (rel >= 1 ? 2 : (rel === 0 ? 3 : (rel === -1 ? 3 : 2)))
-                    : jungleTreeLayout(treeStyle, rel).radius;
+                    : getMinecraftLikeTreeLayout(treeStyle, rel).radius;
                 for (let ox = -radius; ox <= radius; ox++) {
                     for (let oz = -radius; oz <= radius; oz++) {
                         if (Math.abs(ox) === radius && Math.abs(oz) === radius && hashRand2D(wx + ox * 31, wz + oz * 17 + y * 7, 611) < 0.35) continue;
@@ -5992,87 +5994,16 @@ function buildPartFaceRects(x, y, w, h, d) {
             }
         }
         
-        const oakTreeDecoration = {
-            tryGenerateTreeAtColumn({ data, x, z, wx, wz, biome, isRiver, riverInfluence, worldGenSettings, seaLevel, chunkSize, chunkHeight, octaveNoise2D, hashRand2D, fallbackTreeCandidates }) {
-                if (!isTreeBiome(biome) || isRiver) return false;
-
-                let topY = -1;
-                for (let yy = chunkHeight - 2; yy >= 1; yy--) {
-                    const tidx = x + yy * chunkSize + z * chunkSize * chunkHeight;
-                    const ttype = data[tidx];
-                    if (ttype !== 0 && ttype !== 4 && ttype !== 6 && ttype !== 97) {
-                        topY = yy;
-                        break;
-                    }
-                }
-
-                const minTreeY = Math.max(seaLevel - 2, 2);
-                const maxTreeY = Math.min(chunkHeight - 8, seaLevel + 68);
-                if (topY < minTreeY || topY > maxTreeY) return false;
-
-                const topIdx = x + topY * chunkSize + z * chunkSize * chunkHeight;
-                const topType = data[topIdx];
-                const validGround = (topType === 1 || topType === 2 || topType === 3 || topType === 7 || topType === 28);
-                if (!validGround) return false;
-
-                const treeNoise = octaveNoise2D(wx, wz, 2, 0.56, 2.0, 0.028, 700, -350) * 0.5 + 0.5;
-                const scatter = hashRand2D(wx, wz, 99);
-                const density = treeNoise * 0.6 + scatter * 0.4;
-                const chance = getTreeSpawnChanceForBiome(biome, topY);
-                const clusterBonus = Number(worldGenSettings.treeClusterBonus ?? 0.12);
-                const nearbyTree = hasNearbyTreeTrunk(data, x, z, 3);
-                const spacingGate = Number(worldGenSettings.treeMinSpacingChance ?? 0.65);
-                const spawnRoll = hashRand2D(wx, wz, 431);
-                const shouldTrySpawn = (spawnRoll < (chance + density * clusterBonus)) && (!nearbyTree || spawnRoll < spacingGate * 0.75);
-                if (!shouldTrySpawn) {
-                    fallbackTreeCandidates.push({ x, z, topY, wx, wz, biome });
-                    return false;
-                }
-
-                const isJungleForest = biome === 'Jungle Forest';
-                const jungleProfile = isJungleForest
-                    ? chooseJungleTreeProfile({ topY, wx, wz, seaLevel, hashRand2D })
-                    : null;
-                const trunkHeight = isJungleForest
-                    ? jungleProfile.trunkHeight
-                    : (4 + Math.floor(hashRand2D(wx, wz, 157) * 2));
-                const treeStyle = biome === 'Mushroom Fields'
-                    ? 'glass_mushroom'
-                    : (isJungleForest ? jungleProfile.style : 'oak');
-                if (!canPlaceMinecraftLikeTree(data, x, z, topY, trunkHeight, treeStyle)) {
-                    fallbackTreeCandidates.push({ x, z, topY, wx, wz, biome });
-                    return false;
-                }
-
-                if (data[topIdx] === 2) data[topIdx] = 1;
-                placeMinecraftLikeTree(data, x, z, topY, trunkHeight, wx, wz, treeStyle);
-                return true;
-            },
-            placeFallbackTree({ data, cx, cz, fallbackTreeCandidates, hashRand2D, chunkSize }) {
-                if (!fallbackTreeCandidates.length) return false;
-                const pick = Math.floor(hashRand2D(cx, cz, 6083) * fallbackTreeCandidates.length);
-                const candidate = fallbackTreeCandidates[Math.max(0, Math.min(fallbackTreeCandidates.length - 1, pick))];
-                if (!candidate) return false;
-
-                const { x, z, topY, wx, wz, biome } = candidate;
-                const isJungleForest = biome === 'Jungle Forest';
-                const jungleProfile = isJungleForest
-                    ? chooseJungleTreeProfile({ topY, wx, wz, seaLevel: SEA_LEVEL, hashRand2D })
-                    : null;
-                const trunkHeight = isJungleForest
-                    ? jungleProfile.trunkHeight
-                    : (4 + Math.floor(hashRand2D(wx, wz, 157) * 2));
-                const treeStyle = biome === 'Mushroom Fields'
-                    ? 'glass_mushroom'
-                    : (isJungleForest ? jungleProfile.style : 'oak');
-                if (!canPlaceMinecraftLikeTree(data, x, z, topY, trunkHeight, treeStyle)) return false;
-
-                const topIdx = x + topY * chunkSize + z * chunkSize * CHUNK_HEIGHT;
-                if (data[topIdx] === 2) data[topIdx] = 1;
-                placeMinecraftLikeTree(data, x, z, topY, trunkHeight, wx, wz, treeStyle);
-                return true;
-            }
-        };
+        const oakTreeDecoration = window.OakTreeGeneration?.createOakTreeDecoration?.({
+            isTreeBiome,
+            getTreeSpawnChanceForBiome,
+            hasNearbyTreeTrunk,
+            chooseJungleTreeProfile,
+            canPlaceMinecraftLikeTree,
+            placeMinecraftLikeTree,
+            seaLevel: SEA_LEVEL,
+            chunkHeight: CHUNK_HEIGHT,
+        });
 
         function generateChunkData(cx, cz) {
              const data = new Array(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
