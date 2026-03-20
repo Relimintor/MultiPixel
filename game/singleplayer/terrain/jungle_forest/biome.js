@@ -1,11 +1,5 @@
 (function () {
   const JungleForestTerrain = {
-    biomeInfo: {
-      treeSpawnRate: 0.24,
-      structureSpawnRates: { village: 0.14 },
-      oreSpawnRates: { coal: 1, copper: 1.1, iron: 1, gold: 0.9, diamond: 1, emerald: 0.9 },
-      maxHeight: 104,
-    },
     isBiome({ tempNoise, humidityNoise, mountainNoise }) {
       return tempNoise > 0.45 && humidityNoise > 0.35 && mountainNoise < 0.78;
     },
