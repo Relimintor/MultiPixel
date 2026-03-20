@@ -4772,6 +4772,148 @@ window.perlin = perlinInstance;
             return false;
         }
 
+        const BIOME_CLIMATE_TARGETS = [
+            { name: 'Desert', temp: 0.09, humidity: -0.12, continentalness: 0.18, erosion: 0.08, weirdness: 0.06 },
+            { name: 'Forest', temp: 0.0, humidity: 0.16, continentalness: 0.14, erosion: 0.06, weirdness: -0.04 },
+            { name: 'Jungle Forest', temp: 0.95, humidity: 0.9, continentalness: 0.2, erosion: 0.03, weirdness: 0.0 },
+            { name: 'Plains', temp: -0.02, humidity: 0.02, continentalness: 0.1, erosion: 0.2, weirdness: 0.02 },
+            { name: 'Snowy Plains', temp: -0.52, humidity: 0.04, continentalness: 0.12, erosion: 0.18, weirdness: -0.02 },
+        ];
+
+        function sampleClimateVector(wx, wz, y = SEA_LEVEL) {
+            const rawTemp = octaveNoise3D(wx, y, wz, 3, 0.52, 2.0, 0.00048, -600, 170, 300);
+            const rawHumidity = octaveNoise3D(wx, y, wz, 3, 0.55, 2.0, 0.00072, 320, -240, -130);
+            return {
+                // Boost climate spread so hot/cold and wet/dry zones actually form large regions.
+                temp: Math.max(-1, Math.min(1, rawTemp * 2.1)),
+                humidity: Math.max(-1, Math.min(1, rawHumidity * 2.0)),
+                continentalness: octaveNoise3D(wx, y, wz, 3, 0.52, 2.0, 0.00145, 200, 90, 200),
+                erosion: octaveNoise3D(wx, y, wz, 4, 0.5, 2.05, 0.0039, 180, -120, -90),
+                weirdness: octaveNoise3D(wx, y, wz, 4, 0.5, 2.0, 0.0021, -510, 380, 140),
+            };
+        }
+
+        function chooseBiomeByClimate(vec) {
+            let best = 'Plains';
+            let bestDist = Infinity;
+            for (const t of BIOME_CLIMATE_TARGETS) {
+                const dTemp = vec.temp - t.temp;
+                const dHum = vec.humidity - t.humidity;
+                const dCont = vec.continentalness - t.continentalness;
+                const dEro = vec.erosion - t.erosion;
+                const dWeird = vec.weirdness - t.weirdness;
+                const dist = dTemp*dTemp + dHum*dHum + dCont*dCont + dEro*dEro + dWeird*dWeird;
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    best = t.name;
+                }
+            }
+            return best;
+        }
+
+
+        function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+        function smoothstep(edge0, edge1, x) {
+            if (edge0 === edge1) return x < edge0 ? 0 : 1;
+            const t = clamp01((x - edge0) / (edge1 - edge0));
+            return t * t * (3 - 2 * t);
+        }
+        function lerp(a, b, t) { return a + (b - a) * t; }
+        function biomeWeights(wx, wz) {
+            const tv = sampleTerrainVector(wx, wz);
+            const climate = sampleClimateVector(wx, wz, SEA_LEVEL + 8);
+            const mountainNoise = (Math.abs(octaveNoise2D(wx, wz, 3, 0.56, 2.0, 0.0013, -400, 750)) + 1) * 0.5;
+            const continentalNoise = (tv.continentalness + 1) * 0.5;
+
+            const oceanW = smoothstep(0.36, 0.02, continentalNoise);
+            const mountainW = smoothstep(0.50, 0.80, mountainNoise) * smoothstep(0.34, 0.90, continentalNoise);
+            const desertW = smoothstep(0.02, 0.48, climate.temp) * smoothstep(0.24, -0.30, climate.humidity) * smoothstep(0.30, 0.90, continentalNoise);
+            const snowyW = smoothstep(-0.20, -0.64, climate.temp) * smoothstep(-0.18, 0.50, climate.humidity) * smoothstep(0.22, 0.86, continentalNoise) * (1 - mountainW * 0.70);
+            const jungleHumidityW = smoothstep(0.30, 1.0, climate.humidity);
+            const jungleTempW = smoothstep(0.55, 0.98, climate.temp);
+            const jungleW = jungleHumidityW * jungleTempW * smoothstep(0.22, 0.92, continentalNoise) * (1 - mountainW * 0.55);
+            const forestW = smoothstep(-0.12, 0.44, climate.humidity) * smoothstep(-0.28, 0.40, climate.temp) * (1 - desertW * 0.72) * (1 - jungleW * 0.7);
+            const plainsW = (0.16 + smoothstep(0.14, 0.66, continentalNoise) * 0.14) * (1 - jungleW * 0.5);
+
+            const adaptiveDesertFloor = climate.temp > 0.26 && climate.humidity < 0.12 ? 0.018 : 0;
+            const adaptiveSnowyFloor = climate.temp < -0.30 ? 0.018 : 0;
+            const adaptiveJungleFloor = climate.temp > 0.52 && climate.humidity > 0.40 ? 0.018 : 0;
+            const desertBlendW = Math.max(desertW, adaptiveDesertFloor);
+            const snowyBlendW = Math.max(snowyW, adaptiveSnowyFloor);
+            const jungleBlendW = Math.max(jungleW, adaptiveJungleFloor);
+
+            const total = oceanW + mountainW + desertBlendW + snowyBlendW + forestW + plainsW + jungleBlendW;
+            if (total <= 0) {
+                return {
+                    tv,
+                    climate,
+                    weights: { Ocean: 0, Mountains: 0, Desert: 0, Forest: 0, 'Jungle Forest': 0, Plains: 1, 'Snowy Plains': 0 }
+                };
+            }
+
+            return {
+                tv,
+                climate,
+                weights: {
+                    Ocean: oceanW / total,
+                    Mountains: mountainW / total,
+                    Desert: desertBlendW / total,
+                    Forest: forestW / total,
+                    'Jungle Forest': jungleBlendW / total,
+                    Plains: plainsW / total,
+                    'Snowy Plains': snowyBlendW / total,
+                }
+            };
+        }
+
+        function isOceanBiomeName(biomeName) {
+            return biomeName === 'Ocean'
+                || biomeName === 'Coast Ocean'
+                || biomeName === 'Warm Ocean'
+                || biomeName === 'Lukewarm Ocean'
+                || biomeName === 'Cold Ocean'
+                || biomeName === 'Frozen Ocean';
+        }
+
+        function getBiome(wx, wz) {
+            if (worldGenerator) return worldGenerator.sampleBiome(wx, wz);
+
+            const { climate, weights } = biomeWeights(wx, wz);
+            if ((weights['Ocean'] || 0) > 0.68) {
+                const coastalBand = (weights['Ocean'] || 0) < 0.84;
+                if (coastalBand) return 'Coast Ocean';
+
+                const temp = Number(climate.temp) || 0;
+                if (temp >= 0.62) return 'Warm Ocean';
+                if (temp >= 0.28) return 'Lukewarm Ocean';
+                if (temp <= -0.60) return 'Frozen Ocean';
+                if (temp <= -0.24) return 'Cold Ocean';
+                return 'Ocean';
+            }
+            if ((weights['Mountains'] || 0) > 0.72) return 'Mountains';
+
+            // Let every land biome compete directly from climate + weighted noise.
+            // This removes spawn-band gating so hot/cold/wet/dry borders can touch naturally.
+            let bestBiome = 'Plains';
+            let bestScore = -Infinity;
+
+            for (const target of BIOME_CLIMATE_TARGETS) {
+                const dTemp = climate.temp - target.temp;
+                const dHum = climate.humidity - target.humidity;
+                const dCont = climate.continentalness - target.continentalness;
+                const dEro = climate.erosion - target.erosion;
+                const dWeird = climate.weirdness - target.weirdness;
+                const climateDist = dTemp * dTemp + dHum * dHum + dCont * dCont + dEro * dEro + dWeird * dWeird;
+                const score = -climateDist + (Number(weights[target.name] || 0) * 0.65);
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestBiome = target.name;
+                }
+            }
+
+            return bestBiome;
+        }
+
         function getRavineMask(wx, wz) {
             if (worldGenerator) return worldGenerator.sampleRavineMask(wx, wz);
             const warp = perlin.noise2D(wx * 0.001 + 250, wz * 0.001 + 250) * 30;
@@ -4827,25 +4969,90 @@ window.perlin = perlinInstance;
             return n1 * 0.7 + n2 * 0.3;
         }
 
-        const BiomeMap = window.SingleplayerBiomeMap;
-        const getBiomeInfo = (biomeName) => BiomeMap.getBiomeInfo(biomeName, TerrainModules);
-        const isOceanBiomeName = (biomeName) => BiomeMap.isOceanBiomeName(biomeName);
-        const getBiome = (wx, wz) => BiomeMap.getBiome({ wx, wz, worldGenerator, SEA_LEVEL, octaveNoise2D, octaveNoise3D });
-        const getNoiseGroundHeight = (wx, wz, biome, worldSample = null) => BiomeMap.getNoiseGroundHeight({
-            wx,
-            wz,
-            biome,
-            worldSample,
-            worldGenerator,
-            TerrainModules,
-            BASE_LAND_Y,
-            SEA_LEVEL,
-            perlin,
-            octaveNoise2D,
-            octaveNoise3D,
-            getRiverMask,
-            getRavineMask,
-        });
+        function sampleTerrainVector(wx, wz) {
+            // Multi-noise vector: continentalness/erosion/weirdness/humidity.
+            const continentalness = octaveNoise2D(wx, wz, 3, 0.52, 2.0, 0.00145, 200, 200);
+            const erosion = octaveNoise2D(wx, wz, 4, 0.5, 2.05, 0.0039, 180, -90);
+            const weirdness = octaveNoise2D(wx, wz, 4, 0.5, 2.0, 0.0021, -510, 140);
+            const humidity = octaveNoise2D(wx, wz, 3, 0.55, 2.0, 0.0011, 320, -130);
+            const peaksValleys = 1 - Math.abs(weirdness);
+            const ridges = Math.pow(Math.max(0, peaksValleys), 1.8);
+            return { continentalness, erosion, weirdness, humidity, peaksValleys, ridges };
+        }
+
+        function getNoiseGroundHeight(wx, wz, biome, worldSample = null) {
+            if (worldGenerator) return worldGenerator.getHeight(wx, wz, biome, worldSample);
+            const tv = sampleTerrainVector(wx, wz);
+            const biomeData = biomeWeights(wx, wz);
+            const weights = biomeData.weights || {};
+            const continentalMask = (tv.continentalness + 1) * 0.5;
+            const terrainNoise = (perlin.noise2D(wx * 0.02, wz * 0.02) + 1) * 0.5;
+            const detailNoise = (perlin.noise2D(wx * 0.045, wz * 0.045) + 1) * 0.5;
+            const erosionNoise = (tv.erosion + 1) * 0.5;
+            const peakNoise = Math.abs(perlin.noise2D(wx * 0.007 - 250, wz * 0.007 + 400));
+            const jaggedNoise = Math.abs(octaveNoise2D(wx, wz, 5, 0.46, 2.25, 0.013, -1200, 950));
+            const cliffNoise = Math.abs(perlin.noise2D(wx * 0.012 - 910, wz * 0.012 + 260));
+            const deepNoise = (perlin.noise2D(wx * 0.01 - 200, wz * 0.01 + 430) + 1) * 0.5;
+            const bigDuneNoise = (perlin.noise2D(wx * 0.016 + 15, wz * 0.016 - 15) + 1) * 0.5;
+            const duneDetailNoise = (perlin.noise2D(wx * 0.038 + 120, wz * 0.038 - 70) + 1) * 0.5;
+            const rockMaskNoise = (perlin.noise2D(wx * 0.009 - 510, wz * 0.009 + 230) + 1) * 0.5;
+
+            const biomeHeights = {
+                Ocean: TerrainModules['ocean'].getHeight({ SEA_LEVEL, deepNoise, terrainNoise }),
+                Mountains: TerrainModules['mountains'].getHeight({
+                    BASE_LAND_Y,
+                    continentalness: tv.continentalness,
+                    erosion: tv.erosion,
+                    ridges: tv.ridges,
+                    peaksValleys: tv.peaksValleys,
+                    terrainNoise,
+                    cliffNoise,
+                    peakNoise,
+                    jaggedNoise,
+                }),
+                Desert: TerrainModules['desert'].getHeight({ BASE_LAND_Y, continentalMask, bigDuneNoise, duneDetailNoise, rockMaskNoise }),
+                'Snowy Plains': TerrainModules['snowyPlains'].getHeight({ BASE_LAND_Y, continentalMask, terrainNoise, erosionNoise }),
+                Forest: TerrainModules['oakForest'].getHeight({ BASE_LAND_Y, continentalMask, terrainNoise, erosionNoise }),
+                'Jungle Forest': TerrainModules['jungleForest'].getHeight({ BASE_LAND_Y, continentalMask, terrainNoise, erosionNoise }),
+                Plains: TerrainModules['plains'].getHeight({ BASE_LAND_Y, continentalMask, terrainNoise, erosionNoise }),
+            };
+
+            let blendedHeight = 0;
+            let blendedWeight = 0;
+            for (const [name, weight] of Object.entries(weights)) {
+                const w = Number(weight) || 0;
+                if (w <= 0) continue;
+                const hBiome = biomeHeights[name];
+                if (!Number.isFinite(hBiome)) continue;
+                blendedHeight += hBiome * w;
+                blendedWeight += w;
+            }
+            if (blendedWeight <= 0) {
+                blendedHeight = biomeHeights.Plains;
+                blendedWeight = 1;
+            } else {
+                blendedHeight /= blendedWeight;
+            }
+
+            const selectedBiomeHeight = biomeHeights[biome] ?? blendedHeight;
+            const selectedBiomeWeight = clamp01(Number(weights[biome] || 0));
+            const dominantBlend = 0.35 + selectedBiomeWeight * 0.45;
+            let h = lerp(blendedHeight, selectedBiomeHeight, dominantBlend);
+
+            const mountainWeight = Number(weights['Mountains'] || 0);
+            h += detailNoise * (0.36 + mountainWeight * 0.64);
+
+            const riverInfluence = getRiverMask(wx, wz);
+            h = TerrainModules['river'].applyHeight({ height: h, riverInfluence, SEA_LEVEL });
+
+            const ravine = getRavineMask(wx, wz);
+            const oceanWeight = Number(weights['Ocean'] || 0);
+            if (ravine > 0.84 && oceanWeight < 0.72) h -= (ravine - 0.84) * 55;
+
+            if (mountainWeight > 0.52 && h < SEA_LEVEL + 8) h = SEA_LEVEL + 8;
+            if (h < SEA_LEVEL - 6 && oceanWeight < 0.52) h = SEA_LEVEL - 6;
+            return Math.floor(h);
+        }
 
 
         function getBlockType(wx, wy, wz) {
@@ -5625,12 +5832,10 @@ function buildPartFaceRects(x, y, w, h, d) {
 
 
         function getTreeSpawnChanceForBiome(biomeName, topY) {
-            const biomeInfo = getBiomeInfo(biomeName) || {};
-            const configuredRate = Number(biomeInfo.treeSpawnRate);
             const map = worldGenSettings.treeDensityByBiome || {};
             const rawName = String(biomeName || 'Plains');
             const normalized = rawName.toLowerCase();
-            let baseChance = Number.isFinite(configuredRate) ? configuredRate : Number(map[rawName]);
+            let baseChance = Number(map[rawName]);
             if (!Number.isFinite(baseChance)) {
                 if (normalized.includes('forest') || normalized.includes('jungle') || normalized.includes('taiga')) {
                     baseChance = Number(map.Forest ?? 0.19);
@@ -5649,10 +5854,6 @@ function buildPartFaceRects(x, y, w, h, d) {
         }
 
         function isTreeBiome(biomeName) {
-            const biomeInfo = getBiomeInfo(biomeName);
-            if (biomeInfo && Number.isFinite(Number(biomeInfo.treeSpawnRate))) {
-                return Number(biomeInfo.treeSpawnRate) > 0;
-            }
             const normalized = String(biomeName || '').toLowerCase();
             if (!normalized) return false;
             if (normalized.includes('ocean') || normalized.includes('desert') || normalized.includes('snowy') || normalized.includes('mountain')) return false;
@@ -5804,41 +6005,284 @@ function buildPartFaceRects(x, y, w, h, d) {
             chunkHeight: CHUNK_HEIGHT,
         });
 
-        const generateChunkData = window.SingleplayerChunkGeneration.createChunkGenerator({
-            CHUNK_SIZE,
-            CHUNK_HEIGHT,
-            SEA_LEVEL,
-            CAVE_SCALE,
-            CAVE_MIN_Y,
-            CAVE_MAX_Y_OFFSET,
-            CAVE_SURFACE_SAFETY_DEPTH,
-            CAVE_THRESHOLD,
-            RAVINE_ACTIVATION_THRESHOLD,
-            worldGenerator,
-            worldGenSettings,
-            perlin,
-            octaveNoise2D,
-            hashRand2D,
-            sampleCaveShape,
-            getBiome,
-            getNoiseGroundHeight,
-            getRiverMask,
-            getRavineMask,
-            isOceanBiomeName,
-            getBiomeInfo,
-            oakTreeDecoration,
-            placeAmethystGeodesInChunk,
-            buildChunkHeightmap,
-            placeIglooInChunk,
-            placeVillageInChunk,
-            placeDesertWellInChunk,
-            placeWolfPackInChunk,
-            placePandaPackInChunk,
-            placeBambooInChunk,
-            placePumpkinPatchInChunk,
-            placeMelonsInChunk,
-        });
+        function generateChunkData(cx, cz) {
+             const data = new Array(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
+             const spawnedGnomes = [];
+             const fallbackTreeCandidates = [];
+             let treesPlacedInChunk = 0;
+             
+             for (let x = 0; x < CHUNK_SIZE; x++) {
+                 for (let z = 0; z < CHUNK_SIZE; z++) {
+                     const wx = cx * CHUNK_SIZE + x;
+                     const wz = cz * CHUNK_SIZE + z;
+                     
+                     // Phase 1: biome map template + macro height outline
+                     const worldSample = worldGenerator ? worldGenerator.sample(wx, wz) : null;
+                     const biome = worldSample ? (worldSample.gameplayBiome || worldSample.biome) : getBiome(wx, wz);
+                     const h = getNoiseGroundHeight(wx, wz, biome, worldSample);
 
+                     const riverInfluence = worldSample ? worldSample.riverMask : getRiverMask(wx, wz);
+                     const isFrozenRiver = !!worldSample && (worldSample.biome === 'Frozen River' || worldSample.tempBand === (window.WorldgenLayers?.Constants?.FREEZING ?? 13));
+                     const RIVER_WIDTH_THRESHOLD = 0.1;
+                     const isRiver = !worldSample?.noRiver && riverInfluence > RIVER_WIDTH_THRESHOLD;
+                     const isOcean = isOceanBiomeName(biome);
+                     const hasAquaticFloor = isRiver || isOcean;
+                     const gravelPatchNoise = octaveNoise2D(wx, wz, 3, 0.5, 2.0, 0.08, 1642, 977);
+                     const hasGravelPatch = hasAquaticFloor && gravelPatchNoise > 0.58;
+                     const isWarmOcean = biome === 'Warm Ocean';
+                     const isColdOcean = biome === 'Cold Ocean';
+                     const isCoastOcean = biome === 'Coast Ocean';
+                     const ravineMask = getRavineMask(wx, wz);
+                     const ravineTopCap = Math.max(3, h - RAVINE_SURFACE_SAFETY_DEPTH);
+                     const canCarveRavine = ravineMask > RAVINE_ACTIVATION_THRESHOLD && ravineTopCap > 3;
+                     const ravineStrength = canCarveRavine
+                        ? ((ravineMask - RAVINE_ACTIVATION_THRESHOLD) / (1 - RAVINE_ACTIVATION_THRESHOLD))
+                        : 0;
+                     const ravineTop = canCarveRavine ? Math.min(ravineTopCap, CHUNK_HEIGHT - 1) : 0;
+                     const ravineMaxDepth = canCarveRavine ? (12 + Math.floor(ravineStrength * 8)) : 0;
+                     const ravineBottom = canCarveRavine ? Math.max(3, ravineTop - ravineMaxDepth) : 0;
+                     for (let y = 0; y < CHUNK_HEIGHT; y++) {
+                         let t = 0; // Block type
+
+                         if (y === 0) {
+                             t = 14; // Bedrock floor
+                             data[x + y*CHUNK_SIZE + z*CHUNK_SIZE*CHUNK_HEIGHT] = t;
+                             continue;
+                         }
+
+                         if (y < h) {
+                            const distFromSurface = h - 1 - y;
+
+                            if (worldGenerator?.terrain?.surfaceBlockForBiome) {
+                                t = worldGenerator.terrain.surfaceBlockForBiome(biome, y, h, SEA_LEVEL);
+                            } else if (biome === 'Desert') {
+                                t = distFromSurface < 5 ? 7 : 13;
+                            } else if (biome === 'Snowy Plains') {
+                                t = distFromSurface === 0 ? 15 : 59;
+                            } else if (biome === 'Mountains') {
+                                t = distFromSurface === 0 && h > SEA_LEVEL + 20 ? 15 : 3;
+                            } else {
+                                const isBeachZone = h >= SEA_LEVEL - 1 && h <= SEA_LEVEL + 2;
+                                if (distFromSurface === 0) t = isBeachZone ? 7 : 1;
+                                else if (distFromSurface < 4) t = isBeachZone ? 7 : 2;
+                                else t = 3;
+                            }
+
+                            if (biome === 'Mountains' && t !== 0) {
+                                // Keep mountain silhouettes rugged, but avoid swiss-cheese cliff faces.
+                                const ridgeRough = Math.abs(perlin.noise3D(wx * 0.017 + 310, y * 0.024, wz * 0.017 - 145));
+                                const microBreak = Math.abs(perlin.noise3D(wx * 0.035 - 980, y * 0.045, wz * 0.035 + 410));
+                                const carvingBand = distFromSurface >= 3 && distFromSurface <= 9;
+                                const shouldCarve = carvingBand && ridgeRough > 0.92 && microBreak > 0.9;
+                                if (shouldCarve) t = 0;
+                            }
+                             
+                            // --- OCEAN/RIVER BED OVERRIDE ---
+                            if (hasAquaticFloor && y < SEA_LEVEL - 1) {
+                                // Ocean floor material profile by biome:
+                                // - Coast Ocean: sand
+                                // - Cold Ocean: gravel
+                                // - Warm Ocean: sand with gravel patches
+                                // Rivers/default oceans keep a sandy cap over stone.
+                                if (isColdOcean) {
+                                    t = 28;
+                                } else if (isCoastOcean) {
+                                    t = 7;
+                                } else if (isWarmOcean) {
+                                    if (distFromSurface <= 1) t = hasGravelPatch ? 28 : 7;
+                                    else if (distFromSurface < 3) t = hasGravelPatch ? 28 : 7;
+                                    else t = 3;
+                                } else if (distFromSurface === 0) {
+                                    t = hasGravelPatch ? 28 : 7;
+                                } else if (distFromSurface < 3) {
+                                    t = hasGravelPatch && distFromSurface < 2 ? 28 : 7;
+                                } else {
+                                    t = 3;
+                                }
+                            }
+                            
+                         } else if (y < SEA_LEVEL) {
+                             t = 0; // Start as air above the land height
+                             
+                             // --- WATER FILLING ---
+                             if (isRiver) {
+                                 t = isFrozenRiver ? 59 : 4; // River water / ice
+                             } 
+                             // If it's the ocean biome, fill the area above ground and below sea level with water
+                             else if (isOcean) {
+                                 t = 4;
+                             }
+                             // Otherwise (on dry land, above h, below sea level, not river) it remains air (t=0)
+                         }
+                         
+                        // --- Cave Generation Pass (layered Perlin for bigger cave systems) ---
+                        if (y > CAVE_MIN_Y && y < h - CAVE_MAX_Y_OFFSET && (h - y) >= (CAVE_SURFACE_SAFETY_DEPTH + 2)) {
+                            if (t === 3 || t === 2 || t === 7 || t === 13 || t === 28 || t === 59) {
+                                const caveShape = sampleCaveShape(wx, y, wz);
+
+                                const depth = Math.max(0, (h - y) / Math.max(1, h));
+                                const nearSurfaceGuard = depth < 0.2 ? 0.1 : (depth < 0.35 ? 0.05 : 0);
+                                const dynamicThreshold = CAVE_THRESHOLD + nearSurfaceGuard - Math.min(0.1, depth * 0.14);
+                                const tunnelNoise = Math.abs(perlin.noise3D(wx * CAVE_SCALE * 0.7, y * CAVE_SCALE * 0.45, wz * CAVE_SCALE * 0.7));
+
+                                if (caveShape > dynamicThreshold || (depth > 0.55 && tunnelNoise < 0.05)) {
+                                    t = 0;
+                                }
+                            }
+                        }
+                         
+                         
+// 🔹 Optimized Ravine Generation
+if (canCarveRavine) {
+    const strength = ravineStrength;
+    if (y <= ravineTop && y >= ravineBottom) {
+        const mid = (ravineTop + ravineBottom) / 2;
+        const halfHeight = (ravineTop - ravineBottom) / 2;
+        const verticalFactor = 1 - Math.abs(y - mid) / halfHeight;
+
+        // Reduce noise impact
+        const widthNoise = octaveNoise2D(wx, wz, 2, 0.5, 2.0, 0.04, 812, -245);
+        const widthFactor = strength * verticalFactor + widthNoise * 0.06;
+
+        if (widthFactor > 0.42) {
+            // 🔥 Lava very deep underground (only really deep)
+            if (y < 6) {
+                t = 33;
+            }
+            // 🌊 Water below sea level
+            else if (y < SEA_LEVEL - 1) {
+                t = 4;
+            }
+            // 🌫 Air above sea level
+            else {
+                t = 0;
+            }
+        }
+    }
+}
+                             
+                             
+                             
+    // Coal ore pass: mineable by hand, faster with pickaxe.
+if ((t === 3 || t === 13) && y > 6 && y < Math.min(CHUNK_HEIGHT - 6, h - 2)) {
+    const veinNoise = octaveNoise2D(wx, wz, 3, 0.5, 2.0, 0.09, 1450, -870);
+    const depthBias = 1 - (y / CHUNK_HEIGHT);
+    const oreRoll = hashRand2D(wx + y * 13, wz - y * 7, 301);
+    if (veinNoise > 0.12 && oreRoll < (0.06 + depthBias * 0.08)) {
+        t = 18;
+    }
+}
+
+// Copper ore pass
+if ((t === 3 || t === 13) && y > 6 && y < Math.min(CHUNK_HEIGHT - 6, h - 2)) {
+    const veinNoise = octaveNoise2D(wx, wz, 3, 0.5, 2.0, 0.07, 5555, -666);
+    const depthBias = 1 - (y / CHUNK_HEIGHT);
+    const oreRoll = hashRand2D(wx + y * 13, wz - y * 7, 302);
+
+    if (veinNoise > 0.20 && oreRoll < (0.06 + depthBias * 0.08)) {
+        t = 35; // copper ore
+    }
+}
+
+// Iron ore pass
+if ((t === 3 || t === 13) && y > 4 && y < CHUNK_HEIGHT * 0.6) {
+    const veinNoise = octaveNoise2D(wx, wz, 3, 0.5, 2.0, 0.07, 2222, -333);
+    const depthBias = 1 - (y / CHUNK_HEIGHT);
+    const oreRoll = hashRand2D(wx + y * 17, wz - y * 11, 777);
+
+    if (veinNoise > 0.18 && oreRoll < (0.04 + depthBias * 0.06)) {
+        t = 30; // iron ore
+    }
+}
+
+// Gold ore pass
+if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.4) {
+    const veinNoise = octaveNoise2D(wx, wz, 3, 0.5, 2.0, 0.08, 9999, -1234);
+    const depthBias = 1 - (y / CHUNK_HEIGHT);
+    const oreRoll = hashRand2D(wx + y * 19, wz - y * 13, 303);
+
+    if (veinNoise > 0.25 && oreRoll < (0.03 + depthBias * 0.05)) {
+        t = 40; // gold ore
+    }
+}
+
+// Diamond ore pass
+if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
+    const veinNoise = octaveNoise2D(wx, wz, 3, 0.5, 2.0, 0.08, 11111, -8930);
+    const depthBias = 1 - (y / CHUNK_HEIGHT);
+    const oreRoll = hashRand2D(wx + y * 21, wz - y * 15, 303);
+
+    if (veinNoise > 0.30 && oreRoll < (0.02 + depthBias * 0.03)) {
+        t = 43; // diamond ore
+    }
+}
+
+// Emerald ore pass
+if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
+    const veinNoise = octaveNoise2D(wx, wz, 3, 0.5, 2.0, 0.08, 23498, -19840);
+    const depthBias = 1 - (y / CHUNK_HEIGHT);
+    const oreRoll = hashRand2D(wx + y * 26, wz - y * 17, 303);
+
+    if (veinNoise > 0.34 && oreRoll < (0.025 + depthBias * 0.02)) {
+        t = 54; // emerald ore
+    }
+}
+
+
+
+                         data[x + y*CHUNK_SIZE + z*CHUNK_SIZE*CHUNK_HEIGHT] = t;
+                     }
+                  
+                     // --- Tree Generation (Minecraft-like oaks on natural low/mid elevations) ---
+                     if (oakTreeDecoration?.tryGenerateTreeAtColumn?.({
+                         data,
+                         x,
+                         z,
+                         wx,
+                         wz,
+                         biome,
+                         isRiver,
+                         riverInfluence,
+                         worldGenSettings,
+                         seaLevel: SEA_LEVEL,
+                         chunkSize: CHUNK_SIZE,
+                         chunkHeight: CHUNK_HEIGHT,
+                         octaveNoise2D,
+                         hashRand2D,
+                         fallbackTreeCandidates
+                     })) {
+                         treesPlacedInChunk++;
+                     }
+                 }
+             }
+             if (treesPlacedInChunk === 0) {
+                 oakTreeDecoration?.placeFallbackTree?.({
+                     data,
+                     cx,
+                     cz,
+                     fallbackTreeCandidates,
+                     hashRand2D,
+                     chunkSize: CHUNK_SIZE,
+                     chunkHeight: CHUNK_HEIGHT
+                 });
+             }
+
+             placeAmethystGeodesInChunk(data, cx, cz);
+             const heightmap = buildChunkHeightmap(data);
+             const spawnedPigs = [];
+             const spawnedWolves = [];
+             const spawnedPandas = [];
+             const spawnedVillagers = [];
+             placeIglooInChunk(data, cx, cz, spawnedGnomes);
+             const placedVillage = placeVillageInChunk(data, cx, cz, spawnedVillagers);
+             if (!placedVillage) placeDesertWellInChunk(data, cx, cz, spawnedPigs);
+             placeWolfPackInChunk(data, heightmap, cx, cz, spawnedWolves);
+             placePandaPackInChunk(data, heightmap, cx, cz, spawnedPandas);
+             placeBambooInChunk(data, cx, cz);
+             placePumpkinPatchInChunk(data, cx, cz);
+             placeMelonsInChunk(data, cx, cz);
+             return { data, heightmap, spawnedGnomes, spawnedPigs, spawnedWolves, spawnedPandas, spawnedVillagers };
+        }
 
         function placeIglooInChunk(data, cx, cz, spawnedGnomes) {
             const snowyTerrain = window.SnowyPlainsTerrain || {};
