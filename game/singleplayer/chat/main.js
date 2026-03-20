@@ -1,6 +1,6 @@
 (function () {
     const CENSOR_WORDS_PATH = './chat/cencor/words.txt';
-    const CENCOR_WORDS_PATH = '.chat/cencor/fuck.txt';
+    const CENCOR_WORDS_PATH = './chat/cencor/fuck.txt';
     const FEED_COLLAPSE_MS = 4200;
 
     let root = null;
