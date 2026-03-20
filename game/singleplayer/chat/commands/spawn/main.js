@@ -26,6 +26,45 @@
     return null;
   }
 
+  function parseMobSpawnArgs(parts) {
+    let amountToken = null;
+    let heightValue = null;
+    let sawHeight = false;
+
+    for (let i = 2; i < (parts || []).length; i++) {
+      const token = String(parts[i] || '').trim();
+      if (!token) continue;
+
+      if (/^height\s*:/i.test(token)) {
+        sawHeight = true;
+        const inlineValue = token.replace(/^height\s*:/i, '').trim();
+        if (inlineValue) {
+          heightValue = Number.parseFloat(inlineValue);
+          continue;
+        }
+
+        const nextToken = String(parts[i + 1] || '').trim();
+        heightValue = Number.parseFloat(nextToken);
+        i++;
+        continue;
+      }
+
+      if (amountToken === null && /^\d+$/.test(token)) {
+        amountToken = token;
+      }
+    }
+
+    if (sawHeight && !Number.isFinite(heightValue)) {
+      return { ok: false, message: 'Usage: /spawn <mobId|mobName> [amount] [height:<blocks>]' };
+    }
+
+    return {
+      ok: true,
+      amount: normalizeAmount(amountToken),
+      height: sawHeight ? heightValue : null,
+    };
+  }
+
   function parseStructureArgs(parts) {
     const raw = String((parts || []).slice(1).join(' ') || '');
     const structureMatch = raw.match(/structure\s*:\s*([^\s][^]*?)(?=\s+biome\s*:|\s+building\s*:|$)/i);
@@ -60,10 +99,14 @@
     }
 
     const mobId = resolveMobId(parts[1], ctx);
-    const amount = normalizeAmount(parts[2]);
+    const parsedMobArgs = parseMobSpawnArgs(parts);
 
     if (!Number.isFinite(mobId)) {
-      return { handled: true, ok: false, message: 'Usage: /spawn <mobId|mobName> <amount> OR /spawn structure:village biome:<name> building:<json_name>' };
+      return { handled: true, ok: false, message: 'Usage: /spawn <mobId|mobName> [amount] [height:<blocks>] OR /spawn structure:village biome:<name> building:<json_name>' };
+    }
+
+    if (!parsedMobArgs.ok) {
+      return { handled: true, ok: false, message: parsedMobArgs.message };
     }
 
     const mobDef = ctx.getMobById ? ctx.getMobById(mobId) : null;
@@ -71,7 +114,8 @@
       return { handled: true, ok: false, message: `Mob id ${mobId} was not found.` };
     }
 
-    const spawned = ctx.spawnMobById ? ctx.spawnMobById(mobId, amount) : 0;
+    // `height:` is accepted by the command syntax now, but mob spawning still uses the existing runtime path.
+    const spawned = ctx.spawnMobById ? ctx.spawnMobById(mobId, parsedMobArgs.amount) : 0;
     if (!spawned) {
       return { handled: true, ok: false, message: `Could not spawn ${mobDef.name}.` };
     }

@@ -166,7 +166,7 @@
                 <div id="chat-help-panel">
                     <h3>Command Help</h3>
                     <p><strong>/give</strong> &lt;itemId|itemName&gt; &lt;amount&gt; — give item stacks.</p>
-                    <p><strong>/spawn</strong> &lt;mobId|mobName&gt; &lt;amount&gt; — spawn mobs (1 = pig, 2 = zombie, 3 = wolf, 4 = panda).</p>
+                    <p><strong>/spawn</strong> &lt;mobId|mobName&gt; <strong>[amount]</strong> <strong>[height:&lt;blocks&gt;]</strong> — spawn mobs and optionally include a height argument (1 = pig, 2 = zombie, 3 = wolf, 4 = panda).</p>
                     <p><strong>/spawn structure:village biome:&lt;name&gt; building:&lt;json_name&gt;</strong> — place a village building near you (example: <em>building:house_small</em>).</p>
                     <p><strong>/tp</strong> &lt;x y z&gt; or <strong>/tp biome:&lt;name&gt;</strong> or <strong>/tp structure:village biome:&lt;name&gt;</strong> — teleport to coordinates, nearest biome, or village candidate in a village biome.</p>
                     <p><strong>/time</strong> &lt;HH:MM&gt; — set time with military clock (00:00 to 23:59).</p>
