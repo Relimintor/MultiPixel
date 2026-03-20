@@ -11,7 +11,7 @@ const CONFIG = {
 };
 
 const MENU_ITEMS = [
-    { name: "SinglePlayer", id: "single" },
+    { name: "MultiPixel", id: "single" },
     { name: "MultiPlayer", id: "multi" },
     { name: "Coding",       id: "coding" },
     { name: "Rapturo",         id: "Rapturo" },
@@ -192,7 +192,7 @@ function triggerAction(name) {
     // After a short delay, navigate if a page exists
     setTimeout(() => {
         const routes = {
-            "SinglePlayer": "singleplayer/singleplayer.html",
+            "SinglePlayer": "singleplayer/index.html",
             "MultiPlayer": "multiplayer/multiplayer.html",
             "Coding": "coding/coding.html",
             "Rapturo": "rapturo/rapturo.html",
