@@ -1,5 +1,11 @@
 (function () {
   const RiverTerrain = {
+    biomeInfo: {
+      treeSpawnRate: 0.02,
+      structureSpawnRates: {},
+      oreSpawnRates: { coal: 1, copper: 1, iron: 1, gold: 1, diamond: 1, emerald: 1 },
+      maxHeight: 66,
+    },
     getMask({ perlin, wx, wz }) {
       const scale = 0.001;
       const bendScale = 0.002;

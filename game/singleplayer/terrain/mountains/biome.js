@@ -19,6 +19,12 @@
   }
 
   const MountainsTerrain = {
+    biomeInfo: {
+      treeSpawnRate: 0.015,
+      structureSpawnRates: { village: 0.04 },
+      oreSpawnRates: { coal: 1.1, copper: 0.95, iron: 1.25, gold: 1.15, diamond: 1.05, emerald: 1.35 },
+      maxHeight: 170,
+    },
     isBiome({ mountainNoise, continentalNoise, climateNoise }) {
       return mountainNoise > 0.55 && continentalNoise > 0.35 && climateNoise > -0.5;
     },
@@ -34,9 +40,7 @@
       const cliffs = Math.max(0, cliffNoise - 0.65) * 18;
       const roughness = terrainNoise * 5;
       const erosionEffect = erosion * 5;
-
-      // Smooth biome blending
-      const biomeBlend = smoothstep(0.3, 0.55, continentalness); // transitions plains → hills → mountains
+      const biomeBlend = smoothstep(0.3, 0.55, continentalness);
 
       const height = BASE_LAND_Y +
         (curvedUplift * (1 + peakFactor)) +

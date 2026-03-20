@@ -1,5 +1,11 @@
 (function () {
   const DesertTerrain = {
+    biomeInfo: {
+      treeSpawnRate: 0,
+      structureSpawnRates: { village: 0.18, desertWell: 0.08 },
+      oreSpawnRates: { coal: 0.85, copper: 1.2, iron: 0.9, gold: 1.2, diamond: 1, emerald: 0.7 },
+      maxHeight: 88,
+    },
     isBiome({ climateNoise, moistureNoise, continentalNoise }) {
       return climateNoise > -0.12 &&
              moistureNoise < 0.32 &&
@@ -13,14 +19,8 @@
       duneDetailNoise,
       rockMaskNoise
     }) {
-
-      // 🌊 Large cinematic dune waves
       const bigDunes = bigDuneNoise * 8;
-
-      // 🏜 Medium dune ridges (subtle)
       const duneDetail = duneDetailNoise * 2;
-
-      // 🪨 Rare dramatic rock formations
       const rockMask = Math.max(0, rockMaskNoise - 0.75);
       const rockFormations = rockMask * 25;
 
