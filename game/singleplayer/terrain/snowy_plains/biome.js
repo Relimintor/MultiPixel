@@ -1,5 +1,11 @@
 (function () {
   const SnowyPlainsTerrain = {
+    biomeInfo: {
+      treeSpawnRate: 0.03,
+      structureSpawnRates: { village: 0.13, igloo: 0.11 },
+      oreSpawnRates: { coal: 1.05, copper: 0.85, iron: 1.05, gold: 0.9, diamond: 1, emerald: 1 },
+      maxHeight: 82,
+    },
     isBiome({ tempNoise, humidityNoise, mountainNoise }) {
       return tempNoise < -0.34 && humidityNoise > -0.12 && mountainNoise < 0.58;
     },
