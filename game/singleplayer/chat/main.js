@@ -174,6 +174,7 @@
                     <p><strong>/set render_distance</strong> &lt;amount&gt; — set chunk render distance (no hard upper cap).</p>
                     <p><strong>/set fov</strong> &lt;amount&gt; — set camera field of view (no hard upper cap).</p>
                     <p><strong>/set sensitivity</strong> &lt;amount&gt; — set look sensitivity (default 10).</p>
+                    <p><strong>/set reach</strong> &lt;amount&gt; — set interaction reach in blocks (default 5).</p>
                     <p><strong>/gamemode creative</strong> — switch to creative and open creative menu.</p>
                     <p><strong>/enchant</strong> &lt;holding|itemId&gt; &lt;knockback&gt; &lt;amount&gt; — apply knockback enchant (max 400).</p>
                     <p><strong>/grantme</strong> &lt;fly|speed|noclip|all&gt; — grant yourself movement privileges.</p>

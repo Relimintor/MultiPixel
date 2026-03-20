@@ -165,7 +165,9 @@ window.perlin = perlinInstance;
             isSwimming: false
         };
         const DEFAULT_LOOK_SENSITIVITY = 10;
+        const DEFAULT_INTERACTION_REACH = 5;
         let currentLookSensitivity = DEFAULT_LOOK_SENSITIVITY;
+        let currentInteractionReach = DEFAULT_INTERACTION_REACH;
 
         function setSensitivity(amount) {
             const parsed = Number(amount);
@@ -177,6 +179,25 @@ window.perlin = perlinInstance;
 
         function getSensitivity() {
             return currentLookSensitivity;
+        }
+
+        function setReach(amount) {
+            const parsed = Number(amount);
+            if (!Number.isFinite(parsed) || parsed <= 0) return false;
+            currentInteractionReach = parsed;
+            if (raycaster) raycaster.far = parsed;
+            return true;
+        }
+
+        function getReach() {
+            return currentInteractionReach;
+        }
+
+        function prepareCrosshairRaycast() {
+            if (!raycaster || !camera) return false;
+            raycaster.far = currentInteractionReach;
+            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            return true;
         }
 
       
@@ -765,6 +786,7 @@ window.perlin = perlinInstance;
             }
             
             raycaster = new THREE.Raycaster();
+            raycaster.far = currentInteractionReach;
             camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.1, 1000);
             
             yawObject = new THREE.Object3D();
@@ -2058,7 +2080,7 @@ window.perlin = perlinInstance;
 
         function getPigHitFromCrosshair() {
             if (!pigEntities.length) return null;
-            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            if (!prepareCrosshairRaycast()) return null;
             const hitboxes = pigEntities.map(p => p.root.userData.pigHitbox).filter(Boolean);
             const hits = raycaster.intersectObjects(hitboxes, false);
             if (!hits.length) return null;
@@ -2577,7 +2599,7 @@ window.perlin = perlinInstance;
 
         function getVillagerHitFromCrosshair() {
             if (!villagerEntities.length) return null;
-            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            if (!prepareCrosshairRaycast()) return null;
             const hitboxes = villagerEntities.map(v => v.root.userData.villagerHitbox).filter(Boolean);
             const hits = raycaster.intersectObjects(hitboxes, false);
             if (!hits.length) return null;
@@ -2600,7 +2622,7 @@ window.perlin = perlinInstance;
 
         function getWolfHitFromCrosshair() {
             if (!wolfEntities.length) return null;
-            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            if (!prepareCrosshairRaycast()) return null;
             const hitboxes = wolfEntities.map(w => w.root.userData.wolfHitbox).filter(Boolean);
             const hits = raycaster.intersectObjects(hitboxes, false);
             if (!hits.length) return null;
@@ -2738,7 +2760,7 @@ window.perlin = perlinInstance;
 
         function getPandaHitFromCrosshair() {
             if (!pandaEntities.length) return null;
-            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            if (!prepareCrosshairRaycast()) return null;
             const hitboxes = pandaEntities.map(p => p.root.userData.pandaHitbox).filter(Boolean);
             const hits = raycaster.intersectObjects(hitboxes, false);
             if (!hits.length) return null;
@@ -2825,7 +2847,7 @@ window.perlin = perlinInstance;
         function getZombieHitFromCrosshair() {
 
             if (!zombieEntities.length) return null;
-            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            if (!prepareCrosshairRaycast()) return null;
             const hitboxes = zombieEntities.map(z => z.root.userData.zombieHitbox).filter(Boolean);
             const hits = raycaster.intersectObjects(hitboxes, false);
             if (!hits.length) return null;
@@ -3103,6 +3125,8 @@ window.perlin = perlinInstance;
                 getFov: getCameraFov,
                 setSensitivity,
                 getSensitivity,
+                setReach,
+                getReach,
                 setPlayerHeight,
                 getPlayerHeight,
                 setGameMode,
@@ -4139,7 +4163,7 @@ window.perlin = perlinInstance;
 
         function getTargetBlockFromCrosshair() {
             if (!raycaster || !camera) return null;
-            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            if (!prepareCrosshairRaycast()) return null;
 
             const meshes = [];
             worldGroup.children.forEach(g => {
@@ -4241,7 +4265,7 @@ window.perlin = perlinInstance;
 
         function interactOrPlaceAtCrosshair() {
             if (tryEatSelectedItem()) return;
-            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            if (!prepareCrosshairRaycast()) return;
             const meshes = [];
             worldGroup.children.forEach(g => g.children.forEach(m => meshes.push(m)));
             const intersects = raycaster.intersectObjects(meshes, true);
@@ -4290,7 +4314,7 @@ window.perlin = perlinInstance;
             if (event.pointerType === 'touch') return;
             if (!player.canMove || isInventoryOpen) return;
 
-            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            if (!prepareCrosshairRaycast()) return;
             const meshes = [];
             worldGroup.children.forEach(g => g.children.forEach(m => meshes.push(m)));
             const intersects = raycaster.intersectObjects(meshes, true);
