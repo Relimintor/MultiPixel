@@ -138,7 +138,7 @@
         let materials = {};
 
 // --- 2. CREATE PERLIN INSTANCE ---
-let worldSeed = resolveWorldSeed();
+        let worldSeed = resolveWorldSeed();
 const perlinInstance = new PerlinNoise(worldSeed);
 
 // Make it globally accessible for biomes
@@ -164,6 +164,20 @@ window.perlin = perlinInstance;
             isMoving: false,
             isSwimming: false
         };
+        const DEFAULT_LOOK_SENSITIVITY = 10;
+        let currentLookSensitivity = DEFAULT_LOOK_SENSITIVITY;
+
+        function setSensitivity(amount) {
+            const parsed = Number(amount);
+            if (!Number.isFinite(parsed) || parsed <= 0) return false;
+            currentLookSensitivity = parsed;
+            player.rotationSpeed = DEFAULT_PLAYER.rotationSpeed * (parsed / DEFAULT_LOOK_SENSITIVITY);
+            return true;
+        }
+
+        function getSensitivity() {
+            return currentLookSensitivity;
+        }
 
       
         let inventory = new Array(TOTAL_INV_SIZE).fill(null);
@@ -3087,6 +3101,8 @@ window.perlin = perlinInstance;
                 getRenderDistance: () => currentChunkLoadRadius,
                 setFov: setCameraFov,
                 getFov: getCameraFov,
+                setSensitivity,
+                getSensitivity,
                 setPlayerHeight,
                 getPlayerHeight,
                 setGameMode,
