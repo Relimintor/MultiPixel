@@ -3,6 +3,7 @@
             CHUNK_SIZE,
             CHUNK_HEIGHT,
             WORLD_RADIUS,
+            BLOCK_SIZE,
             SEA_LEVEL,
             BASE_LAND_Y,
             ISLAND_RADIUS,
@@ -137,7 +138,7 @@
         let materials = {};
 
 // --- 2. CREATE PERLIN INSTANCE ---
-let worldSeed = resolveWorldSeed();
+        let worldSeed = resolveWorldSeed();
 const perlinInstance = new PerlinNoise(worldSeed);
 
 // Make it globally accessible for biomes
@@ -163,6 +164,41 @@ window.perlin = perlinInstance;
             isMoving: false,
             isSwimming: false
         };
+        const DEFAULT_LOOK_SENSITIVITY = 10;
+        const DEFAULT_INTERACTION_REACH = 5;
+        let currentLookSensitivity = DEFAULT_LOOK_SENSITIVITY;
+        let currentInteractionReach = DEFAULT_INTERACTION_REACH;
+
+        function setSensitivity(amount) {
+            const parsed = Number(amount);
+            if (!Number.isFinite(parsed) || parsed <= 0) return false;
+            currentLookSensitivity = parsed;
+            player.rotationSpeed = DEFAULT_PLAYER.rotationSpeed * (parsed / DEFAULT_LOOK_SENSITIVITY);
+            return true;
+        }
+
+        function getSensitivity() {
+            return currentLookSensitivity;
+        }
+
+        function setReach(amount) {
+            const parsed = Number(amount);
+            if (!Number.isFinite(parsed) || parsed <= 0) return false;
+            currentInteractionReach = parsed;
+            if (raycaster) raycaster.far = parsed;
+            return true;
+        }
+
+        function getReach() {
+            return currentInteractionReach;
+        }
+
+        function prepareCrosshairRaycast() {
+            if (!raycaster || !camera) return false;
+            raycaster.far = currentInteractionReach;
+            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            return true;
+        }
 
       
         let inventory = new Array(TOTAL_INV_SIZE).fill(null);
@@ -375,6 +411,34 @@ window.perlin = perlinInstance;
         const sparseAirChunkKeys = new Set();
         const worldGroup = new THREE.Group();
         let yawObject, pitchObject; 
+        const PLAYER_EYE_HEIGHT_RATIO = 1.62 / 1.8;
+        let currentPlayerHeight = PLAYER_HEIGHT;
+
+        function getPlayerEyeHeight(height = currentPlayerHeight) {
+            return height * PLAYER_EYE_HEIGHT_RATIO;
+        }
+
+        function syncPlayerHeightVisuals() {
+            if (pitchObject) {
+                pitchObject.position.y = getPlayerEyeHeight();
+            }
+            if (playerAvatar) {
+                const avatarScale = currentPlayerHeight / PLAYER_HEIGHT;
+                playerAvatar.scale.set(avatarScale, avatarScale, avatarScale);
+            }
+        }
+
+        function getPlayerHeight() {
+            return currentPlayerHeight / BLOCK_SIZE;
+        }
+
+        function setPlayerHeight(heightBlocks) {
+            const parsed = Number(heightBlocks);
+            if (!Number.isFinite(parsed) || parsed <= 0) return false;
+            currentPlayerHeight = parsed * BLOCK_SIZE;
+            syncPlayerHeightVisuals();
+            return true;
+        }
         let cameraViewMode = 0; // 0=first, 1=second, 2=third
         let playerAvatar = null;
         let playerAvatarParts = null;
@@ -722,11 +786,12 @@ window.perlin = perlinInstance;
             }
             
             raycaster = new THREE.Raycaster();
+            raycaster.far = currentInteractionReach;
             camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.1, 1000);
             
             yawObject = new THREE.Object3D();
             pitchObject = new THREE.Object3D();
-            pitchObject.position.y = 1.6; 
+            syncPlayerHeightVisuals();
             
             pitchObject.add(camera);
             yawObject.add(pitchObject);
@@ -1793,18 +1858,19 @@ window.perlin = perlinInstance;
             return -1;
         }
 
-        function spawnPigAt(wx, wz) {
+        function spawnPigAt(wx, wz, heightBlocks = null) {
             const y = getSurfaceYForEntity(wx, wz);
             if (y < SEA_LEVEL || y > SEA_LEVEL + 24) return false;
             const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
             if (under !== 1 && under !== 2) return false;
             const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(Math.floor(wx), y, Math.floor(wz)) : 15;
             if (lightLevel < 7) return false;
-            return spawnPigAtExact(wx, y, wz);
+            return spawnPigAtExact(wx, y, wz, heightBlocks);
         }
 
-        function spawnPigAtExact(wx, y, wz) {
+        function spawnPigAtExact(wx, y, wz, heightBlocks = null) {
             const pigRoot = createPigMesh();
+            applyMobCommandHeight(pigRoot, heightBlocks, 0.9);
             pigRoot.position.set(Math.floor(wx) + 0.5, y, Math.floor(wz) + 0.5);
             scene.add(pigRoot);
             pigEntities.push({
@@ -1855,7 +1921,17 @@ window.perlin = perlinInstance;
             }
         }
 
-        function spawnMobById(mobId, amount = 1) {
+        function applyMobCommandHeight(root, heightBlocks, defaultHeight) {
+            const requestedHeight = Number(heightBlocks);
+            if (!root || !Number.isFinite(requestedHeight) || requestedHeight <= 0 || !Number.isFinite(defaultHeight) || defaultHeight <= 0) {
+                return 1;
+            }
+            const scale = requestedHeight / defaultHeight;
+            root.scale.set(scale, scale, scale);
+            return scale;
+        }
+
+        function spawnMobById(mobId, amount = 1, heightBlocks = null) {
             const id = Number.parseInt(mobId, 10);
             if (!Number.isFinite(id)) return 0;
             const qty = Math.max(1, Math.min(64, Number.parseInt(amount, 10) || 1));
@@ -1866,7 +1942,7 @@ window.perlin = perlinInstance;
                 const dist = 3 + Math.random() * 6;
                 const wx = yawObject.position.x + Math.cos(angle) * dist;
                 const wz = yawObject.position.z + Math.sin(angle) * dist;
-                const ok = id === 1 ? spawnPigAt(wx, wz) : (id === 2 ? spawnZombieAt(wx, wz) : (id === 3 ? spawnWolfForCommand(wx, wz) : (id === 4 ? spawnPandaForCommand(wx, wz) : (id === 5 ? spawnVillagerForCommand(wx, wz) : false))));
+                const ok = id === 1 ? spawnPigAt(wx, wz, heightBlocks) : (id === 2 ? spawnZombieAt(wx, wz, heightBlocks) : (id === 3 ? spawnWolfForCommand(wx, wz, heightBlocks) : (id === 4 ? spawnPandaForCommand(wx, wz, heightBlocks) : (id === 5 ? spawnVillagerForCommand(wx, wz, heightBlocks) : false))));
                 if (ok) spawned++;
             }
             return spawned;
@@ -2004,7 +2080,7 @@ window.perlin = perlinInstance;
 
         function getPigHitFromCrosshair() {
             if (!pigEntities.length) return null;
-            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            if (!prepareCrosshairRaycast()) return null;
             const hitboxes = pigEntities.map(p => p.root.userData.pigHitbox).filter(Boolean);
             const hits = raycaster.intersectObjects(hitboxes, false);
             if (!hits.length) return null;
@@ -2036,7 +2112,7 @@ window.perlin = perlinInstance;
             }
         }
 
-        function spawnWolfAt(wx, wz) {
+        function spawnWolfAt(wx, wz, heightBlocks = null) {
             const y = getSurfaceYForEntity(wx, wz);
             if (y < SEA_LEVEL || y > SEA_LEVEL + 24) return false;
             const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
@@ -2045,11 +2121,12 @@ window.perlin = perlinInstance;
             if (lightLevel < 7) return false;
             const biome = getBiome(Math.floor(wx), Math.floor(wz));
             if (biome !== 'Forest') return false;
-            return spawnWolfAtExact(wx, y, wz);
+            return spawnWolfAtExact(wx, y, wz, heightBlocks);
         }
 
-        function spawnWolfAtExact(wx, y, wz) {
+        function spawnWolfAtExact(wx, y, wz, heightBlocks = null) {
             const root = createWolfMesh();
+            applyMobCommandHeight(root, heightBlocks, 0.95);
             root.position.set(Math.floor(wx) + 0.5, y, Math.floor(wz) + 0.5);
             scene.add(root);
             wolfEntities.push({
@@ -2073,7 +2150,7 @@ window.perlin = perlinInstance;
         }
 
 
-        function spawnPandaAt(wx, wz) {
+        function spawnPandaAt(wx, wz, heightBlocks = null) {
             const y = getSurfaceYForEntity(wx, wz);
             if (y < SEA_LEVEL || y > SEA_LEVEL + 26) return false;
             const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
@@ -2082,11 +2159,12 @@ window.perlin = perlinInstance;
             if (lightLevel < 7) return false;
             const biome = getBiome(Math.floor(wx), Math.floor(wz));
             if (biome !== 'Jungle Forest') return false;
-            return spawnPandaAtExact(wx, y, wz);
+            return spawnPandaAtExact(wx, y, wz, heightBlocks);
         }
 
-        function spawnPandaAtExact(wx, y, wz) {
+        function spawnPandaAtExact(wx, y, wz, heightBlocks = null) {
             const root = createPandaMesh();
+            applyMobCommandHeight(root, heightBlocks, 1.15);
             root.position.set(Math.floor(wx) + 0.5, y, Math.floor(wz) + 0.5);
 
             const isXRealm = Math.random() < 0.001;
@@ -2117,29 +2195,30 @@ window.perlin = perlinInstance;
             return true;
         }
 
-        function spawnPandaForCommand(wx, wz) {
-            if (spawnPandaAt(wx, wz)) return true;
+        function spawnPandaForCommand(wx, wz, heightBlocks = null) {
+            if (spawnPandaAt(wx, wz, heightBlocks)) return true;
             const y = getSurfaceYForEntity(wx, wz);
             if (y < SEA_LEVEL || y > SEA_LEVEL + 36) return false;
             const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
             if (under !== 1 && under !== 2 && under !== 3 && under !== 7 && under !== 15) return false;
-            return spawnPandaAtExact(wx, y, wz);
+            return spawnPandaAtExact(wx, y, wz, heightBlocks);
         }
 
-        function spawnWolfForCommand(wx, wz) {
-            if (spawnWolfAt(wx, wz)) return true;
+        function spawnWolfForCommand(wx, wz, heightBlocks = null) {
+            if (spawnWolfAt(wx, wz, heightBlocks)) return true;
             const y = getSurfaceYForEntity(wx, wz);
             if (y < SEA_LEVEL || y > SEA_LEVEL + 36) return false;
             const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
             if (under !== 1 && under !== 2 && under !== 3 && under !== 7 && under !== 15) return false;
             const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(Math.floor(wx), y, Math.floor(wz)) : 15;
             if (lightLevel < 7) return false;
-            return spawnWolfAtExact(wx, y, wz);
+            return spawnWolfAtExact(wx, y, wz, heightBlocks);
         }
 
 
-        function spawnVillagerAtExact(wx, y, wz, homeCenter = null, villageCenter = null, poiTargets = null) {
+        function spawnVillagerAtExact(wx, y, wz, homeCenter = null, villageCenter = null, poiTargets = null, heightBlocks = null) {
             const root = createVillagerMesh();
+            applyMobCommandHeight(root, heightBlocks, 1.78);
             root.position.set(Math.floor(wx) + 0.5, y, Math.floor(wz) + 0.5);
             scene.add(root);
             villagerEntities.push({
@@ -2171,14 +2250,14 @@ window.perlin = perlinInstance;
             return true;
         }
 
-        function spawnVillagerForCommand(wx, wz) {
+        function spawnVillagerForCommand(wx, wz, heightBlocks = null) {
             const y = getSurfaceYForEntity(wx, wz);
             if (y < SEA_LEVEL || y > SEA_LEVEL + 36) return false;
             const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
             if (under !== 1 && under !== 2 && under !== 3 && under !== 7 && under !== 15 && under !== 17 && under !== 13 && under !== 8) return false;
             const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(Math.floor(wx), y, Math.floor(wz)) : 15;
             if (lightLevel < 7) return false;
-            return spawnVillagerAtExact(wx, y, wz, { x: Math.floor(wx) + 0.5, z: Math.floor(wz) + 0.5 }, { x: Math.floor(wx) + 0.5, z: Math.floor(wz) + 0.5 }, [{ key: 'well', x: Math.floor(wx) + 0.5, z: Math.floor(wz) + 0.5 }]);
+            return spawnVillagerAtExact(wx, y, wz, { x: Math.floor(wx) + 0.5, z: Math.floor(wz) + 0.5 }, { x: Math.floor(wx) + 0.5, z: Math.floor(wz) + 0.5 }, [{ key: 'well', x: Math.floor(wx) + 0.5, z: Math.floor(wz) + 0.5 }], heightBlocks);
         }
 
 
@@ -2520,7 +2599,7 @@ window.perlin = perlinInstance;
 
         function getVillagerHitFromCrosshair() {
             if (!villagerEntities.length) return null;
-            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            if (!prepareCrosshairRaycast()) return null;
             const hitboxes = villagerEntities.map(v => v.root.userData.villagerHitbox).filter(Boolean);
             const hits = raycaster.intersectObjects(hitboxes, false);
             if (!hits.length) return null;
@@ -2543,7 +2622,7 @@ window.perlin = perlinInstance;
 
         function getWolfHitFromCrosshair() {
             if (!wolfEntities.length) return null;
-            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            if (!prepareCrosshairRaycast()) return null;
             const hitboxes = wolfEntities.map(w => w.root.userData.wolfHitbox).filter(Boolean);
             const hits = raycaster.intersectObjects(hitboxes, false);
             if (!hits.length) return null;
@@ -2681,7 +2760,7 @@ window.perlin = perlinInstance;
 
         function getPandaHitFromCrosshair() {
             if (!pandaEntities.length) return null;
-            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            if (!prepareCrosshairRaycast()) return null;
             const hitboxes = pandaEntities.map(p => p.root.userData.pandaHitbox).filter(Boolean);
             const hits = raycaster.intersectObjects(hitboxes, false);
             if (!hits.length) return null;
@@ -2768,7 +2847,7 @@ window.perlin = perlinInstance;
         function getZombieHitFromCrosshair() {
 
             if (!zombieEntities.length) return null;
-            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            if (!prepareCrosshairRaycast()) return null;
             const hitboxes = zombieEntities.map(z => z.root.userData.zombieHitbox).filter(Boolean);
             const hits = raycaster.intersectObjects(hitboxes, false);
             if (!hits.length) return null;
@@ -2816,13 +2895,14 @@ window.perlin = perlinInstance;
             return -1;
         }
 
-        function spawnZombieAt(wx, wz) {
+        function spawnZombieAt(wx, wz, heightBlocks = null) {
             const y = findHostileSpawnY(wx, wz);
             if (y <= 0) return false;
             const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
             if (under === 0 || isLiquid(under)) return false;
 
             const root = createZombieMesh();
+            applyMobCommandHeight(root, heightBlocks, 1.8);
             root.position.set(Math.floor(wx) + 0.5, y, Math.floor(wz) + 0.5);
             scene.add(root);
             zombieEntities.push({
@@ -3043,6 +3123,12 @@ window.perlin = perlinInstance;
                 getRenderDistance: () => currentChunkLoadRadius,
                 setFov: setCameraFov,
                 getFov: getCameraFov,
+                setSensitivity,
+                getSensitivity,
+                setReach,
+                getReach,
+                setPlayerHeight,
+                getPlayerHeight,
                 setGameMode,
                 openCreativeMenu,
                 closeCreativeMenu,
@@ -4077,7 +4163,7 @@ window.perlin = perlinInstance;
 
         function getTargetBlockFromCrosshair() {
             if (!raycaster || !camera) return null;
-            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            if (!prepareCrosshairRaycast()) return null;
 
             const meshes = [];
             worldGroup.children.forEach(g => {
@@ -4179,7 +4265,7 @@ window.perlin = perlinInstance;
 
         function interactOrPlaceAtCrosshair() {
             if (tryEatSelectedItem()) return;
-            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            if (!prepareCrosshairRaycast()) return;
             const meshes = [];
             worldGroup.children.forEach(g => g.children.forEach(m => meshes.push(m)));
             const intersects = raycaster.intersectObjects(meshes, true);
@@ -4212,7 +4298,7 @@ window.perlin = perlinInstance;
             const px = Math.floor(placePos.x), py = Math.floor(placePos.y), pz = Math.floor(placePos.z);
             const playerBox = new THREE.Box3(
                 new THREE.Vector3(yawObject.position.x - PLAYER_RADIUS, yawObject.position.y, yawObject.position.z - PLAYER_RADIUS),
-                new THREE.Vector3(yawObject.position.x + PLAYER_RADIUS, yawObject.position.y + PLAYER_HEIGHT, yawObject.position.z + PLAYER_RADIUS)
+                new THREE.Vector3(yawObject.position.x + PLAYER_RADIUS, yawObject.position.y + currentPlayerHeight, yawObject.position.z + PLAYER_RADIUS)
             );
             const blockBox = new THREE.Box3(
                 new THREE.Vector3(px, py, pz), new THREE.Vector3(px + 1, py + 1, pz + 1)
@@ -4228,7 +4314,7 @@ window.perlin = perlinInstance;
             if (event.pointerType === 'touch') return;
             if (!player.canMove || isInventoryOpen) return;
 
-            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+            if (!prepareCrosshairRaycast()) return;
             const meshes = [];
             worldGroup.children.forEach(g => g.children.forEach(m => meshes.push(m)));
             const intersects = raycaster.intersectObjects(meshes, true);
@@ -4497,8 +4583,8 @@ window.perlin = perlinInstance;
             const px = Math.floor(yawObject.position.x);
             const pz = Math.floor(yawObject.position.z);
             const feetY = Math.floor(yawObject.position.y + 0.1);
-            const bodyY = Math.floor(yawObject.position.y + PLAYER_HEIGHT * 0.5);
-            const eyeY = Math.floor(yawObject.position.y + 1.62);
+            const bodyY = Math.floor(yawObject.position.y + currentPlayerHeight * 0.5);
+            const eyeY = Math.floor(yawObject.position.y + getPlayerEyeHeight());
 
             const feet = getBlockType(px, feetY, pz);
             const body = getBlockType(px, bodyY, pz);
@@ -4791,7 +4877,7 @@ window.perlin = perlinInstance;
             const py = yawObject.position.y;
             const pz = yawObject.position.z;
             const r = PLAYER_RADIUS;
-            const h = PLAYER_HEIGHT; 
+            const h = currentPlayerHeight; 
 
             const minX = Math.floor(px - r);
             const maxX = Math.floor(px + r);
