@@ -204,8 +204,11 @@ window.perlin = perlinInstance;
             initialState: 'default',
             visible: true,
         }) || null;
+        const ADAPTIVE_CROSSHAIR_SAMPLE_INTERVAL_MS = 50;
         const SELF_USE_ITEM_IDS = new Set([89, 90, 92, 109, 111, 112]);
         let crosshairStyleKey = 'idle';
+        let lastAdaptiveCrosshairSampleAt = -Infinity;
+        let lastAdaptiveCrosshairResult = null;
 
         function setCrosshairVisible(visible) {
             const crosshair = document.getElementById('crosshair');
@@ -255,9 +258,9 @@ window.perlin = perlinInstance;
         }
 
         function getCrosshairBlockStyle() {
+            if (miningState.active) return 'mining';
             const target = getTargetBlockFromCrosshair();
             if (!target) return 'idle';
-            if (miningState.active) return 'mining';
             if (target.blockId === 9 || target.blockId === 23 || target.blockId === 82) return 'interact';
             const miningInfo = getMiningDurationMs(target.blockId);
             if (!Number.isFinite(miningInfo?.durationMs)) return 'blocked';
@@ -265,24 +268,42 @@ window.perlin = perlinInstance;
             return 'idle';
         }
 
-        function updateAdaptiveCrosshair() {
-            if (mobileControls.enabled || !player.canMove || isInventoryOpen) {
-                setCrosshairVisible(false);
-                applyCrosshairStyle('idle');
-                return;
-            }
-            setCrosshairVisible(true);
+        function resolveAdaptiveCrosshairResult() {
             const entityTarget = getCrosshairEntityTarget();
             if (entityTarget?.style) {
-                applyCrosshairStyle(entityTarget.style);
-                return;
+                return { visible: true, style: entityTarget.style };
             }
             const blockStyle = getCrosshairBlockStyle();
             if (blockStyle !== 'idle') {
-                applyCrosshairStyle(blockStyle);
+                return { visible: true, style: blockStyle };
+            }
+            return { visible: true, style: shouldUseSelfCrosshair() ? 'use_self' : 'idle' };
+        }
+
+        function applyAdaptiveCrosshairResult(nextResult) {
+            if (!lastAdaptiveCrosshairResult || lastAdaptiveCrosshairResult.visible !== nextResult.visible) {
+                setCrosshairVisible(nextResult.visible);
+            }
+            if (!lastAdaptiveCrosshairResult || lastAdaptiveCrosshairResult.style !== nextResult.style) {
+                applyCrosshairStyle(nextResult.style);
+            }
+            lastAdaptiveCrosshairResult = nextResult;
+        }
+
+        function updateAdaptiveCrosshair(force = false) {
+            const now = performance.now();
+            if (mobileControls.enabled || !player.canMove || isInventoryOpen) {
+                lastAdaptiveCrosshairSampleAt = now;
+                applyAdaptiveCrosshairResult({ visible: false, style: 'idle' });
                 return;
             }
-            applyCrosshairStyle(shouldUseSelfCrosshair() ? 'use_self' : 'idle');
+            if (!force
+                && lastAdaptiveCrosshairResult?.visible
+                && (now - lastAdaptiveCrosshairSampleAt) < ADAPTIVE_CROSSHAIR_SAMPLE_INTERVAL_MS) {
+                return;
+            }
+            lastAdaptiveCrosshairSampleAt = now;
+            applyAdaptiveCrosshairResult(resolveAdaptiveCrosshairResult());
         }
 
       

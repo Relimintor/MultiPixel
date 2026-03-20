@@ -42,8 +42,8 @@ body {
     position: absolute;
     top: 50%;
     left: 50%;
-    width: 17px;
-    height: 17px;
+    width: 51px;
+    height: 51px;
     z-index: 99;
     pointer-events: none;
     transform: translate(-50%, -50%) scale(var(--crosshair-scale));
