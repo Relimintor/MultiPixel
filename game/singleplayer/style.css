@@ -38,16 +38,61 @@ body {
 }
 
 #crosshair {
+    --crosshair-color: rgba(255, 255, 255, 0.95);
+    --crosshair-thickness: 2px;
+    --crosshair-gap: 4px;
+    --crosshair-arm: 6px;
+    --crosshair-scale: 1;
     position: absolute;
     top: 50%;
     left: 50%;
-    width: 14px;
-    height: 14px;
-    margin-top: -7px;
-    margin-left: -7px;
-    background-image: url('data:image/svg+xml;utf8,<svg width="14" height="14" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><path d="M7 0V14M0 7H14" stroke="white" stroke-width="2" stroke-linecap="round" style="filter: drop-shadow(0px 0px 1px black);"/></svg>');
+    width: calc(var(--crosshair-gap) * 2 + var(--crosshair-arm) * 2 + var(--crosshair-thickness));
+    height: calc(var(--crosshair-gap) * 2 + var(--crosshair-arm) * 2 + var(--crosshair-thickness));
+    margin-top: calc((var(--crosshair-gap) * 2 + var(--crosshair-arm) * 2 + var(--crosshair-thickness)) / -2);
+    margin-left: calc((var(--crosshair-gap) * 2 + var(--crosshair-arm) * 2 + var(--crosshair-thickness)) / -2);
+    color: var(--crosshair-color);
     z-index: 99;
     pointer-events: none;
+    transform: scale(var(--crosshair-scale));
+    transition: color 0.12s ease, transform 0.12s ease, opacity 0.12s ease;
+    filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.9));
+}
+
+#crosshair::before,
+#crosshair::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-repeat: no-repeat;
+}
+
+#crosshair::before {
+    background-image:
+        linear-gradient(currentColor, currentColor),
+        linear-gradient(currentColor, currentColor),
+        linear-gradient(currentColor, currentColor),
+        linear-gradient(currentColor, currentColor);
+    background-size:
+        var(--crosshair-thickness) var(--crosshair-arm),
+        var(--crosshair-thickness) var(--crosshair-arm),
+        var(--crosshair-arm) var(--crosshair-thickness),
+        var(--crosshair-arm) var(--crosshair-thickness);
+    background-position:
+        center top,
+        center bottom,
+        left center,
+        right center;
+}
+
+#crosshair::after {
+    width: var(--crosshair-thickness);
+    height: var(--crosshair-thickness);
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    border-radius: 999px;
+    background: currentColor;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
 }
 
 #held-item-cursor {

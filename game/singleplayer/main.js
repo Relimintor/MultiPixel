@@ -199,6 +199,77 @@ window.perlin = perlinInstance;
             return true;
         }
 
+        const CROSSHAIR_STYLES = {
+            idle: { color: 'rgba(255, 255, 255, 0.95)', scale: 1, gap: 4, arm: 6, thickness: 2 },
+            interact: { color: 'rgba(98, 255, 145, 0.98)', scale: 1.08, gap: 5, arm: 6, thickness: 2.4 },
+            passive: { color: 'rgba(255, 210, 92, 0.98)', scale: 1.06, gap: 5, arm: 6, thickness: 2.4 },
+            hostile: { color: 'rgba(255, 96, 96, 0.98)', scale: 1.14, gap: 6, arm: 7, thickness: 2.6 },
+            blocked: { color: 'rgba(160, 160, 160, 0.95)', scale: 1, gap: 4, arm: 6, thickness: 2 },
+            mining: { color: 'rgba(255, 150, 74, 0.98)', scale: 0.95, gap: 3, arm: 6, thickness: 2.4 },
+        };
+        let crosshairStyleKey = 'idle';
+
+        function applyCrosshairStyle(styleKey) {
+            const crosshair = document.getElementById('crosshair');
+            if (!crosshair) return;
+            const style = CROSSHAIR_STYLES[styleKey] || CROSSHAIR_STYLES.idle;
+            if (crosshairStyleKey === styleKey && crosshair.dataset.styleApplied === '1') return;
+            crosshairStyleKey = styleKey;
+            crosshair.style.setProperty('--crosshair-color', style.color);
+            crosshair.style.setProperty('--crosshair-scale', String(style.scale));
+            crosshair.style.setProperty('--crosshair-gap', `${style.gap}px`);
+            crosshair.style.setProperty('--crosshair-arm', `${style.arm}px`);
+            crosshair.style.setProperty('--crosshair-thickness', `${style.thickness}px`);
+            crosshair.dataset.styleApplied = '1';
+            crosshair.dataset.styleKey = styleKey;
+        }
+
+        function getCrosshairEntityTarget() {
+            if (!prepareCrosshairRaycast()) return null;
+            const hitboxes = [];
+            const pushHitboxes = (entities, hitboxKey, profile) => {
+                for (const entity of entities) {
+                    const hitbox = entity?.root?.userData?.[hitboxKey];
+                    if (!hitbox) continue;
+                    hitboxes.push({ hitbox, profile });
+                }
+            };
+            pushHitboxes(zombieEntities, 'zombieHitbox', { style: 'hostile' });
+            pushHitboxes(wolfEntities, 'wolfHitbox', { style: 'passive' });
+            pushHitboxes(pandaEntities, 'pandaHitbox', { style: 'passive' });
+            pushHitboxes(villagerEntities, 'villagerHitbox', { style: 'interact' });
+            pushHitboxes(pigEntities, 'pigHitbox', { style: 'passive' });
+            if (!hitboxes.length) return null;
+            const hits = raycaster.intersectObjects(hitboxes.map((entry) => entry.hitbox), false);
+            if (!hits.length) return null;
+            const hitObj = hits[0].object;
+            return hitboxes.find((entry) => entry.hitbox === hitObj)?.profile || null;
+        }
+
+        function getCrosshairBlockStyle() {
+            const target = getTargetBlockFromCrosshair();
+            if (!target) return 'idle';
+            if (miningState.active) return 'mining';
+            if (target.blockId === 9 || target.blockId === 23 || target.blockId === 82) return 'interact';
+            const miningInfo = getMiningDurationMs(target.blockId);
+            if (!Number.isFinite(miningInfo?.durationMs)) return 'blocked';
+            if (miningInfo?.reason === 'tool_too_weak') return 'blocked';
+            return 'idle';
+        }
+
+        function updateAdaptiveCrosshair() {
+            if (mobileControls.enabled || !player.canMove || isInventoryOpen) {
+                applyCrosshairStyle('idle');
+                return;
+            }
+            const entityTarget = getCrosshairEntityTarget();
+            if (entityTarget?.style) {
+                applyCrosshairStyle(entityTarget.style);
+                return;
+            }
+            applyCrosshairStyle(getCrosshairBlockStyle());
+        }
+
       
         let inventory = playerRuntime.inventory;
         const knockbackEnchantByItemId = new Map();
@@ -8393,6 +8464,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 miningState.active = false;
                 updateBreakingOverlay();
             }
+            updateAdaptiveCrosshair();
             updateCoordinatesUI();
             renderer.render(scene, camera);
         }
