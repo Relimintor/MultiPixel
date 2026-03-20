@@ -199,29 +199,40 @@ window.perlin = perlinInstance;
             return true;
         }
 
-        const CROSSHAIR_STYLES = {
-            idle: { color: 'rgba(255, 255, 255, 0.95)', scale: 1, gap: 4, arm: 6, thickness: 2 },
-            interact: { color: 'rgba(98, 255, 145, 0.98)', scale: 1.08, gap: 5, arm: 6, thickness: 2.4 },
-            passive: { color: 'rgba(255, 210, 92, 0.98)', scale: 1.06, gap: 5, arm: 6, thickness: 2.4 },
-            hostile: { color: 'rgba(255, 96, 96, 0.98)', scale: 1.14, gap: 6, arm: 7, thickness: 2.6 },
-            blocked: { color: 'rgba(160, 160, 160, 0.95)', scale: 1, gap: 4, arm: 6, thickness: 2 },
-            mining: { color: 'rgba(255, 150, 74, 0.98)', scale: 0.95, gap: 3, arm: 6, thickness: 2.4 },
-        };
+        const adaptiveCrosshairController = window.SingleplayerAdaptiveCrosshair?.createController({
+            element: 'crosshair',
+            initialState: 'default',
+            visible: true,
+        }) || null;
+        const ADAPTIVE_CROSSHAIR_SAMPLE_INTERVAL_MS = 50;
+        const SELF_USE_ITEM_IDS = new Set([89, 90, 92, 109, 111, 112]);
         let crosshairStyleKey = 'idle';
+        let lastAdaptiveCrosshairSampleAt = -Infinity;
+        let lastAdaptiveCrosshairResult = null;
+
+        function setCrosshairVisible(visible) {
+            const crosshair = document.getElementById('crosshair');
+            const nextVisible = visible !== false;
+            if (adaptiveCrosshairController?.setVisible) {
+                adaptiveCrosshairController.setVisible(nextVisible);
+            } else if (crosshair) {
+                crosshair.style.opacity = nextVisible ? 1 : 0;
+            }
+        }
 
         function applyCrosshairStyle(styleKey) {
-            const crosshair = document.getElementById('crosshair');
-            if (!crosshair) return;
-            const style = CROSSHAIR_STYLES[styleKey] || CROSSHAIR_STYLES.idle;
-            if (crosshairStyleKey === styleKey && crosshair.dataset.styleApplied === '1') return;
-            crosshairStyleKey = styleKey;
-            crosshair.style.setProperty('--crosshair-color', style.color);
-            crosshair.style.setProperty('--crosshair-scale', String(style.scale));
-            crosshair.style.setProperty('--crosshair-gap', `${style.gap}px`);
-            crosshair.style.setProperty('--crosshair-arm', `${style.arm}px`);
-            crosshair.style.setProperty('--crosshair-thickness', `${style.thickness}px`);
-            crosshair.dataset.styleApplied = '1';
-            crosshair.dataset.styleKey = styleKey;
+            const nextStyleKey = styleKey || 'idle';
+            if (crosshairStyleKey === nextStyleKey) {
+                adaptiveCrosshairController?.setState(nextStyleKey);
+                return;
+            }
+            crosshairStyleKey = nextStyleKey;
+            adaptiveCrosshairController?.setState(nextStyleKey);
+        }
+
+        function shouldUseSelfCrosshair() {
+            const held = inventory[selectedHotbarIndex];
+            return Boolean(held && SELF_USE_ITEM_IDS.has(held.id));
         }
 
         function getCrosshairEntityTarget() {
@@ -247,9 +258,9 @@ window.perlin = perlinInstance;
         }
 
         function getCrosshairBlockStyle() {
+            if (miningState.active) return 'mining';
             const target = getTargetBlockFromCrosshair();
             if (!target) return 'idle';
-            if (miningState.active) return 'mining';
             if (target.blockId === 9 || target.blockId === 23 || target.blockId === 82) return 'interact';
             const miningInfo = getMiningDurationMs(target.blockId);
             if (!Number.isFinite(miningInfo?.durationMs)) return 'blocked';
@@ -257,17 +268,42 @@ window.perlin = perlinInstance;
             return 'idle';
         }
 
-        function updateAdaptiveCrosshair() {
-            if (mobileControls.enabled || !player.canMove || isInventoryOpen) {
-                applyCrosshairStyle('idle');
-                return;
-            }
+        function resolveAdaptiveCrosshairResult() {
             const entityTarget = getCrosshairEntityTarget();
             if (entityTarget?.style) {
-                applyCrosshairStyle(entityTarget.style);
+                return { visible: true, style: entityTarget.style };
+            }
+            const blockStyle = getCrosshairBlockStyle();
+            if (blockStyle !== 'idle') {
+                return { visible: true, style: blockStyle };
+            }
+            return { visible: true, style: shouldUseSelfCrosshair() ? 'use_self' : 'idle' };
+        }
+
+        function applyAdaptiveCrosshairResult(nextResult) {
+            if (!lastAdaptiveCrosshairResult || lastAdaptiveCrosshairResult.visible !== nextResult.visible) {
+                setCrosshairVisible(nextResult.visible);
+            }
+            if (!lastAdaptiveCrosshairResult || lastAdaptiveCrosshairResult.style !== nextResult.style) {
+                applyCrosshairStyle(nextResult.style);
+            }
+            lastAdaptiveCrosshairResult = nextResult;
+        }
+
+        function updateAdaptiveCrosshair(force = false) {
+            const now = performance.now();
+            if (mobileControls.enabled || !player.canMove || isInventoryOpen) {
+                lastAdaptiveCrosshairSampleAt = now;
+                applyAdaptiveCrosshairResult({ visible: false, style: 'idle' });
                 return;
             }
-            applyCrosshairStyle(getCrosshairBlockStyle());
+            if (!force
+                && lastAdaptiveCrosshairResult?.visible
+                && (now - lastAdaptiveCrosshairSampleAt) < ADAPTIVE_CROSSHAIR_SAMPLE_INTERVAL_MS) {
+                return;
+            }
+            lastAdaptiveCrosshairSampleAt = now;
+            applyAdaptiveCrosshairResult(resolveAdaptiveCrosshairResult());
         }
 
       
@@ -513,6 +549,7 @@ window.perlin = perlinInstance;
         let zombieTexture = null;
         let zombieSpawnTimerMs = 0;
         let bambooGrowthTimerMs = 0;
+        let grassSpreadTimerMs = 0;
         let eatOverlayEl = playerRuntime.eatOverlayEl;
         let eatItemEl = playerRuntime.eatItemEl;
         let eatingAnimState = playerRuntime.eatingAnimState;
@@ -5183,12 +5220,11 @@ window.perlin = perlinInstance;
 
         function setMobileHudVisible(visible) {
             const controlsEl = document.getElementById('mobile-controls');
-            const crosshair = document.getElementById('crosshair');
             if (controlsEl) {
                 if (visible) controlsEl.classList.add('active');
                 else controlsEl.classList.remove('active');
             }
-            if (crosshair) crosshair.style.opacity = visible ? 0 : 1;
+            setCrosshairVisible(!visible);
         }
 
         function switchToDesktopMode() {
@@ -5385,7 +5421,7 @@ window.perlin = perlinInstance;
                     player.canMove = true;
                     if(isInventoryOpen) toggleInventory(); 
                     document.getElementById('instructions').style.opacity = 0;
-                    document.getElementById('crosshair').style.opacity = 1;
+                    setCrosshairVisible(true);
                 } else {
                     player.canMove = false;
                     if(!isInventoryOpen) {
@@ -8405,6 +8441,64 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             }
         }
 
+        function canDirtSpreadToGrass(wx, wy, wz) {
+            if (wy <= 0 || wy >= CHUNK_HEIGHT - 1) return false;
+            if (getBlockType(wx, wy, wz) !== 2) return false;
+            if (getBlockType(wx, wy + 1, wz) !== 0) return false;
+            return (
+                getBlockType(wx + 1, wy, wz) === 1
+                || getBlockType(wx - 1, wy, wz) === 1
+                || getBlockType(wx, wy, wz + 1) === 1
+                || getBlockType(wx, wy, wz - 1) === 1
+            );
+        }
+
+        function updateGrassSpread(deltaMs) {
+            grassSpreadTimerMs += deltaMs;
+            const tickMs = 350;
+            if (grassSpreadTimerMs < tickMs) return;
+            grassSpreadTimerMs = 0;
+
+            const centerCx = Math.floor(yawObject.position.x / CHUNK_SIZE);
+            const centerCz = Math.floor(yawObject.position.z / CHUNK_SIZE);
+            const activeRadius = 3;
+            const candidateChunks = [];
+
+            for (let cx = centerCx - activeRadius; cx <= centerCx + activeRadius; cx++) {
+                for (let cz = centerCz - activeRadius; cz <= centerCz + activeRadius; cz++) {
+                    const group = chunks.get(`${cx},${cz}`);
+                    if (group?.userData?.chunkData) candidateChunks.push(group);
+                }
+            }
+
+            if (!candidateChunks.length) return;
+
+            const sampleCount = Math.min(3, candidateChunks.length);
+            for (let sampleIdx = 0; sampleIdx < sampleCount; sampleIdx++) {
+                const group = candidateChunks[Math.floor(Math.random() * candidateChunks.length)];
+                const data = group?.userData?.chunkData;
+                const cx = group?.userData?.cx;
+                const cz = group?.userData?.cz;
+                if (!data || !Number.isFinite(cx) || !Number.isFinite(cz)) continue;
+
+                for (let tries = 0; tries < 24; tries++) {
+                    const lx = Math.floor(Math.random() * CHUNK_SIZE);
+                    const lz = Math.floor(Math.random() * CHUNK_SIZE);
+                    const y = getColumnTopFromData(data, lx, lz);
+                    if (y <= 0 || y >= CHUNK_HEIGHT - 1) continue;
+
+                    const idx = lx + y * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
+                    if (data[idx] !== 2) continue;
+
+                    const wx = cx * CHUNK_SIZE + lx;
+                    const wz = cz * CHUNK_SIZE + lz;
+                    if (!canDirtSpreadToGrass(wx, y, wz)) continue;
+
+                    if (setBlockTypeRaw(wx, y, wz, 1, true)) break;
+                }
+            }
+        }
+
         function animate(time) {
 
             requestAnimationFrame(animate);
@@ -8431,6 +8525,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 updatePandas(time, delta);
                 updateVillagers(time, delta);
                 updateBambooGrowth(delta);
+                updateGrassSpread(delta);
                 trySpawnNightZombie(delta);
                 updateZombies(time, delta);
                 resolveMobEntityPushing();
