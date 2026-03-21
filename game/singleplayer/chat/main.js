@@ -168,7 +168,7 @@
                     <p><strong>/give</strong> &lt;itemId|itemName&gt; &lt;amount&gt; — give item stacks.</p>
                     <p><strong>/spawn</strong> &lt;mobId|mobName&gt; <strong>[amount]</strong> <strong>[height:&lt;blocks&gt;]</strong> — spawn mobs and optionally include a height argument (1 = pig, 2 = zombie, 3 = wolf, 4 = panda).</p>
                     <p><strong>/spawn structure:village biome:&lt;name&gt; building:&lt;json_name&gt;</strong> — place a village building near you (example: <em>building:house_small</em>).</p>
-                    <p><strong>/tp</strong> &lt;x y z&gt; or <strong>/tp biome:&lt;name&gt;</strong> or <strong>/tp structure:village biome:&lt;name&gt;</strong> — teleport to coordinates, nearest biome, or village candidate in a village biome.</p>
+                    <p><strong>/tp</strong> &lt;x y z&gt; or <strong>/tp biome:&lt;name&gt;</strong> or <strong>/tp structure:village biome:&lt;name&gt;</strong> or <strong>/tp structure:ruins biome:&lt;desert|plains|jungle&gt;</strong> — teleport to coordinates, nearest biome, village candidate, or biome-specific ruins.</p>
                     <p><strong>/time</strong> &lt;HH:MM&gt; — set time with military clock (00:00 to 23:59).</p>
                     <p><strong>/height</strong> &lt;amount&gt; — set the player height in blocks (default 1.8, no upper cap).</p>
                     <p><strong>/set render_distance</strong> &lt;amount&gt; — set chunk render distance (no hard upper cap).</p>
@@ -238,7 +238,7 @@
         context = initContext || {};
         buildUI();
         loadCensorWords();
-        pushMessage('Chat ready. Use /give, /spawn, /tp, /time, /height, /set, /enchant, /gamemode, /grantme, /ungrantme, /help. Try /spawn structure:village biome:plains building:house_small', 'chat-info');
+        pushMessage('Chat ready. Use /give, /spawn, /tp, /time, /height, /set, /enchant, /gamemode, /grantme, /ungrantme, /help. Try /tp structure:ruins biome:jungle', 'chat-info');
     }
 
     window.SingleplayerChat = {

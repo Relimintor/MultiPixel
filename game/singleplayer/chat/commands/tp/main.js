@@ -36,20 +36,30 @@
     const named = parseTpNamedArgs(parts);
     if (named.structureName || named.biomeName) {
       if (named.structureName) {
-        if (named.structureName !== 'village') {
-          return { handled: true, ok: false, message: 'Usage: /tp structure:village biome:<plains|desert|jungle_forest|oak_forest|ocean|snowy_plains>' };
+        if (named.structureName !== 'village' && named.structureName !== 'ruins' && named.structureName !== 'ruin') {
+          return { handled: true, ok: false, message: 'Usage: /tp structure:<village|ruins> biome:<name>' };
         }
         if (!named.biomeName) {
-          return { handled: true, ok: false, message: 'Usage: /tp structure:village biome:<plains|desert|jungle_forest|oak_forest|ocean|snowy_plains>' };
+          return { handled: true, ok: false, message: 'Usage: /tp structure:<village|ruins> biome:<name>' };
         }
-        if (!ctx.teleportToVillageStructure) {
+        if (named.structureName === 'village') {
+          if (!ctx.teleportToVillageStructure) {
+            return { handled: true, ok: false, message: 'Teleport system unavailable.' };
+          }
+          const result = ctx.teleportToVillageStructure(named.biomeName);
+          if (!result?.ok) {
+            return { handled: true, ok: false, message: result?.message || `Could not find village biome: ${named.biomeName}` };
+          }
+          return { handled: true, ok: true, message: result.message || `Teleported to ${result.structure || 'village'} in ${result.biome}.` };
+        }
+        if (!ctx.teleportToRuinStructure) {
           return { handled: true, ok: false, message: 'Teleport system unavailable.' };
         }
-        const result = ctx.teleportToVillageStructure(named.biomeName);
+        const result = ctx.teleportToRuinStructure(named.biomeName);
         if (!result?.ok) {
-          return { handled: true, ok: false, message: result?.message || `Could not find village biome: ${named.biomeName}` };
+          return { handled: true, ok: false, message: result?.message || `Could not find ruins biome: ${named.biomeName}` };
         }
-        return { handled: true, ok: true, message: result.message || `Teleported to ${result.structure || 'village'} in ${result.biome}.` };
+        return { handled: true, ok: true, message: result.message || `Teleported to ${result.structure || 'ruins'} in ${result.biome}.` };
       }
 
       if (!named.biomeName) {
@@ -69,7 +79,7 @@
     const y = Number.parseFloat(parts[2]);
     const z = Number.parseFloat(parts[3]);
     if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
-      return { handled: true, ok: false, message: 'Usage: /tp <x> <y> <z> OR /tp biome:<name> OR /tp structure:village biome:<name>' };
+      return { handled: true, ok: false, message: 'Usage: /tp <x> <y> <z> OR /tp biome:<name> OR /tp structure:<village|ruins> biome:<name>' };
     }
 
     if (!ctx.teleportToCoordinates) {
