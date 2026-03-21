@@ -21,19 +21,19 @@
       ravineActivationThreshold: 0.9,
     },
     // Limit new chunk generation per update to avoid frame spikes while moving/jumping.
-    chunkCreationBudgetPerTick: 3,
+    chunkCreationBudgetPerTick: 2,
     chunkCreationBudgetOnForceUpdate: 10,
     // Max chunk mesh rebuilds processed per frame from the remesh queue.
-    meshRebuildBudgetPerFrame: 2,
+    meshRebuildBudgetPerFrame: 1,
     // Tick-limiting caps to prevent chain-reaction lag spikes.
-    blockUpdatesPerTickMax: 100,
-    fluidUpdatesPerTickMax: 100,
-    redstoneUpdatesPerTickMax: 100,
+    blockUpdatesPerTickMax: 60,
+    fluidUpdatesPerTickMax: 40,
+    redstoneUpdatesPerTickMax: 40,
     // Chunk render distance in chunk units (radius). Lower default keeps performance stable.
     // Players can still raise it in-game with the render-distance command.
-    chunkRenderDistance: 4,
+    chunkRenderDistance: 3,
     // Entities farther than this many blocks are frozen (AI/pathfinding/physics skipped).
-    entityActivationRange: 72,
+    entityActivationRange: 48,
     biomeMap: {
       // Enable optional micro-variants for fuller biome variety in this profile.
       enableBambooJungleVariant: true,
@@ -44,16 +44,16 @@
       regionHillChance: 0.08,
     },
     treeDensityByBiome: {
-      Forest: 0.30,
-      'Jungle Forest': 0.60,
+      Forest: 0.40,
+      'Jungle Forest': 0.75,
       Plains: 0.065,
       Mountains: 0.02,
       'Snowy Plains': 0.01,
       Desert: 0,
       Ocean: 0,
     },
-    treeClusterBonus: 0.17,
-    treeMinSpacingChance: 0.78,
+    treeClusterBonus: 0.35,
+    treeMinSpacingChance: 0.4,
     decorations: {
       amethystGeodes: {
         enabled: true,
@@ -544,7 +544,7 @@
     100: { name: 'Bamboo Young', id: 100, textured: true, textureKey: 'BAMBOO_STAGE0', transparent: true, opacity: 1 },
     101: { name: 'Bamboo Stalk', id: 101, textured: true, textureKey: 'BAMBOO_STALK', transparent: true, opacity: 1 },
     109: { name: 'Melon Slice', id: 109, textured: true, textureKey: 'MELON_SLICE' },
-    110: { name: 'Pumpkin', id: 110, textured: true, textureKey: 'Pumpkin',
+    110: { name: 'Pumpkin', id: 110, textured: true,
           textureKey: 'PUMPKIN_TOP',  
       textureByFace: {
         top: 'PUMPKIN_TOP',
@@ -566,7 +566,7 @@
     REPO_BASE_PREFIX,
     WORLD_GEN_SETTINGS,
     ASSET_FILEPATHS, blockMaterials,
-    SOLID_BLOCKS: [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 110 ],
+    SOLID_BLOCKS: [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 108, 110 ],
     LIQUID_BLOCKS: [4, 33, 47, 48, 49, 50, 51, 52, 53, 60, 61, 62, 63, 64, 65, 66],
     DEFAULT_PLAYER: {
       moveSpeed: 0.12,
