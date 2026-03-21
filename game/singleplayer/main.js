@@ -242,11 +242,11 @@ window.perlin = perlinInstance;
                     hitboxes.push({ hitbox, profile });
                 }
             };
-            pushHitboxes(zombieEntities, 'zombieHitbox', { style: 'hostile' });
-            pushHitboxes(wolfEntities, 'wolfHitbox', { style: 'passive' });
-            pushHitboxes(pandaEntities, 'pandaHitbox', { style: 'passive' });
-            pushHitboxes(villagerEntities, 'villagerHitbox', { style: 'interact' });
-            pushHitboxes(pigEntities, 'pigHitbox', { style: 'passive' });
+            pushHitboxes(zombieMob?.getEntities?.() || [], 'zombieHitbox', { style: 'hostile' });
+            pushHitboxes(wolfMob?.getEntities?.() || [], 'wolfHitbox', { style: 'passive' });
+            pushHitboxes(pandaMob?.getEntities?.() || [], 'pandaHitbox', { style: 'passive' });
+            pushHitboxes(villagerMob?.getEntities?.() || [], 'villagerHitbox', { style: 'interact' });
+            pushHitboxes(pigMob?.getEntities?.() || [], 'pigHitbox', { style: 'passive' });
             if (!hitboxes.length) return null;
             const hits = raycaster.intersectObjects(hitboxes.map((entry) => entry.hitbox), false);
             if (!hits.length) return null;
@@ -428,6 +428,11 @@ window.perlin = perlinInstance;
         let chunkStreamOptimizations = null;
         let defaultPlayerSkin = null;
         let dirtToGrassLoop = null;
+        let pigMob = null;
+        let zombieMob = null;
+        let wolfMob = null;
+        let pandaMob = null;
+        let villagerMob = null;
         remeshOptimizations = window.SingleplayerChunkRemeshOptimizations?.create?.({
             getChunkKey: chunkKeyFromCoords,
             getChunk: (key) => chunks.get(key),
@@ -468,6 +473,95 @@ window.perlin = perlinInstance;
             getColumnTopFromData,
             setBlockTypeRaw,
         }) || null;
+        pigMob = window.SingleplayerPigMob?.create?.({
+            THREE,
+            getScene: () => scene,
+            getYawObject: () => yawObject,
+            getInventory: () => inventory,
+            getSelectedHotbarIndex: () => selectedHotbarIndex,
+            getLightingSystem: () => lightingSystem,
+            getRaycaster: () => raycaster,
+            prepareCrosshairRaycast,
+            getSurfaceYForEntity,
+            getBlockType,
+            isLiquid,
+            isSolid,
+            isEntityActiveAt,
+            applyMobCommandHeight,
+            applyHitFeedback,
+            tickMobHitFeedback,
+            showGameMessage,
+        }) || null;
+        zombieMob = window.SingleplayerZombieMob?.create?.({
+            THREE,
+            getScene: () => scene,
+            CHUNK_HEIGHT,
+            getYawObject: () => yawObject,
+            getLightingSystem: () => lightingSystem,
+            getTimePhaseInfo,
+            getRaycaster: () => raycaster,
+            prepareCrosshairRaycast,
+            getSurfaceYForEntity,
+            getBlockType,
+            isLiquid,
+            isSolid,
+            isEntityActiveAt,
+            applyMobCommandHeight,
+            applyHitFeedback,
+            tickMobHitFeedback,
+            takeDamage,
+            addToInventory,
+            showGameMessage,
+        }) || null;
+        wolfMob = window.SingleplayerWolfMob?.create?.({
+            THREE,
+            getScene: () => scene,
+            getYawObject: () => yawObject,
+            getRaycaster: () => raycaster,
+            prepareCrosshairRaycast,
+            getSurfaceYForEntity,
+            isEntityActiveAt,
+            applyMobCommandHeight,
+            applyHitFeedback,
+            showGameMessage,
+            getPigEntities: () => pigMob?.getEntities?.() || [],
+            getZombieEntities: () => zombieMob?.getEntities?.() || [],
+            hurtPig: (pig, amount, source, sourcePos, extraKnockback) => pigMob?.hurt?.(pig, amount, source, sourcePos, extraKnockback),
+            hurtZombie: (zombie, amount, sourcePos, extraKnockback) => zombieMob?.hurt?.(zombie, amount, sourcePos, extraKnockback),
+        }) || null;
+        pandaMob = window.SingleplayerPandaMob?.create?.({
+            THREE,
+            getScene: () => scene,
+            getYawObject: () => yawObject,
+            getRaycaster: () => raycaster,
+            prepareCrosshairRaycast,
+            getSurfaceYForEntity,
+            isEntityActiveAt,
+            applyMobCommandHeight,
+            applyHitFeedback,
+            tickMobHitFeedback,
+            showGameMessage,
+            addToInventory,
+            takeDamage,
+        }) || null;
+        villagerMob = window.SingleplayerVillagerMob?.create?.({
+            THREE,
+            getScene: () => scene,
+            getYawObject: () => yawObject,
+            getRaycaster: () => raycaster,
+            prepareCrosshairRaycast,
+            getSurfaceYForEntity,
+            getBlockType,
+            isLiquid,
+            isEntityActiveAt,
+            applyMobCommandHeight,
+            applyHitFeedback,
+            tickMobHitFeedback,
+            showGameMessage,
+            getZombieEntities: () => zombieMob?.getEntities?.() || [],
+            createStevePartMesh,
+            getSkinPartRects,
+        }) || null;
         let yawObject, pitchObject; 
         let currentPlayerHeight = playerRuntime.currentPlayerHeight;
 
@@ -500,23 +594,6 @@ window.perlin = perlinInstance;
         let iglooStructureDef = null;
         const villageTemplatesByBiomeKey = new Map();
         const gnomeEntities = [];
-        const pigEntities = [];
-        const zombieEntities = [];
-        const wolfEntities = [];
-        const pandaEntities = [];
-        const villagerEntities = [];
-        const pigMobDef = window.SingleplayerMobData?.categories?.passive?.pig || null;
-        const pigGoalPriority = Array.isArray(pigMobDef?.behavior?.goals)
-            ? [...pigMobDef.behavior.goals].sort((a, b) => a.priority - b.priority)
-            : [];
-        const villagerMobDef = window.SingleplayerMobData?.categories?.passive?.villager || null;
-        const villagerGoalPriority = Array.isArray(villagerMobDef?.behavior?.goals)
-            ? [...villagerMobDef.behavior.goals].sort((a, b) => a.priority - b.priority)
-            : [];
-        let pigTexture = null;
-        let pandaTexture = null;
-        let zombieTexture = null;
-        let zombieSpawnTimerMs = 0;
         let bambooGrowthTimerMs = 0;
         let eatOverlayEl = playerRuntime.eatOverlayEl;
         let eatItemEl = playerRuntime.eatItemEl;
@@ -541,11 +618,11 @@ window.perlin = perlinInstance;
             PlayerMobInteractions.resolveMobEntityPushing({
                 yawObject,
                 PLAYER_RADIUS,
-                pigEntities,
-                wolfEntities,
-                pandaEntities,
-                zombieEntities,
-                villagerEntities,
+                pigEntities: pigMob?.getEntities?.() || [],
+                wolfEntities: wolfMob?.getEntities?.() || [],
+                pandaEntities: pandaMob?.getEntities?.() || [],
+                zombieEntities: zombieMob?.getEntities?.() || [],
+                villagerEntities: villagerMob?.getEntities?.() || [],
                 gnomeEntities,
                 mobCollisionRadius: MOB_COLLISION_RADIUS,
             });
@@ -758,13 +835,13 @@ window.perlin = perlinInstance;
             scene.add(worldGroup);
 
     
-            await loadPigTexture();
-            await loadPandaTexture();
-            await loadZombieTexture();
+            await pigMob?.loadTexture?.();
+            await pandaMob?.loadTexture?.();
+            await zombieMob?.loadTexture?.();
             generateWorld();
-            spawnInitialPigs();
-            spawnInitialWolves();
-            spawnInitialPandas();
+            pigMob?.spawnInitial?.();
+            wolfMob?.spawnInitial?.();
+            pandaMob?.spawnInitial?.();
             setupPointerLockControls();
             setupKeyboardControls();
             setupBlockInteraction();
@@ -1294,354 +1371,6 @@ window.perlin = perlinInstance;
             }
         }
 
-        async function loadPigTexture() {
-            const path = window.SingleplayerConfig?.ASSET_FILEPATHS?.PIG_TEXTURE;
-            if (!path) return;
-            pigTexture = await new Promise((resolve) => {
-                new THREE.TextureLoader().load(path, (t) => {
-                    t.magFilter = THREE.NearestFilter;
-                    t.minFilter = THREE.NearestFilter;
-                    t.flipY = false;
-                    t.wrapS = THREE.ClampToEdgeWrapping;
-                    t.wrapT = THREE.ClampToEdgeWrapping;
-                    resolve(t);
-                }, undefined, () => resolve(null));
-            });
-        }
-
-        async function loadPandaTexture() {
-            const path = window.SingleplayerConfig?.ASSET_FILEPATHS?.PANDA_TEXTURE;
-            if (!path) return;
-            pandaTexture = await new Promise((resolve) => {
-                new THREE.TextureLoader().load(path, (t) => {
-                    t.magFilter = THREE.NearestFilter;
-                    t.minFilter = THREE.NearestFilter;
-                    t.flipY = false;
-                    t.wrapS = THREE.ClampToEdgeWrapping;
-                    t.wrapT = THREE.ClampToEdgeWrapping;
-                    resolve(t);
-                }, undefined, () => resolve(null));
-            });
-        }
-
-        async function loadZombieTexture() {
-            const path = window.SingleplayerConfig?.ASSET_FILEPATHS?.ZOMBIE_TEXTURE;
-            if (!path) return;
-            zombieTexture = await new Promise((resolve) => {
-                new THREE.TextureLoader().load(path, (t) => {
-                    t.magFilter = THREE.NearestFilter;
-                    t.minFilter = THREE.NearestFilter;
-                    t.flipY = false;
-                    t.wrapS = THREE.ClampToEdgeWrapping;
-                    t.wrapT = THREE.ClampToEdgeWrapping;
-                    resolve(t);
-                }, undefined, () => resolve(null));
-            });
-        }
-
-        function createAtlasFaceTexture(baseTex, rect, atlasW = 64, atlasH = 32) {
-            if (!baseTex || !rect) return null;
-            const [x, y, w, h] = rect;
-            const tex = baseTex.clone();
-            tex.magFilter = THREE.NearestFilter;
-            tex.minFilter = THREE.NearestFilter;
-            tex.flipY = false;
-            tex.wrapS = THREE.ClampToEdgeWrapping;
-            tex.wrapT = THREE.ClampToEdgeWrapping;
-            tex.repeat.set(w / atlasW, h / atlasH);
-            tex.offset.set(x / atlasW, 1 - ((y + h) / atlasH));
-            tex.needsUpdate = true;
-            return tex;
-        }
-
-        function buildMobPartFaceRects(x, y, w, h, d) {
-            return {
-                0: [x, y + d, w, h],
-                1: [x + w + d, y + d, w, h],
-                2: [x + w, y, w, d],
-                3: [x + w + d, y, w, d],
-                4: [x + w, y + d, w, h],
-                5: [x + (w * 2) + d, y + d, w, h],
-            };
-        }
-
-        function createPigPart(dim, rects) {
-            const mats = [];
-            for (let i = 0; i < 6; i++) {
-                const faceTex = createAtlasFaceTexture(pigTexture, rects[i], 64, 32);
-                mats.push(new THREE.MeshStandardMaterial({ map: faceTex || null, color: faceTex ? 0xffffff : 0xe8b6b8, roughness: 0.92 }));
-            }
-            return new THREE.Mesh(new THREE.BoxGeometry(dim[0], dim[1], dim[2]), mats);
-        }
-
-        function createPigMesh() {
-            const U = 1 / 16;
-            const pig = new THREE.Group();
-
-            const body = createPigPart([10 * U, 8 * U, 16 * U], buildMobPartFaceRects(28, 8, 10, 8, 16));
-            body.position.y = 10 * U;
-            pig.add(body);
-
-            const head = createPigPart([8 * U, 8 * U, 8 * U], buildMobPartFaceRects(0, 0, 8, 8, 8));
-            head.position.set(0, 11 * U, 10 * U);
-            pig.add(head);
-
-            const legRects = buildMobPartFaceRects(0, 16, 4, 6, 4);
-            const legOffsets = [[-3*U, 3*U, 5*U], [3*U, 3*U, 5*U], [-3*U, 3*U, -5*U], [3*U, 3*U, -5*U]];
-            const legs = [];
-            for (const off of legOffsets) {
-                const leg = createPigPart([4 * U, 6 * U, 4 * U], legRects);
-                leg.position.set(off[0], off[1], off[2]);
-                pig.add(leg);
-                legs.push(leg);
-            }
-
-            const hitbox = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.9, 1.0), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
-            hitbox.position.set(0, 0.5, 0);
-            hitbox.userData.pigHitbox = true;
-            pig.add(hitbox);
-            pig.userData.pigHitbox = hitbox;
-            pig.userData.pigHead = head;
-            pig.userData.pigLegs = legs;
-            return pig;
-        }
-
-
-        function createVillagerMesh() {
-            const villager = new THREE.Group();
-            const U = 1 / 16;
-
-            const head = createStevePartMesh(
-                [8 * U, 8 * U, 8 * U],
-                getSkinPartRects('head', false),
-                getSkinPartRects('head', true)
-            );
-            head.position.y = 28 * U;
-
-            const body = createStevePartMesh(
-                [8 * U, 12 * U, 4 * U],
-                getSkinPartRects('body', false),
-                getSkinPartRects('body', true)
-            );
-            body.position.y = 18 * U;
-
-            const rightArmPivot = new THREE.Group();
-            rightArmPivot.position.set(6 * U, 24 * U, 0);
-            const rightArm = createStevePartMesh(
-                [4 * U, 12 * U, 4 * U],
-                getSkinPartRects('rightArm', false),
-                getSkinPartRects('rightArm', true)
-            );
-            rightArm.position.set(0, -6 * U, 0);
-            rightArmPivot.add(rightArm);
-
-            const leftArmPivot = new THREE.Group();
-            leftArmPivot.position.set(-6 * U, 24 * U, 0);
-            const leftArm = createStevePartMesh(
-                [4 * U, 12 * U, 4 * U],
-                getSkinPartRects('leftArm', false),
-                getSkinPartRects('leftArm', true)
-            );
-            leftArm.position.set(0, -6 * U, 0);
-            leftArmPivot.add(leftArm);
-
-            const rightLegPivot = new THREE.Group();
-            rightLegPivot.position.set(2 * U, 12 * U, 0);
-            const rightLeg = createStevePartMesh(
-                [4 * U, 12 * U, 4 * U],
-                getSkinPartRects('rightLeg', false),
-                getSkinPartRects('rightLeg', true)
-            );
-            rightLeg.position.set(0, -6 * U, 0);
-            rightLegPivot.add(rightLeg);
-
-            const leftLegPivot = new THREE.Group();
-            leftLegPivot.position.set(-2 * U, 12 * U, 0);
-            const leftLeg = createStevePartMesh(
-                [4 * U, 12 * U, 4 * U],
-                getSkinPartRects('leftLeg', false),
-                getSkinPartRects('leftLeg', true)
-            );
-            leftLeg.position.set(0, -6 * U, 0);
-            leftLegPivot.add(leftLeg);
-
-            villager.add(body, head, leftArmPivot, rightArmPivot, leftLegPivot, rightLegPivot);
-            const hitbox = new THREE.Mesh(
-                new THREE.BoxGeometry(0.62, 1.78, 0.62),
-                new THREE.MeshBasicMaterial({ visible: false })
-            );
-            hitbox.position.y = 0.9;
-            villager.add(hitbox);
-            villager.userData.villagerParts = { head, leftArmPivot, rightArmPivot, leftLegPivot, rightLegPivot };
-            villager.userData.villagerHitbox = hitbox;
-            return villager;
-        }
-
-        function createWolfMesh() {
-            const U = 1 / 16;
-            const wolf = new THREE.Group();
-            const furMat = new THREE.MeshStandardMaterial({ color: 0x9ea4ad, roughness: 0.9 });
-            const darkMat = new THREE.MeshStandardMaterial({ color: 0x676d75, roughness: 0.92 });
-
-            const body = new THREE.Mesh(new THREE.BoxGeometry(10 * U, 6 * U, 16 * U), furMat);
-            body.position.y = 9 * U;
-            wolf.add(body);
-
-            const neck = new THREE.Mesh(new THREE.BoxGeometry(6 * U, 6 * U, 6 * U), darkMat);
-            neck.position.set(0, 10 * U, 7 * U);
-            wolf.add(neck);
-
-            const head = new THREE.Mesh(new THREE.BoxGeometry(6 * U, 6 * U, 6 * U), furMat);
-            head.position.set(0, 11 * U, 11 * U);
-            wolf.add(head);
-
-            const legOffsets = [[-3*U, 3*U, 5*U], [3*U, 3*U, 5*U], [-3*U, 3*U, -5*U], [3*U, 3*U, -5*U]];
-            const legs = [];
-            for (const off of legOffsets) {
-                const leg = new THREE.Mesh(new THREE.BoxGeometry(3 * U, 6 * U, 3 * U), darkMat);
-                leg.position.set(off[0], off[1], off[2]);
-                wolf.add(leg);
-                legs.push(leg);
-            }
-
-            const tailPivot = new THREE.Group();
-            tailPivot.position.set(0, 9 * U, -8 * U);
-            const tail = new THREE.Mesh(new THREE.BoxGeometry(2 * U, 6 * U, 2 * U), darkMat);
-            tail.position.set(0, 2.5 * U, -0.5 * U);
-            tailPivot.add(tail);
-            wolf.add(tailPivot);
-
-            const hitbox = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.95, 1.05), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
-            hitbox.position.set(0, 0.5, 0);
-            hitbox.userData.wolfHitbox = true;
-            wolf.add(hitbox);
-            wolf.userData.wolfHitbox = hitbox;
-            wolf.userData.wolfParts = { head, legs, tailPivot, neck };
-            return wolf;
-        }
-
-
-        function getPandaPartRects(partName) {
-            if (partName === 'head') return buildMobPartFaceRects(0, 0, 13, 10, 9);
-            if (partName === 'body') return buildMobPartFaceRects(0, 19, 19, 12, 9);
-            if (partName === 'leg') return buildMobPartFaceRects(0, 47, 6, 9, 6);
-            return null;
-        }
-
-        function createPandaPart(dim, rects) {
-            const mats = [];
-            for (let i = 0; i < 6; i++) {
-                const faceTex = createAtlasFaceTexture(pandaTexture, rects[i], 64, 64);
-                mats.push(new THREE.MeshStandardMaterial({ map: faceTex || null, color: faceTex ? 0xffffff : 0xf2f2f2, roughness: 0.88 }));
-            }
-            return new THREE.Mesh(new THREE.BoxGeometry(dim[0], dim[1], dim[2]), mats);
-        }
-
-        function createPandaMesh() {
-            const U = 1 / 16;
-            const panda = new THREE.Group();
-
-            const body = createPandaPart([19 * U, 12 * U, 13 * U], getPandaPartRects('body'));
-            body.position.y = 11 * U;
-            panda.add(body);
-
-            const head = createPandaPart([13 * U, 10 * U, 9 * U], getPandaPartRects('head'));
-            head.position.set(0, 14 * U, 9.5 * U);
-            panda.add(head);
-
-            const earMat = new THREE.MeshStandardMaterial({ color: 0x1f1f1f, roughness: 0.9 });
-            const leftEar = new THREE.Mesh(new THREE.BoxGeometry(2 * U, 2 * U, 2 * U), earMat);
-            const rightEar = leftEar.clone();
-            leftEar.position.set(-4 * U, 20 * U, 6 * U);
-            rightEar.position.set(4 * U, 20 * U, 6 * U);
-            panda.add(leftEar, rightEar);
-
-            const legOffsets = [[-6*U, 4.5*U, 4*U], [6*U, 4.5*U, 4*U], [-6*U, 4.5*U, -4*U], [6*U, 4.5*U, -4*U]];
-            const legs = [];
-            for (const off of legOffsets) {
-                const leg = createPandaPart([6 * U, 9 * U, 6 * U], getPandaPartRects('leg'));
-                leg.position.set(off[0], off[1], off[2]);
-                panda.add(leg);
-                legs.push(leg);
-            }
-
-            const hitbox = new THREE.Mesh(new THREE.BoxGeometry(1.15, 1.15, 1.1), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
-            hitbox.position.set(0, 0.6, 0);
-            hitbox.userData.pandaHitbox = true;
-            panda.add(hitbox);
-            panda.userData.pandaHitbox = hitbox;
-            panda.userData.pandaHead = head;
-            panda.userData.pandaLegs = legs;
-            return panda;
-        }
-
-        function getZombiePartRects(partName) {
-            // Minecraft 64x64 skin layout (classic model):
-            // right arm/leg use upper-sheet regions, left arm/leg use lower-sheet regions.
-            if (partName === 'head') return buildMobPartFaceRects(0, 0, 8, 8, 8);
-            if (partName === 'body') return buildMobPartFaceRects(16, 16, 8, 12, 4);
-            if (partName === 'rightArm') return buildMobPartFaceRects(40, 16, 4, 12, 4);
-            if (partName === 'leftArm') return buildMobPartFaceRects(32, 48, 4, 12, 4);
-            if (partName === 'rightLeg') return buildMobPartFaceRects(0, 16, 4, 12, 4);
-            if (partName === 'leftLeg') return buildMobPartFaceRects(16, 48, 4, 12, 4);
-            return null;
-        }
-
-        function createZombiePart(dim, rects) {
-            const mats = [];
-            for (let i = 0; i < 6; i++) {
-                const faceTex = createAtlasFaceTexture(zombieTexture, rects[i], 64, 64);
-                mats.push(new THREE.MeshStandardMaterial({ map: faceTex || null, color: faceTex ? 0xffffff : 0x72b86a, roughness: 0.88 }));
-            }
-            return new THREE.Mesh(new THREE.BoxGeometry(dim[0], dim[1], dim[2]), mats);
-        }
-
-        function createZombieMesh() {
-            const U = 1 / 16;
-            const root = new THREE.Group();
-
-            const body = createZombiePart([8 * U, 12 * U, 4 * U], getZombiePartRects('body'));
-            body.position.y = 18 * U;
-            root.add(body);
-
-            const head = createZombiePart([8 * U, 8 * U, 8 * U], getZombiePartRects('head'));
-            head.position.y = 28 * U;
-            root.add(head);
-
-            const rightArmPivot = new THREE.Group();
-            rightArmPivot.position.set(6 * U, 24 * U, 0);
-            const rightArm = createZombiePart([4 * U, 12 * U, 4 * U], getZombiePartRects('rightArm'));
-            rightArm.position.set(0, -6 * U, 0);
-            rightArmPivot.add(rightArm);
-
-            const leftArmPivot = new THREE.Group();
-            leftArmPivot.position.set(-6 * U, 24 * U, 0);
-            const leftArm = createZombiePart([4 * U, 12 * U, 4 * U], getZombiePartRects('leftArm'));
-            leftArm.position.set(0, -6 * U, 0);
-            leftArmPivot.add(leftArm);
-
-            const rightLegPivot = new THREE.Group();
-            rightLegPivot.position.set(2 * U, 12 * U, 0);
-            const rightLeg = createZombiePart([4 * U, 12 * U, 4 * U], getZombiePartRects('rightLeg'));
-            rightLeg.position.set(0, -6 * U, 0);
-            rightLegPivot.add(rightLeg);
-
-            const leftLegPivot = new THREE.Group();
-            leftLegPivot.position.set(-2 * U, 12 * U, 0);
-            const leftLeg = createZombiePart([4 * U, 12 * U, 4 * U], getZombiePartRects('leftLeg'));
-            leftLeg.position.set(0, -6 * U, 0);
-            leftLegPivot.add(leftLeg);
-
-            root.add(leftArmPivot, rightArmPivot, leftLegPivot, rightLegPivot);
-
-            const hitbox = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.8, 0.8), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
-            hitbox.position.set(0, 0.9, 0);
-            hitbox.userData.zombieHitbox = true;
-            root.add(hitbox);
-            root.userData.zombieHitbox = hitbox;
-            root.userData.zombieParts = { head, leftArmPivot, rightArmPivot, leftLegPivot, rightLegPivot };
-            return root;
-        }
 
         function getColumnTopFromData(data, lx, lz) {
             for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
@@ -1707,1201 +1436,40 @@ window.perlin = perlinInstance;
             return -1;
         }
 
-        function spawnPigAt(wx, wz, heightBlocks = null) {
-            const y = getSurfaceYForEntity(wx, wz);
-            if (y < SEA_LEVEL || y > SEA_LEVEL + 24) return false;
-            const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
-            if (under !== 1 && under !== 2) return false;
-            const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(Math.floor(wx), y, Math.floor(wz)) : 15;
-            if (lightLevel < 7) return false;
-            return spawnPigAtExact(wx, y, wz, heightBlocks);
-        }
-
-        function spawnPigAtExact(wx, y, wz, heightBlocks = null) {
-            const pigRoot = createPigMesh();
-            applyMobCommandHeight(pigRoot, heightBlocks, 0.9);
-            pigRoot.position.set(Math.floor(wx) + 0.5, y, Math.floor(wz) + 0.5);
-            scene.add(pigRoot);
-            pigEntities.push({
-                root: pigRoot,
-                hp: 8,
-                panicUntilMs: 0,
-                dir: new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize(),
-                changeDirMs: 900 + Math.random() * 1800,
-                groundProbeMs: 0,
-                targetY: y,
-                bobPhase: Math.random() * Math.PI * 2,
-                lookYaw: 0,
-                lookPitch: 0,
-                lookTargetYaw: 0,
-                lookTargetPitch: 0,
-                nextLookChangeMs: 0,
-                knockbackVX: 0,
-                knockbackVZ: 0,
-                hitFlashMs: 0,
-            });
-            return true;
-        }
-
-        function spawnInitialPigs() {
-            let spawned = 0;
-            for (let i = 0; i < 120 && spawned < 10; i++) {
-                const wx = (Math.random() * 2 - 1) * (WORLD_RADIUS * CHUNK_SIZE * 0.72);
-                const wz = (Math.random() * 2 - 1) * (WORLD_RADIUS * CHUNK_SIZE * 0.72);
-                if (spawnPigAt(wx, wz)) spawned++;
-            }
-        }
-
-        function spawnInitialWolves() {
-            let spawned = 0;
-            for (let i = 0; i < 180 && spawned < 8; i++) {
-                const wx = (Math.random() * 2 - 1) * (WORLD_RADIUS * CHUNK_SIZE * 0.68);
-                const wz = (Math.random() * 2 - 1) * (WORLD_RADIUS * CHUNK_SIZE * 0.68);
-                if (spawnWolfAt(wx, wz)) spawned++;
-            }
-        }
-
-        function spawnInitialPandas() {
-            let spawned = 0;
-            for (let i = 0; i < 220 && spawned < 8; i++) {
-                const wx = (Math.random() * 2 - 1) * (WORLD_RADIUS * CHUNK_SIZE * 0.7);
-                const wz = (Math.random() * 2 - 1) * (WORLD_RADIUS * CHUNK_SIZE * 0.7);
-                if (spawnPandaAt(wx, wz)) spawned++;
-            }
-        }
-
         function applyMobCommandHeight(root, heightBlocks, defaultHeight) {
-            const requestedHeight = Number(heightBlocks);
-            if (!root || !Number.isFinite(requestedHeight) || requestedHeight <= 0 || !Number.isFinite(defaultHeight) || defaultHeight <= 0) {
-                return 1;
-            }
-            const scale = requestedHeight / defaultHeight;
-            root.scale.set(scale, scale, scale);
-            return scale;
+            const parsed = Number(heightBlocks);
+            if (!Number.isFinite(parsed) || parsed <= 0) return;
+            const scale = parsed / (defaultHeight || parsed);
+            root.scale.setScalar(scale);
         }
 
         function spawnMobById(mobId, amount = 1, heightBlocks = null) {
             const id = Number.parseInt(mobId, 10);
+            const count = Math.max(1, Math.min(64, Number.parseInt(amount, 10) || 1));
             if (!Number.isFinite(id)) return 0;
-            const qty = Math.max(1, Math.min(64, Number.parseInt(amount, 10) || 1));
+            if (!yawObject) return 0;
             let spawned = 0;
-
-            for (let i = 0; i < qty; i++) {
-                const angle = Math.random() * Math.PI * 2;
-                const dist = 3 + Math.random() * 6;
-                const wx = yawObject.position.x + Math.cos(angle) * dist;
-                const wz = yawObject.position.z + Math.sin(angle) * dist;
-                const ok = id === 1 ? spawnPigAt(wx, wz, heightBlocks) : (id === 2 ? spawnZombieAt(wx, wz, heightBlocks) : (id === 3 ? spawnWolfForCommand(wx, wz, heightBlocks) : (id === 4 ? spawnPandaForCommand(wx, wz, heightBlocks) : (id === 5 ? spawnVillagerForCommand(wx, wz, heightBlocks) : false))));
+            for (let i = 0; i < count; i++) {
+                const wx = yawObject.position.x + (Math.random() - 0.5) * 4;
+                const wz = yawObject.position.z + (Math.random() - 0.5) * 4;
+                const ok = id === 1
+                    ? pigMob?.spawnAt?.(wx, wz, heightBlocks)
+                    : (id === 2
+                        ? zombieMob?.spawnAt?.(wx, wz, heightBlocks)
+                        : (id === 3
+                            ? wolfMob?.spawnForCommand?.(wx, wz, heightBlocks)
+                            : (id === 4
+                                ? pandaMob?.spawnForCommand?.(wx, wz, heightBlocks)
+                                : (id === 5
+                                    ? villagerMob?.spawnForCommand?.(wx, wz, heightBlocks)
+                                    : false))));
                 if (ok) spawned++;
             }
             return spawned;
         }
 
-        function getHeldItemMobKey() {
-            const held = inventory[selectedHotbarIndex];
-            if (!held) return '';
-            const mat = blockMaterials[held.id] || {};
-            return String(mat.key || mat.name || '').toLowerCase().replace(/\s+/g, '_');
-        }
-
-        function findPigTemptDirection(pig) {
-            const temptItems = new Set((pigMobDef?.behavior?.temptItems || []).map((item) => String(item).toLowerCase()));
-            if (!temptItems.size) return null;
-            const heldKey = getHeldItemMobKey();
-            if (!heldKey || !temptItems.has(heldKey)) return null;
-            const toPlayer = new THREE.Vector3(yawObject.position.x - pig.root.position.x, 0, yawObject.position.z - pig.root.position.z);
-            const dist = toPlayer.length();
-            if (dist < 1.2 || dist > 14) return null;
-            return toPlayer.normalize();
-        }
-
-        function choosePigPriorityGoal(pig, nowMs, nx, nz) {
-            const inLiquid = isLiquid(getBlockType(Math.floor(pig.root.position.x), Math.floor(pig.root.position.y), Math.floor(pig.root.position.z)));
-            const panicActive = pig.panicUntilMs > nowMs;
-            const temptDir = findPigTemptDirection(pig);
-
-            for (const goal of pigGoalPriority) {
-                if (goal.key === 'float' && inLiquid) {
-                    return { key: goal.key, speed: 1.2, dir: pig.dir.clone(), forceRaise: true, avoidWater: false };
-                }
-                if (goal.key === 'panic' && panicActive) {
-                    return { key: goal.key, speed: 1.35, dir: pig.dir.clone(), forceRaise: false, avoidWater: true };
-                }
-                if (goal.key === 'tempt' && temptDir) {
-                    return { key: goal.key, speed: 0.95, dir: temptDir, forceRaise: false, avoidWater: true };
-                }
-                if (goal.key === 'stroll') {
-                    const nextBlock = getBlockType(Math.floor(nx), Math.floor(pig.root.position.y), Math.floor(nz));
-                    if (isLiquid(nextBlock)) {
-                        const turnDir = new THREE.Vector3(-pig.dir.z, 0, pig.dir.x);
-                        if (turnDir.lengthSq() > 0.000001) turnDir.normalize();
-                        return { key: goal.key, speed: 0.75, dir: turnDir, forceRaise: false, avoidWater: true };
-                    }
-                    return { key: goal.key, speed: 0.75, dir: pig.dir.clone(), forceRaise: false, avoidWater: true };
-                }
-                if (goal.key === 'lookAtPlayer') {
-                    const toPlayer = new THREE.Vector3(yawObject.position.x - pig.root.position.x, 0, yawObject.position.z - pig.root.position.z);
-                    if (toPlayer.lengthSq() > 0.000001 && toPlayer.length() < 8) {
-                        return { key: goal.key, speed: 0.6, dir: toPlayer.normalize(), forceRaise: false, avoidWater: true, lookAtPlayer: true };
-                    }
-                }
-                if (goal.key === 'idleLook') {
-                    return { key: goal.key, speed: 0.55, dir: pig.dir.clone(), forceRaise: false, avoidWater: true, idleLook: true };
-                }
-            }
-            return { key: 'default', speed: 0.75, dir: pig.dir.clone(), forceRaise: false, avoidWater: true };
-        }
-
-        function updatePigs(time, deltaMs) {
-            if (!pigEntities.length) return;
-            const dt = Math.max(0.001, Math.min(0.05, deltaMs / 1000));
-            const nowMs = performance.now();
-            for (const pig of pigEntities) {
-                if (!isEntityActiveAt(pig.root.position)) continue;
-                tickMobHitFeedback(pig, deltaMs);
-
-                pig.changeDirMs -= deltaMs;
-                if (pig.changeDirMs <= 0) {
-                    pig.changeDirMs = 900 + Math.random() * 1800;
-                    pig.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
-                }
-
-                const probeNx = pig.root.position.x + pig.dir.x * 0.75 * dt;
-                const probeNz = pig.root.position.z + pig.dir.z * 0.75 * dt;
-                const activeGoal = choosePigPriorityGoal(pig, nowMs, probeNx, probeNz);
-                if (activeGoal?.dir?.lengthSq() > 0.000001) pig.dir.copy(activeGoal.dir.normalize());
-
-                const speed = activeGoal?.speed || 0.75;
-                const nx = pig.root.position.x + pig.dir.x * speed * dt;
-                const nz = pig.root.position.z + pig.dir.z * speed * dt;
-
-                pig.groundProbeMs -= deltaMs;
-                if (pig.groundProbeMs <= 0) {
-                    pig.groundProbeMs = 220 + Math.random() * 180;
-                    pig.targetY = getSurfaceYForEntity(nx, nz, pig.targetY);
-                }
-
-                if (activeGoal?.forceRaise) {
-                    pig.targetY = Math.max(pig.targetY, pig.root.position.y + 0.065);
-                }
-
-                if (pig.targetY > 0) {
-                    pig.root.position.x = nx;
-                    pig.root.position.z = nz;
-                    pig.root.position.y += (pig.targetY - pig.root.position.y) * Math.min(1, dt * (activeGoal?.forceRaise ? 14 : 10));
-                }
-                pig.root.rotation.y = Math.atan2(pig.dir.x, pig.dir.z);
-
-                if (activeGoal?.lookAtPlayer) {
-                    const toPlayer = new THREE.Vector3(yawObject.position.x - pig.root.position.x, yawObject.position.y + 1.4 - pig.root.position.y, yawObject.position.z - pig.root.position.z);
-                    const yaw = Math.atan2(toPlayer.x, toPlayer.z) - pig.root.rotation.y;
-                    const pitch = Math.atan2(toPlayer.y, Math.max(0.01, Math.hypot(toPlayer.x, toPlayer.z)));
-                    pig.lookTargetYaw = Math.max(-0.55, Math.min(0.55, yaw));
-                    pig.lookTargetPitch = Math.max(-0.3, Math.min(0.3, pitch));
-                    pig.nextLookChangeMs = 0;
-                } else {
-                    pig.nextLookChangeMs -= deltaMs;
-                    if (pig.nextLookChangeMs <= 0) {
-                        pig.nextLookChangeMs = 700 + Math.random() * 1400;
-                        pig.lookTargetYaw = (Math.random() - 0.5) * 0.8;
-                        pig.lookTargetPitch = (Math.random() - 0.5) * 0.26;
-                    }
-                }
-
-                pig.lookYaw += (pig.lookTargetYaw - pig.lookYaw) * Math.min(1, dt * 6);
-                pig.lookPitch += (pig.lookTargetPitch - pig.lookPitch) * Math.min(1, dt * 6);
-
-                const head = pig.root.userData.pigHead;
-                if (head) {
-                    head.rotation.y = pig.lookYaw;
-                    head.rotation.x = pig.lookPitch;
-                }
-
-                const moving = speed > 0.62 || activeGoal?.forceRaise;
-                const swing = moving ? Math.sin(time * 0.008 + pig.bobPhase) * 0.17 : 0;
-                const legs = pig.root.userData.pigLegs || [];
-                if (legs[0]) legs[0].rotation.x = swing;
-                if (legs[1]) legs[1].rotation.x = -swing;
-                if (legs[2]) legs[2].rotation.x = -swing;
-                if (legs[3]) legs[3].rotation.x = swing;
-            }
-        }
-
-        function getPigHitFromCrosshair() {
-            if (!pigEntities.length) return null;
-            if (!prepareCrosshairRaycast()) return null;
-            const hitboxes = pigEntities.map(p => p.root.userData.pigHitbox).filter(Boolean);
-            const hits = raycaster.intersectObjects(hitboxes, false);
-            if (!hits.length) return null;
-            const hitObj = hits[0].object;
-            return pigEntities.find((p) => p.root.userData.pigHitbox === hitObj) || null;
-        }
-
-        function hurtPig(pig, amount = 4, source = 'player', sourcePos = null, extraKnockback = 0) {
-            if (!pig) return;
-            applyHitFeedback(pig, sourcePos, amount, extraKnockback);
-            pig.hp -= amount;
-            if (pig.hp > 0) {
-                pig.changeDirMs = 0;
-                pig.panicUntilMs = performance.now() + 3800;
-                pig.dir.set((Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2).normalize();
-                if (source === 'player') showGameMessage('Pig: oink!');
-                return;
-            }
-            const idx = pigEntities.indexOf(pig);
-            if (idx >= 0) pigEntities.splice(idx, 1);
-            scene.remove(pig.root);
-            const drops = 1 + Math.floor(Math.random() * 3);
-            addToInventory(89, drops);
-            showGameMessage(`+${drops} Raw Porkchop`);
-            if (Math.random() < 0.22) {
-                addToInventory(95, 1);
-                addToInventory(2, 1);
-                showGameMessage('+1 Bone +1 Dirt');
-            }
-        }
-
-        function spawnWolfAt(wx, wz, heightBlocks = null) {
-            const y = getSurfaceYForEntity(wx, wz);
-            if (y < SEA_LEVEL || y > SEA_LEVEL + 24) return false;
-            const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
-            if (under !== 1 && under !== 2) return false;
-            const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(Math.floor(wx), y, Math.floor(wz)) : 15;
-            if (lightLevel < 7) return false;
-            const biome = getBiome(Math.floor(wx), Math.floor(wz));
-            if (biome !== 'Forest') return false;
-            return spawnWolfAtExact(wx, y, wz, heightBlocks);
-        }
-
-        function spawnWolfAtExact(wx, y, wz, heightBlocks = null) {
-            const root = createWolfMesh();
-            applyMobCommandHeight(root, heightBlocks, 0.95);
-            root.position.set(Math.floor(wx) + 0.5, y, Math.floor(wz) + 0.5);
-            scene.add(root);
-            wolfEntities.push({
-                root,
-                hp: 16,
-                tamed: false,
-                attackCooldownMs: 0,
-                dir: new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize(),
-                changeDirMs: 800 + Math.random() * 1400,
-                groundProbeMs: 0,
-                targetY: y,
-                bobPhase: Math.random() * Math.PI * 2,
-                retargetMs: 0,
-                combatTarget: null,
-                combatTargetType: null,
-                knockbackVX: 0,
-                knockbackVZ: 0,
-                hitFlashMs: 0,
-            });
-            return true;
-        }
-
-
-        function spawnPandaAt(wx, wz, heightBlocks = null) {
-            const y = getSurfaceYForEntity(wx, wz);
-            if (y < SEA_LEVEL || y > SEA_LEVEL + 26) return false;
-            const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
-            if (under !== 1 && under !== 2) return false;
-            const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(Math.floor(wx), y, Math.floor(wz)) : 15;
-            if (lightLevel < 7) return false;
-            const biome = getBiome(Math.floor(wx), Math.floor(wz));
-            if (biome !== 'Jungle Forest') return false;
-            return spawnPandaAtExact(wx, y, wz, heightBlocks);
-        }
-
-        function spawnPandaAtExact(wx, y, wz, heightBlocks = null) {
-            const root = createPandaMesh();
-            applyMobCommandHeight(root, heightBlocks, 1.15);
-            root.position.set(Math.floor(wx) + 0.5, y, Math.floor(wz) + 0.5);
-
-            const isXRealm = Math.random() < 0.001;
-            if (isXRealm) {
-                const nameTag = createNameTagSprite('XREALM');
-                nameTag.position.set(0, 1.95, 0);
-                root.add(nameTag);
-                root.userData.specialNameTag = nameTag;
-            }
-
-            scene.add(root);
-            pandaEntities.push({
-                root,
-                hp: isXRealm ? Number.POSITIVE_INFINITY : 20,
-                invulnerable: isXRealm,
-                specialName: isXRealm ? 'XREALM' : '',
-                angerUntilMs: 0,
-                attackCooldownMs: 0,
-                dir: new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize(),
-                changeDirMs: 900 + Math.random() * 1500,
-                groundProbeMs: 0,
-                targetY: y,
-                bobPhase: Math.random() * Math.PI * 2,
-                knockbackVX: 0,
-                knockbackVZ: 0,
-                hitFlashMs: 0,
-            });
-            return true;
-        }
-
-        function spawnPandaForCommand(wx, wz, heightBlocks = null) {
-            if (spawnPandaAt(wx, wz, heightBlocks)) return true;
-            const y = getSurfaceYForEntity(wx, wz);
-            if (y < SEA_LEVEL || y > SEA_LEVEL + 36) return false;
-            const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
-            if (under !== 1 && under !== 2 && under !== 3 && under !== 7 && under !== 15) return false;
-            return spawnPandaAtExact(wx, y, wz, heightBlocks);
-        }
-
-        function spawnWolfForCommand(wx, wz, heightBlocks = null) {
-            if (spawnWolfAt(wx, wz, heightBlocks)) return true;
-            const y = getSurfaceYForEntity(wx, wz);
-            if (y < SEA_LEVEL || y > SEA_LEVEL + 36) return false;
-            const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
-            if (under !== 1 && under !== 2 && under !== 3 && under !== 7 && under !== 15) return false;
-            const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(Math.floor(wx), y, Math.floor(wz)) : 15;
-            if (lightLevel < 7) return false;
-            return spawnWolfAtExact(wx, y, wz, heightBlocks);
-        }
-
-
-        function spawnVillagerAtExact(wx, y, wz, homeCenter = null, villageCenter = null, poiTargets = null, heightBlocks = null) {
-            const root = createVillagerMesh();
-            applyMobCommandHeight(root, heightBlocks, 1.78);
-            root.position.set(Math.floor(wx) + 0.5, y, Math.floor(wz) + 0.5);
-            scene.add(root);
-            villagerEntities.push({
-                root,
-                hp: 20,
-                dir: new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize(),
-                changeDirMs: 1000 + Math.random() * 1600,
-                groundProbeMs: 0,
-                targetY: y,
-                bobPhase: Math.random() * Math.PI * 2,
-                homeCenter: homeCenter ? { x: homeCenter.x, z: homeCenter.z } : null,
-                villageCenter: villageCenter ? { x: villageCenter.x, z: villageCenter.z } : (homeCenter ? { x: homeCenter.x, z: homeCenter.z } : null),
-                poiTargets: Array.isArray(poiTargets) ? poiTargets.map((poi) => ({ x: Number(poi.x) || 0, z: Number(poi.z) || 0, key: String(poi.key || 'poi') })) : [],
-                roamRadius: 1.4 + Math.random() * 1.8,
-                currentMoveTarget: null,
-                currentPoiIndex: -1,
-                nextVillagePathSwitchMs: 0,
-                villagePathPhase: 0,
-                lookYaw: 0,
-                lookPitch: 0,
-                lookTargetYaw: 0,
-                lookTargetPitch: 0,
-                nextLookChangeMs: 0,
-                panicUntilMs: 0,
-                knockbackVX: 0,
-                knockbackVZ: 0,
-                hitFlashMs: 0,
-            });
-            return true;
-        }
-
-        function spawnVillagerForCommand(wx, wz, heightBlocks = null) {
-            const y = getSurfaceYForEntity(wx, wz);
-            if (y < SEA_LEVEL || y > SEA_LEVEL + 36) return false;
-            const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
-            if (under !== 1 && under !== 2 && under !== 3 && under !== 7 && under !== 15 && under !== 17 && under !== 13 && under !== 8) return false;
-            const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(Math.floor(wx), y, Math.floor(wz)) : 15;
-            if (lightLevel < 7) return false;
-            return spawnVillagerAtExact(wx, y, wz, { x: Math.floor(wx) + 0.5, z: Math.floor(wz) + 0.5 }, { x: Math.floor(wx) + 0.5, z: Math.floor(wz) + 0.5 }, [{ key: 'well', x: Math.floor(wx) + 0.5, z: Math.floor(wz) + 0.5 }], heightBlocks);
-        }
-
-
-        function findClosestZombieThreat(position, maxDist = 10) {
-            if (!zombieEntities.length) return null;
-            const maxSq = maxDist * maxDist;
-            let nearest = null;
-            let bestSq = maxSq;
-            for (const z of zombieEntities) {
-                const p = z?.root?.position;
-                if (!p) continue;
-                const dx = position.x - p.x;
-                const dz = position.z - p.z;
-                const d2 = dx * dx + dz * dz;
-                if (d2 < bestSq) {
-                    bestSq = d2;
-                    nearest = z;
-                }
-            }
-            return nearest;
-        }
-
-
-        function isVillagerRainActive() {
-            return Boolean(window.SingleplayerWeather?.isRaining || window.SingleplayerWeather?.rainActive || window.WorldWeather?.isRaining);
-        }
-
-        function getVillagerPoiTargets(villager) {
-            if (Array.isArray(villager?.poiTargets) && villager.poiTargets.length) return villager.poiTargets;
-            if (villager?.villageCenter) {
-                return [{ key: 'well', x: villager.villageCenter.x, z: villager.villageCenter.z }];
-            }
-            if (villager?.homeCenter) {
-                return [{ key: 'home', x: villager.homeCenter.x, z: villager.homeCenter.z }];
-            }
-            return [];
-        }
-
-        function applyVillagerTargetSteer(desiredDir, villager, target, weight = 1) {
-            if (!target) return false;
-            const tx = Number(target.x);
-            const tz = Number(target.z);
-            if (!Number.isFinite(tx) || !Number.isFinite(tz)) return false;
-            const toTarget = new THREE.Vector3(tx - villager.root.position.x, 0, tz - villager.root.position.z);
-            if (toTarget.lengthSq() < 0.0001) return false;
-            desiredDir.add(toTarget.normalize().multiplyScalar(weight));
-            return true;
-        }
-
-        function ensureVillagerVillagePathTarget(villager, nowMs) {
-            if ((villager.nextVillagePathSwitchMs || 0) > nowMs && villager.currentMoveTarget?.source === 'villagePath') return;
-            villager.nextVillagePathSwitchMs = nowMs + 1600 + Math.random() * 2200;
-
-            const home = villager.homeCenter;
-            const center = villager.villageCenter || home;
-            if (!home && !center) return;
-
-            villager.villagePathPhase = ((villager.villagePathPhase || 0) + 1) % 3;
-            if (villager.villagePathPhase === 0 && home) {
-                villager.currentMoveTarget = { x: home.x, z: home.z, source: 'villagePath-home' };
-                return;
-            }
-            if (villager.villagePathPhase === 1 && center) {
-                villager.currentMoveTarget = { x: center.x, z: center.z, source: 'villagePath-center' };
-                return;
-            }
-
-            if (home && center) {
-                const midX = (home.x + center.x) * 0.5;
-                const midZ = (home.z + center.z) * 0.5;
-                const offX = (Math.random() - 0.5) * 5.5;
-                const offZ = (Math.random() - 0.5) * 5.5;
-                villager.currentMoveTarget = { x: midX + offX, z: midZ + offZ, source: 'villagePath-mid' };
-            } else if (center) {
-                villager.currentMoveTarget = { x: center.x + (Math.random() - 0.5) * 6, z: center.z + (Math.random() - 0.5) * 6, source: 'villagePath-center-roam' };
-            }
-        }
-
-        function updateVillagers(time, deltaMs) {
-            if (!villagerEntities.length) return;
-            const dt = Math.max(0.001, Math.min(0.05, deltaMs / 1000));
-            const nowMs = performance.now();
-            const raining = isVillagerRainActive();
-            for (const villager of villagerEntities) {
-                if (!isEntityActiveAt(villager.root.position)) continue;
-                tickMobHitFeedback(villager, deltaMs);
-
-                villager.changeDirMs -= deltaMs;
-                const home = villager.homeCenter;
-                const center = villager.villageCenter || home;
-                const homeDx = home ? (home.x - villager.root.position.x) : 0;
-                const homeDz = home ? (home.z - villager.root.position.z) : 0;
-                const homeDist = home ? Math.hypot(homeDx, homeDz) : 0;
-                const centerDx = center ? (center.x - villager.root.position.x) : 0;
-                const centerDz = center ? (center.z - villager.root.position.z) : 0;
-                const centerDist = center ? Math.hypot(centerDx, centerDz) : 0;
-                const inLiquid = isLiquid(getBlockType(Math.floor(villager.root.position.x), Math.floor(villager.root.position.y), Math.floor(villager.root.position.z)));
-
-                const threat = findClosestZombieThreat(villager.root.position, 10);
-                const threatPos = threat?.root?.position || null;
-                const threatDist = threatPos
-                    ? Math.hypot(villager.root.position.x - threatPos.x, villager.root.position.z - threatPos.z)
-                    : Number.POSITIVE_INFINITY;
-                const panicActive = (villager.panicUntilMs || 0) > nowMs;
-                const dangerActive = panicActive || threatDist < 8.5;
-
-                if (villager.changeDirMs <= 0) {
-                    villager.changeDirMs = 700 + Math.random() * 1300;
-                    if (panicActive) {
-                        villager.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
-                    } else if (home && homeDist > villager.roamRadius + 0.75) {
-                        villager.dir.set(homeDx, 0, homeDz).normalize();
-                    } else {
-                        villager.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
-                    }
-                }
-
-                let speed = 0.54;
-                const desiredDir = villager.dir.clone();
-                const poiTargets = getVillagerPoiTargets(villager);
-                let movementChosen = false;
-                let lookChosen = false;
-
-                for (const goal of villagerGoalPriority) {
-                    if (goal.key === 'float' && inLiquid) {
-                        speed = Math.max(speed, 0.74);
-                        villager.targetY = Math.max(villager.targetY, villager.root.position.y + 0.1);
-                        continue;
-                    }
-
-                    if (!movementChosen && goal.key === 'panic' && panicActive) {
-                        speed = Math.max(speed, 1.0);
-                        villager.nextPanicTurnMs = (villager.nextPanicTurnMs || 0) - deltaMs;
-                        if (villager.nextPanicTurnMs <= 0 || !villager.panicDir || villager.panicDir.lengthSq() < 0.0001) {
-                            villager.nextPanicTurnMs = 260 + Math.random() * 360;
-                            villager.panicDir = new THREE.Vector3((Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2);
-                            if (villager.panicDir.lengthSq() > 0.0001) villager.panicDir.normalize();
-                        }
-                        if (villager.panicDir && villager.panicDir.lengthSq() > 0.0001) {
-                            desiredDir.add(villager.panicDir.clone().multiplyScalar(1.15));
-                        }
-                        movementChosen = true;
-                        continue;
-                    }
-
-                    if (!movementChosen && goal.key === 'avoidHostile' && threatPos && threatDist < 9) {
-                        const away = new THREE.Vector3(
-                            villager.root.position.x - threatPos.x,
-                            0,
-                            villager.root.position.z - threatPos.z
-                        );
-                        const danger = Math.max(0, (9 - threatDist) / 9);
-                        if (away.lengthSq() > 0.0001) {
-                            desiredDir.add(away.normalize().multiplyScalar(1.75 + danger * 1.5));
-                            speed = Math.max(speed, 0.8 + danger * 0.32);
-                            villager.panicUntilMs = Math.max(villager.panicUntilMs || 0, nowMs + 900);
-                            movementChosen = true;
-                        }
-                        continue;
-                    }
-
-                    if (!movementChosen && goal.key === 'moveIndoors' && (raining || dangerActive) && home) {
-                        villager.currentMoveTarget = { x: home.x, z: home.z, source: 'indoors' };
-                        applyVillagerTargetSteer(desiredDir, villager, home, 1.2);
-                        speed = Math.max(speed, 0.74);
-                        movementChosen = true;
-                        continue;
-                    }
-
-                    if (!movementChosen && goal.key === 'walkToVillageCenter' && center && centerDist > 5.5) {
-                        applyVillagerTargetSteer(desiredDir, villager, center, 1.06);
-                        villager.currentMoveTarget = { x: center.x, z: center.z, source: 'center' };
-                        speed = Math.max(speed, 0.68);
-                        movementChosen = true;
-                        continue;
-                    }
-
-                    if (!movementChosen && (goal.key === 'wanderHome' || goal.key === 'moveToHome') && home && homeDist > villager.roamRadius + 0.4) {
-                        speed = Math.max(speed, 0.66);
-                        const toHome = new THREE.Vector3(homeDx, 0, homeDz);
-                        if (toHome.lengthSq() > 0.0001) {
-                            desiredDir.add(toHome.normalize().multiplyScalar(0.88));
-                            movementChosen = true;
-                        }
-                        continue;
-                    }
-
-                    if (!movementChosen && goal.key === 'walkToPoi' && poiTargets.length) {
-                        if (!Number.isFinite(villager.currentPoiIndex) || villager.currentPoiIndex < 0) {
-                            villager.currentPoiIndex = Math.floor(Math.random() * poiTargets.length);
-                        }
-                        const poi = poiTargets[(villager.currentPoiIndex % poiTargets.length + poiTargets.length) % poiTargets.length];
-                        const poiDist = poi ? Math.hypot(villager.root.position.x - poi.x, villager.root.position.z - poi.z) : Number.POSITIVE_INFINITY;
-                        if (poi && poiDist < 1.4) {
-                            villager.currentPoiIndex = (villager.currentPoiIndex + 1) % poiTargets.length;
-                        }
-                        const nextPoi = poiTargets[(villager.currentPoiIndex % poiTargets.length + poiTargets.length) % poiTargets.length];
-                        if (nextPoi) {
-                            applyVillagerTargetSteer(desiredDir, villager, nextPoi, 0.72);
-                            speed = Math.max(speed, 0.62);
-                            movementChosen = true;
-                        }
-                        continue;
-                    }
-
-                    if (!movementChosen && goal.key === 'moveThroughVillage') {
-                        ensureVillagerVillagePathTarget(villager, nowMs);
-                        if (villager.currentMoveTarget?.source?.startsWith('villagePath')) {
-                            applyVillagerTargetSteer(desiredDir, villager, villager.currentMoveTarget, 0.84);
-                            speed = Math.max(speed, 0.61);
-                            movementChosen = true;
-                        }
-                        continue;
-                    }
-
-                    if (!movementChosen && goal.key === 'moveToTargetPosition' && villager.currentMoveTarget) {
-                        const targetDist = Math.hypot(villager.root.position.x - villager.currentMoveTarget.x, villager.root.position.z - villager.currentMoveTarget.z);
-                        if (targetDist < 1.2) {
-                            villager.currentMoveTarget = null;
-                        } else {
-                            applyVillagerTargetSteer(desiredDir, villager, villager.currentMoveTarget, 0.92);
-                            speed = Math.max(speed, 0.63);
-                            movementChosen = true;
-                        }
-                        continue;
-                    }
-
-                    if (!movementChosen && goal.key === 'villageInteractionStroll' && center) {
-                        villager.nextMeetingStrollMs = (villager.nextMeetingStrollMs || 0) - deltaMs;
-                        if (villager.nextMeetingStrollMs <= 0 || !villager.meetingStrollTarget) {
-                            villager.nextMeetingStrollMs = 1600 + Math.random() * 2200;
-                            const angle = Math.random() * Math.PI * 2;
-                            const radius = 1.2 + Math.random() * 2.4;
-                            villager.meetingStrollTarget = {
-                                x: center.x + Math.cos(angle) * radius,
-                                z: center.z + Math.sin(angle) * radius,
-                            };
-                        }
-                        applyVillagerTargetSteer(desiredDir, villager, villager.meetingStrollTarget, 0.4);
-                        speed = Math.max(speed, 0.58);
-                        movementChosen = true;
-                        continue;
-                    }
-
-                    if (!movementChosen && (goal.key === 'randomStroll' || goal.key === 'randomStrollFar') && center) {
-                        const far = goal.key === 'randomStrollFar';
-                        villager.nextStrollPickMs = (villager.nextStrollPickMs || 0) - deltaMs;
-                        if (villager.nextStrollPickMs <= 0 || !villager.randomStrollTarget || villager.randomStrollTarget.far !== far) {
-                            villager.nextStrollPickMs = (far ? 2600 : 1400) + Math.random() * (far ? 2800 : 1700);
-                            const angle = Math.random() * Math.PI * 2;
-                            const radius = (far ? 3.3 : 1.3) + Math.random() * (far ? 4.2 : 2.6);
-                            villager.randomStrollTarget = {
-                                x: center.x + Math.cos(angle) * radius,
-                                z: center.z + Math.sin(angle) * radius,
-                                far,
-                            };
-                        }
-                        applyVillagerTargetSteer(desiredDir, villager, villager.randomStrollTarget, far ? 0.3 : 0.44);
-                        speed = Math.max(speed, far ? 0.62 : 0.6);
-                        movementChosen = true;
-                        continue;
-                    }
-
-                    if (!lookChosen && goal.key === 'lookAtTradingPlayer') {
-                        lookChosen = true;
-                        continue;
-                    }
-
-                    if (!lookChosen && goal.key === 'tradeWithPlayer') {
-                        continue;
-                    }
-
-                    if (!lookChosen && goal.key === 'lookAtPlayer') {
-                        const toPlayer = new THREE.Vector3(yawObject.position.x - villager.root.position.x, 0, yawObject.position.z - villager.root.position.z);
-                        if (toPlayer.length() < 6.5) {
-                            const yaw = Math.atan2(toPlayer.x, toPlayer.z) - villager.root.rotation.y;
-                            villager.lookTargetYaw = THREE.MathUtils.clamp(yaw, -0.85, 0.85);
-                            villager.lookTargetPitch = 0;
-                            lookChosen = true;
-                        }
-                        continue;
-                    }
-
-                    if (!lookChosen && goal.key === 'lookAtEntity' && threatPos && threatDist < 6.8) {
-                        const toThreat = new THREE.Vector3(threatPos.x - villager.root.position.x, 0, threatPos.z - villager.root.position.z);
-                        const yaw = Math.atan2(toThreat.x, toThreat.z) - villager.root.rotation.y;
-                        villager.lookTargetYaw = THREE.MathUtils.clamp(yaw, -0.9, 0.9);
-                        lookChosen = true;
-                        continue;
-                    }
-
-                    if (!lookChosen && (goal.key === 'observe' || goal.key === 'lookAround')) {
-                        villager.nextLookChangeMs -= deltaMs;
-                        if (villager.nextLookChangeMs <= 0) {
-                            villager.nextLookChangeMs = 900 + Math.random() * 1700;
-                            villager.lookTargetYaw = (Math.random() - 0.5) * 0.75;
-                            villager.lookTargetPitch = (Math.random() - 0.5) * 0.28;
-                        }
-                        lookChosen = true;
-                        continue;
-                    }
-                }
-
-                if (desiredDir.lengthSq() > 0.00001) {
-                    const nextDir = desiredDir.normalize();
-                    villager.dir.lerp(nextDir, Math.min(1, dt * 4.2));
-                    if (villager.dir.lengthSq() > 0.00001) villager.dir.normalize();
-                }
-
-                const nx = villager.root.position.x + villager.dir.x * speed * dt;
-                const nz = villager.root.position.z + villager.dir.z * speed * dt;
-                villager.groundProbeMs -= deltaMs;
-                if (villager.groundProbeMs <= 0) {
-                    villager.groundProbeMs = 180 + Math.random() * 120;
-                    villager.targetY = getSurfaceYForEntity(nx, nz, villager.targetY);
-                }
-                if (villager.targetY > 0) {
-                    villager.root.position.x = nx;
-                    villager.root.position.z = nz;
-                    villager.root.position.y += (villager.targetY - villager.root.position.y) * Math.min(1, dt * 10);
-                }
-
-                villager.root.rotation.y = Math.atan2(villager.dir.x, villager.dir.z);
-                villager.lookYaw += (villager.lookTargetYaw - villager.lookYaw) * Math.min(1, dt * 6);
-                villager.lookPitch += (villager.lookTargetPitch - villager.lookPitch) * Math.min(1, dt * 6);
-                const parts = villager.root.userData.villagerParts || {};
-                if (parts.head) {
-                    parts.head.rotation.y = villager.lookYaw;
-                    parts.head.rotation.x = villager.lookPitch;
-                }
-                const walk = Math.sin(time * 0.012 + villager.bobPhase) * 0.32;
-                if (parts.leftLegPivot) parts.leftLegPivot.rotation.x = walk;
-                if (parts.rightLegPivot) parts.rightLegPivot.rotation.x = -walk;
-                if (parts.leftArmPivot) parts.leftArmPivot.rotation.x = -walk * 0.85;
-                if (parts.rightArmPivot) parts.rightArmPivot.rotation.x = walk * 0.85;
-            }
-        }
-
-
-        function getVillagerHitFromCrosshair() {
-            if (!villagerEntities.length) return null;
-            if (!prepareCrosshairRaycast()) return null;
-            const hitboxes = villagerEntities.map(v => v.root.userData.villagerHitbox).filter(Boolean);
-            const hits = raycaster.intersectObjects(hitboxes, false);
-            if (!hits.length) return null;
-            const hitObj = hits[0].object;
-            return villagerEntities.find((v) => v.root.userData.villagerHitbox === hitObj) || null;
-        }
-
-        function hurtVillager(villager, amount = 4, source = 'player', sourcePos = null, extraKnockback = 0) {
-            if (!villager) return;
-            applyHitFeedback(villager, sourcePos, amount, extraKnockback);
-            villager.hp -= amount;
-            villager.changeDirMs = 0;
-            villager.panicUntilMs = performance.now() + 3600;
-            if (source === 'player') showGameMessage('Villager: hrmm...');
-            if (villager.hp > 0) return;
-            const idx = villagerEntities.indexOf(villager);
-            if (idx >= 0) villagerEntities.splice(idx, 1);
-            scene.remove(villager.root);
-        }
-
-        function getWolfHitFromCrosshair() {
-            if (!wolfEntities.length) return null;
-            if (!prepareCrosshairRaycast()) return null;
-            const hitboxes = wolfEntities.map(w => w.root.userData.wolfHitbox).filter(Boolean);
-            const hits = raycaster.intersectObjects(hitboxes, false);
-            if (!hits.length) return null;
-            const hitObj = hits[0].object;
-            return wolfEntities.find((w) => w.root.userData.wolfHitbox === hitObj) || null;
-        }
-
-        function hurtWolf(wolf, amount = 4, sourcePos = null, extraKnockback = 0) {
-            if (!wolf) return;
-            applyHitFeedback(wolf, sourcePos, amount, extraKnockback);
-            wolf.hp -= amount;
-            if (wolf.hp > 0) {
-                wolf.changeDirMs = 0;
-                wolf.dir.set((Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2).normalize();
-                showGameMessage(wolf.tamed ? 'Dog: whine!' : 'Wolf: growl!');
-                return;
-            }
-            const idx = wolfEntities.indexOf(wolf);
-            if (idx >= 0) wolfEntities.splice(idx, 1);
-            scene.remove(wolf.root);
-            showGameMessage(wolf.tamed ? 'Your dog died.' : 'Wolf defeated.');
-        }
-
-        function commandTamedWolvesAttack(target, targetType) {
-            if (!target) return;
-            for (const wolf of wolfEntities) {
-                if (!isEntityActiveAt(wolf.root.position)) continue;
-                if (!wolf.tamed) continue;
-                wolf.combatTarget = target;
-                wolf.combatTargetType = targetType;
-                wolf.changeDirMs = 0;
-            }
-        }
-
-        function updateWolves(time, deltaMs) {
-            if (!wolfEntities.length) return;
-            const dt = Math.max(0.001, Math.min(0.05, deltaMs / 1000));
-            const playerPos = yawObject.position;
-
-            for (let i = wolfEntities.length - 1; i >= 0; i--) {
-                const wolf = wolfEntities[i];
-                wolf.attackCooldownMs = Math.max(0, wolf.attackCooldownMs - deltaMs);
-                wolf.changeDirMs -= deltaMs;
-                wolf.retargetMs -= deltaMs;
-
-                let targetPos = null;
-                let targetDist = Infinity;
-
-                if (wolf.combatTargetType === 'pig' && (!wolf.combatTarget || pigEntities.indexOf(wolf.combatTarget) < 0)) {
-                    wolf.combatTarget = null;
-                    wolf.combatTargetType = null;
-                }
-                if (wolf.combatTargetType === 'zombie' && (!wolf.combatTarget || zombieEntities.indexOf(wolf.combatTarget) < 0)) {
-                    wolf.combatTarget = null;
-                    wolf.combatTargetType = null;
-                }
-
-                if (!wolf.combatTarget && !wolf.tamed && wolf.retargetMs <= 0) {
-                    wolf.retargetMs = 500 + Math.random() * 420;
-                    let bestPig = null;
-                    let bestDist = 11;
-                    for (const pig of pigEntities) {
-                if (!isEntityActiveAt(pig.root.position)) continue;
-                        const d = pig.root.position.distanceTo(wolf.root.position);
-                        if (d < bestDist) {
-                            bestDist = d;
-                            bestPig = pig;
-                        }
-                    }
-                    if (bestPig) {
-                        wolf.combatTarget = bestPig;
-                        wolf.combatTargetType = 'pig';
-                    }
-                }
-
-                if (wolf.combatTarget) {
-                    targetPos = wolf.combatTarget.root.position;
-                    targetDist = targetPos.distanceTo(wolf.root.position);
-                    const toTarget = new THREE.Vector3(targetPos.x - wolf.root.position.x, 0, targetPos.z - wolf.root.position.z);
-                    if (toTarget.lengthSq() > 0.00001) {
-                        toTarget.normalize();
-                        wolf.dir.copy(toTarget);
-                    }
-                } else if (wolf.tamed) {
-                    const toPlayer = new THREE.Vector3(playerPos.x - wolf.root.position.x, 0, playerPos.z - wolf.root.position.z);
-                    targetDist = toPlayer.length();
-                    if (targetDist > 3.25) {
-                        toPlayer.normalize();
-                        wolf.dir.copy(toPlayer);
-                    } else if (wolf.changeDirMs <= 0) {
-                        wolf.changeDirMs = 1200 + Math.random() * 800;
-                        wolf.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
-                    }
-                } else if (wolf.changeDirMs <= 0) {
-                    wolf.changeDirMs = 1000 + Math.random() * 1800;
-                    wolf.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
-                }
-
-                const speed = wolf.combatTarget ? 1.15 : (wolf.tamed ? 1.0 : 0.82);
-                const nx = wolf.root.position.x + wolf.dir.x * speed * dt;
-                const nz = wolf.root.position.z + wolf.dir.z * speed * dt;
-
-                wolf.groundProbeMs -= deltaMs;
-                if (wolf.groundProbeMs <= 0) {
-                    wolf.groundProbeMs = 180 + Math.random() * 120;
-                    wolf.targetY = getSurfaceYForEntity(nx, nz, wolf.targetY);
-                }
-                if (wolf.targetY > 0) {
-                    wolf.root.position.x = nx;
-                    wolf.root.position.z = nz;
-                    wolf.root.position.y += (wolf.targetY - wolf.root.position.y) * Math.min(1, dt * 11);
-                }
-                wolf.root.rotation.y = Math.atan2(wolf.dir.x, wolf.dir.z);
-
-                if (wolf.combatTarget && targetDist < 1.35 && wolf.attackCooldownMs <= 0) {
-                    wolf.attackCooldownMs = 650;
-                    if (wolf.combatTargetType === 'pig') hurtPig(wolf.combatTarget, 4, 'wolf', wolf.root.position);
-                    else if (wolf.combatTargetType === 'zombie') hurtZombie(wolf.combatTarget, 3, wolf.root.position);
-                }
-
-                const parts = wolf.root.userData.wolfParts || {};
-                const walk = Math.sin(time * 0.011 + wolf.bobPhase) * (wolf.combatTarget ? 0.4 : 0.24);
-                const legs = parts.legs || [];
-                if (legs[0]) legs[0].rotation.x = walk;
-                if (legs[1]) legs[1].rotation.x = -walk;
-                if (legs[2]) legs[2].rotation.x = -walk;
-                if (legs[3]) legs[3].rotation.x = walk;
-                if (parts.tailPivot) {
-                    const wag = wolf.tamed ? Math.sin(time * 0.03 + wolf.bobPhase) * 0.5 : 0.12;
-                    parts.tailPivot.rotation.x = -0.55 + wag;
-                }
-            }
-        }
-
-
-        function getPandaHitFromCrosshair() {
-            if (!pandaEntities.length) return null;
-            if (!prepareCrosshairRaycast()) return null;
-            const hitboxes = pandaEntities.map(p => p.root.userData.pandaHitbox).filter(Boolean);
-            const hits = raycaster.intersectObjects(hitboxes, false);
-            if (!hits.length) return null;
-            const hitObj = hits[0].object;
-            return pandaEntities.find((p) => p.root.userData.pandaHitbox === hitObj) || null;
-        }
-
-        function hurtPanda(panda, amount = 4, source = 'player', sourcePos = null, extraKnockback = 0) {
-            if (!panda) return;
-            if (panda.invulnerable) {
-                if (source === 'player') showGameMessage('XREALM is unkillable.');
-                panda.changeDirMs = 0;
-                panda.angerUntilMs = performance.now() + (window.JungleDecorationConfig?.panda?.angerMsOnHit || 6000);
-                return;
-            }
-            applyHitFeedback(panda, sourcePos, amount, extraKnockback);
-            panda.hp -= amount;
-            if (panda.hp > 0) {
-                panda.changeDirMs = 0;
-                panda.angerUntilMs = performance.now() + (window.JungleDecorationConfig?.panda?.angerMsOnHit || 6000);
-                if (source === 'player') showGameMessage('Panda: huff!');
-                return;
-            }
-            const idx = pandaEntities.indexOf(panda);
-            if (idx >= 0) pandaEntities.splice(idx, 1);
-            scene.remove(panda.root);
-            const drops = 1 + Math.floor(Math.random() * 2);
-            addToInventory(101, drops);
-            showGameMessage(`+${drops} Bamboo Stalk`);
-        }
-
-        function updatePandas(time, deltaMs) {
-            if (!pandaEntities.length) return;
-            const dt = Math.max(0.001, Math.min(0.05, deltaMs / 1000));
-            const playerPos = yawObject.position;
-            for (let i = pandaEntities.length - 1; i >= 0; i--) {
-                const panda = pandaEntities[i];
-                if (!isEntityActiveAt(panda.root.position)) continue;
-                tickMobHitFeedback(panda, deltaMs);
-                panda.changeDirMs -= deltaMs;
-                panda.attackCooldownMs = Math.max(0, panda.attackCooldownMs - deltaMs);
-                const angry = performance.now() < panda.angerUntilMs;
-                if (angry) {
-                    const toPlayer = new THREE.Vector3(playerPos.x - panda.root.position.x, 0, playerPos.z - panda.root.position.z);
-                    const d = toPlayer.length();
-                    if (d > 0.001) {
-                        toPlayer.normalize();
-                        panda.dir.copy(toPlayer);
-                    }
-                    if (d < 1.45 && panda.attackCooldownMs <= 0) {
-                        panda.attackCooldownMs = 850;
-                        takeDamage(2);
-                    }
-                } else if (panda.changeDirMs <= 0) {
-                    panda.changeDirMs = 1000 + Math.random() * 1800;
-                    panda.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
-                }
-
-                const speed = angry ? 1.0 : 0.72;
-                const nx = panda.root.position.x + panda.dir.x * speed * dt;
-                const nz = panda.root.position.z + panda.dir.z * speed * dt;
-
-                panda.groundProbeMs -= deltaMs;
-                if (panda.groundProbeMs <= 0) {
-                    panda.groundProbeMs = 180;
-                    panda.targetY = getSurfaceYForEntity(nx, nz, panda.targetY);
-                }
-                if (panda.targetY > 0) {
-                    panda.root.position.x = nx;
-                    panda.root.position.z = nz;
-                    panda.root.position.y += (panda.targetY - panda.root.position.y) * Math.min(1, dt * 10);
-                }
-                panda.root.rotation.y = Math.atan2(panda.dir.x, panda.dir.z);
-
-                const legs = panda.root.userData.pandaLegs || [];
-                const walk = Math.sin(time * 0.01 + panda.bobPhase) * (angry ? 0.32 : 0.2);
-                if (legs[0]) legs[0].rotation.x = walk;
-                if (legs[1]) legs[1].rotation.x = -walk;
-                if (legs[2]) legs[2].rotation.x = -walk;
-                if (legs[3]) legs[3].rotation.x = walk;
-            }
-        }
-
-        function getZombieHitFromCrosshair() {
-
-            if (!zombieEntities.length) return null;
-            if (!prepareCrosshairRaycast()) return null;
-            const hitboxes = zombieEntities.map(z => z.root.userData.zombieHitbox).filter(Boolean);
-            const hits = raycaster.intersectObjects(hitboxes, false);
-            if (!hits.length) return null;
-            const hitObj = hits[0].object;
-            return zombieEntities.find((z) => z.root.userData.zombieHitbox === hitObj) || null;
-        }
-
-        function hurtZombie(zombie, amount = 4, sourcePos = null, extraKnockback = 0) {
-            if (!zombie) return;
-            applyHitFeedback(zombie, sourcePos, amount, extraKnockback);
-            zombie.hp -= amount;
-            if (zombie.hp > 0) return;
-            const idx = zombieEntities.indexOf(zombie);
-            if (idx >= 0) zombieEntities.splice(idx, 1);
-            scene.remove(zombie.root);
-            const drops = 1 + Math.floor(Math.random() * 2);
-            addToInventory(92, drops);
-            showGameMessage(`+${drops} Rotten Flesh`);
-        }
-
-        function canZombieSeeSky(wx, wy, wz) {
-            for (let y = wy + 1; y < CHUNK_HEIGHT; y++) {
-                const b = getBlockType(wx, y, wz);
-                if (b !== 0 && !isLiquid(b)) return false;
-            }
-            return true;
-        }
-
-        function findHostileSpawnY(wx, wz) {
-            const x = Math.floor(wx);
-            const z = Math.floor(wz);
-            for (let y = CHUNK_HEIGHT - 3; y >= 2; y--) {
-                const under = getBlockType(x, y - 1, z);
-                const feet = getBlockType(x, y, z);
-                const head = getBlockType(x, y + 1, z);
-                if (!isSolid(under) || isLiquid(under) || under === 6) continue;
-                if (feet !== 0 || head !== 0) continue;
-                const skyLightLevel = lightingSystem ? lightingSystem.getSkyLightLevel(x, y, z) : 0;
-                if (skyLightLevel > 7) continue;
-                const blockLightLevel = lightingSystem ? lightingSystem.getBlockLightLevel(x, y, z) : 0;
-                if (blockLightLevel > 7) continue;
-                if (lightingSystem && lightingSystem.hasNearbyBlockLightSource(x, y, z, 7)) continue;
-                return y;
-            }
-            return -1;
-        }
-
-        function spawnZombieAt(wx, wz, heightBlocks = null) {
-            const y = findHostileSpawnY(wx, wz);
-            if (y <= 0) return false;
-            const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
-            if (under === 0 || isLiquid(under)) return false;
-
-            const root = createZombieMesh();
-            applyMobCommandHeight(root, heightBlocks, 1.8);
-            root.position.set(Math.floor(wx) + 0.5, y, Math.floor(wz) + 0.5);
-            scene.add(root);
-            zombieEntities.push({
-                root,
-                hp: 20,
-                attackCooldownMs: 0,
-                attackReach: 1.2 + Math.random() * 0.5,
-                burnTickMs: 0,
-                inDirectSunlight: false,
-                sunProbeMs: 0,
-                targetY: y,
-                groundProbeMs: 0,
-                knockbackVX: 0,
-                knockbackVZ: 0,
-                hitFlashMs: 0,
-            });
-            return true;
-        }
-
-        function trySpawnNightZombie(deltaMs) {
-            const phase = getTimePhaseInfo().phase;
-            if (phase !== 'Night') return;
-            zombieSpawnTimerMs -= deltaMs;
-            if (zombieSpawnTimerMs > 0) return;
-            zombieSpawnTimerMs = 2200 + Math.random() * 3200;
-            if (zombieEntities.length >= 8) return;
-
-            const angle = Math.random() * Math.PI * 2;
-            const dist = 14 + Math.random() * 20;
-            const wx = yawObject.position.x + Math.cos(angle) * dist;
-            const wz = yawObject.position.z + Math.sin(angle) * dist;
-            spawnZombieAt(wx, wz);
-        }
-
-
-        function isZombieInDirectSunlight(wx, wy, wz) {
-            if (!lightingSystem) return canZombieSeeSky(wx, wy, wz);
-            if (!lightingSystem.isOpenToSky(wx, wy, wz)) return false;
-            const skyLight = lightingSystem.getSkyLightLevel(wx, wy, wz);
-            return skyLight >= 12;
-        }
-
-        function updateZombies(time, deltaMs) {
-            if (!zombieEntities.length) return;
-            const dt = Math.max(0.001, Math.min(0.05, deltaMs / 1000));
-            const phase = getTimePhaseInfo().phase;
-            const burningTime = phase === 'Day' || phase === 'Sunrise';
-            const playerPos = yawObject.position;
-
-            for (let i = zombieEntities.length - 1; i >= 0; i--) {
-                const z = zombieEntities[i];
-                if (!isEntityActiveAt(z.root.position)) continue;
-                tickMobHitFeedback(z, deltaMs);
-                const toPlayerFlat = new THREE.Vector3(playerPos.x - z.root.position.x, 0, playerPos.z - z.root.position.z);
-                const distFlat = toPlayerFlat.length();
-                if (distFlat > 0.001) toPlayerFlat.normalize();
-                const dy = (playerPos.y + 0.9) - (z.root.position.y + 0.9);
-                const dist3D = Math.hypot(distFlat, dy);
-
-                const speed = 1.18;
-                const nx = z.root.position.x + toPlayerFlat.x * speed * dt;
-                const nz = z.root.position.z + toPlayerFlat.z * speed * dt;
-
-                z.groundProbeMs -= deltaMs;
-                if (z.groundProbeMs <= 0) {
-                    z.groundProbeMs = 180;
-                    z.targetY = getSurfaceYForEntity(nx, nz, z.targetY);
-                }
-
-                if (z.targetY > 0) {
-                    z.root.position.x = nx;
-                    z.root.position.z = nz;
-                    z.root.position.y += (z.targetY - z.root.position.y) * Math.min(1, dt * 12);
-                }
-
-                if (distFlat > 0.1) z.root.rotation.y = Math.atan2(toPlayerFlat.x, toPlayerFlat.z);
-
-                const parts = z.root.userData.zombieParts;
-                if (parts) {
-                    const walk = Math.sin(time * 0.01 + i) * 0.52;
-                    parts.leftLegPivot.rotation.x = walk;
-                    parts.rightLegPivot.rotation.x = -walk;
-
-                    // Minecraft-like zombie gait: both arms held forward, swaying while walking.
-                    const armSwing = Math.sin(time * 0.01 + i + Math.PI * 0.2) * 0.20;
-                    parts.leftArmPivot.rotation.x = -1.35 + armSwing;
-                    parts.rightArmPivot.rotation.x = -1.35 - armSwing;
-                }
-
-                z.attackCooldownMs = Math.max(0, z.attackCooldownMs - deltaMs);
-                if (dist3D < (z.attackReach || 1.35) && z.attackCooldownMs <= 0) {
-                    z.attackCooldownMs = 900;
-                    takeDamage(3);
-                }
-
-                const zx = Math.floor(z.root.position.x);
-                const zy = Math.floor(z.root.position.y + 1.6);
-                const zz = Math.floor(z.root.position.z);
-                const inLiquid = isLiquid(getBlockType(zx, zy, zz));
-
-                z.sunProbeMs = (z.sunProbeMs ?? 0) - deltaMs;
-                if (z.sunProbeMs <= 0) {
-                    z.sunProbeMs = 220;
-                    z.inDirectSunlight = isZombieInDirectSunlight(zx, zy, zz);
-                }
-
-                if (burningTime && !inLiquid && z.inDirectSunlight) {
-                    z.burnTickMs += deltaMs;
-                    if (z.burnTickMs >= 900) {
-                        z.burnTickMs = 0;
-                        hurtZombie(z, 2, null);
-                    }
-                } else {
-                    z.burnTickMs = 0;
-                }
-            }
-        }
-
-        function setupEatingOverlay() {
-            if (eatOverlayEl) return;
-            const root = document.createElement('div');
-            root.id = 'eat-overlay';
-            root.className = 'hidden';
-            const item = document.createElement('div');
-            item.id = 'eat-item';
-            root.appendChild(item);
-            document.body.appendChild(root);
-            eatOverlayEl = root;
-            eatItemEl = item;
-        }
-
-        function startEatingAnimation(itemId) {
-            if (!eatOverlayEl || !eatItemEl) setupEatingOverlay();
-            const texKey = blockMaterials[itemId]?.textureKey;
-            const img = texKey ? ASSET_FILEPATHS[texKey] : null;
-            if (img) {
-                eatItemEl.style.backgroundImage = `url('${img}')`;
-                eatItemEl.style.backgroundSize = 'contain';
-                eatItemEl.style.backgroundRepeat = 'no-repeat';
-                eatItemEl.style.backgroundPosition = 'center';
-                eatItemEl.style.backgroundColor = 'transparent';
-            } else {
-                eatItemEl.style.backgroundImage = 'none';
-                eatItemEl.style.backgroundColor = '#cda173';
-            }
-            eatOverlayEl.classList.remove('hidden');
-            eatingAnimState = { active: true, timeMs: 0, durationMs: 900, itemId, particleMs: 0 };
-        }
-
         function spawnEatingParticle() {
+
             if (!eatOverlayEl) return;
             const p = document.createElement('div');
             p.className = 'eat-particle';
@@ -4171,48 +2739,46 @@ window.perlin = perlinInstance;
 
             if (event.button === 0) {
                 const attackKnockback = getHeldKnockbackEnchantLevel();
-                const wolfHit = getWolfHitFromCrosshair();
+                const wolfHit = wolfMob?.getHitFromCrosshair?.();
                 if (wolfHit) {
                     const held = inventory[selectedHotbarIndex];
                     if (!wolfHit.tamed && held && held.id === 95) {
                         consumeSelectedItem();
                         if (Math.random() < 0.68) {
-                            wolfHit.tamed = true;
-                            const neck = wolfHit.root.userData?.wolfParts?.neck;
-                            if (neck?.material) neck.material.color.setHex(0xc64444);
+                            wolfMob?.tame?.(wolfHit);
                             showGameMessage('Wolf tamed! It is now your dog.');
                         } else {
                             showGameMessage('The wolf refused the bone.');
                         }
                     } else {
-                        hurtWolf(wolfHit, 4, yawObject.position, attackKnockback);
+                        wolfMob?.hurt?.(wolfHit, 4, yawObject.position, attackKnockback);
                     }
                     return;
                 }
 
-                const pandaHit = getPandaHitFromCrosshair();
+                const pandaHit = pandaMob?.getHitFromCrosshair?.();
                 if (pandaHit) {
-                    hurtPanda(pandaHit, 4, 'player', yawObject.position, attackKnockback);
+                    pandaMob?.hurt?.(pandaHit, 4, 'player', yawObject.position, attackKnockback);
                     return;
                 }
 
-                const zombieHit = getZombieHitFromCrosshair();
+                const zombieHit = zombieMob?.getHitFromCrosshair?.();
                 if (zombieHit) {
-                    hurtZombie(zombieHit, 4, yawObject.position, attackKnockback);
-                    commandTamedWolvesAttack(zombieHit, 'zombie');
+                    zombieMob?.hurt?.(zombieHit, 4, yawObject.position, attackKnockback);
+                    wolfMob?.commandTamedAttack?.(zombieHit, 'zombie');
                     return;
                 }
 
-                const villagerHit = getVillagerHitFromCrosshair();
+                const villagerHit = villagerMob?.getHitFromCrosshair?.();
                 if (villagerHit) {
-                    hurtVillager(villagerHit, 4, 'player', yawObject.position, attackKnockback);
+                    villagerMob?.hurt?.(villagerHit, 4, 'player', yawObject.position, attackKnockback);
                     return;
                 }
 
-                const pigHit = getPigHitFromCrosshair();
+                const pigHit = pigMob?.getHitFromCrosshair?.();
                 if (pigHit) {
-                    hurtPig(pigHit, 4, 'player', yawObject.position, attackKnockback);
-                    commandTamedWolvesAttack(pigHit, 'pig');
+                    pigMob?.hurt?.(pigHit, 4, 'player', yawObject.position, attackKnockback);
+                    wolfMob?.commandTamedAttack?.(pigHit, 'pig');
                     return;
                 }
                 isLeftMouseDown = true;
@@ -6462,17 +5028,17 @@ window.perlin = perlinInstance;
                 for (const g of generated.spawnedGnomes) spawnGnomeAt(g.wx, g.wy, g.wz);
             }
             if (generated.spawnedPigs && generated.spawnedPigs.length) {
-                for (const pig of generated.spawnedPigs) spawnPigAtExact(pig.wx, pig.wy, pig.wz);
+                for (const pig of generated.spawnedPigs) pigMob?.spawnAtExact?.(pig.wx, pig.wy, pig.wz);
             }
             if (generated.spawnedWolves && generated.spawnedWolves.length) {
-                for (const wolf of generated.spawnedWolves) spawnWolfAtExact(wolf.wx, wolf.wy, wolf.wz);
+                for (const wolf of generated.spawnedWolves) wolfMob?.spawnAtExact?.(wolf.wx, wolf.wy, wolf.wz);
             }
             if (generated.spawnedPandas && generated.spawnedPandas.length) {
-                for (const panda of generated.spawnedPandas) spawnPandaAtExact(panda.wx, panda.wy, panda.wz);
+                for (const panda of generated.spawnedPandas) pandaMob?.spawnAtExact?.(panda.wx, panda.wy, panda.wz);
             }
             if (generated.spawnedVillagers && generated.spawnedVillagers.length) {
                 for (const villager of generated.spawnedVillagers) {
-                    spawnVillagerAtExact(villager.wx, villager.wy, villager.wz, { x: villager.homeX, z: villager.homeZ }, { x: villager.centerX ?? villager.homeX, z: villager.centerZ ?? villager.homeZ }, villager.poiTargets || null);
+                    villagerMob?.spawnAtExact?.(villager.wx, villager.wy, villager.wz, { x: villager.homeX, z: villager.homeZ }, { x: villager.centerX ?? villager.homeX, z: villager.centerZ ?? villager.homeZ }, villager.poiTargets || null);
                 }
             }
             return group;
@@ -7544,14 +6110,14 @@ window.perlin = perlinInstance;
                 ensureChunksAroundPlayer(false, time);
                 maybeUpdateChunkFrustumCulling(time);
                 updateGnomes(time);
-                updatePigs(time, delta);
-                updateWolves(time, delta);
-                updatePandas(time, delta);
-                updateVillagers(time, delta);
+                pigMob?.update?.(time, delta);
+                wolfMob?.update?.(time, delta);
+                pandaMob?.update?.(time, delta);
+                villagerMob?.update?.(time, delta);
                 updateBambooGrowth(delta);
                 updateGrassSpread(delta);
-                trySpawnNightZombie(delta);
-                updateZombies(time, delta);
+                zombieMob?.trySpawnNight?.(delta);
+                zombieMob?.update?.(time, delta);
                 resolveMobEntityPushing();
                 updateEatingAnimation(delta, time);
                 updatePlayerAvatarVisuals(time);
@@ -7569,11 +6135,11 @@ window.perlin = perlinInstance;
                 if (inventoryEntityUpdateAccumulatorMs >= INVENTORY_ENTITY_UPDATE_INTERVAL_MS) {
                     const simDelta = Math.min(250, inventoryEntityUpdateAccumulatorMs);
                     inventoryEntityUpdateAccumulatorMs = 0;
-                    updatePigs(time, simDelta);
-                    updateWolves(time, simDelta);
-                    updatePandas(time, simDelta);
-                    updateVillagers(time, simDelta);
-                    updateZombies(time, simDelta);
+                    pigMob?.update?.(time, simDelta);
+                    wolfMob?.update?.(time, simDelta);
+                    pandaMob?.update?.(time, simDelta);
+                    villagerMob?.update?.(time, simDelta);
+                    zombieMob?.update?.(time, simDelta);
                     resolveMobEntityPushing();
                 }
                 updateEatingAnimation(delta, time);
