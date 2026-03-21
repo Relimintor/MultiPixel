@@ -37,6 +37,7 @@
     { name: 'Green Dye', output: { id: 58, count: 1}, shape: [[6]] },
     { name: 'Steel Block', output: { id: 68, count: 1}, shape: [[67, 67, 67], [67, 67, 67], [67, 67, 67]] },
     { name: 'Steel', output: { id: 67, count: 9}, shape: [[68]] },
+    { name: 'Bucket', output: { id: 115, count: 1 }, shape: [[67, 0, 67], [0, 67, 0]] },
     { name: 'copper block', output: { id: 34, count: 1}, shape: [[69, 69, 69], [69, 69, 69], [69, 69, 69]] },
     { name: 'Copper ingot', output: { id: 69, count: 9}, shape: [[34]] }, 
     { name: 'Copper Grate', output: { id: 76, count: 1}, shape: [[0, 34, 0], [34, 0, 34], [0, 34, 0]] },
@@ -102,6 +103,8 @@
     { name: 'Bamboo Planks', output:  { id: 103, count: 4 }, shape: [[101]] },
     { name: 'Chiseled Stone Bricks', output: { id: 102, count: 1 }, shape: [[21], [21]] },
     { name: 'Pumpkin Slices', output: { id: 111, count: 9 }, shape: [[110]] },
+    { name: 'Glowstone', output: { id: 119, count: 1 }, shape: [[118, 118], [118, 118]] },
+    { name: 'Glowstone Dust', output: { id: 118, count: 4 }, shape: [[119]] },
   ];
 
   function checkCraftingRecipe(inputSlots, gridWidth) {

@@ -895,6 +895,8 @@ window.perlin = perlinInstance;
                                 alphaTest: key === 'LEAVES' || matCfg.alphaCutout ? 0.5 : 0,
                                 depthWrite: true,
                                 opacity: matCfg.opacity || 1.0,
+                                emissive: matCfg.emissive || 0x000000,
+                                emissiveIntensity: matCfg.emissive ? 0.65 : 0,
                                 vertexColors: true,
                             });
                             resolve();
@@ -909,6 +911,8 @@ window.perlin = perlinInstance;
                                 alphaTest: key === 'LEAVES' || matCfg.alphaCutout ? 0.5 : 0,
                                 depthWrite: true,
                                 opacity: matCfg.opacity || 1.0,
+                                emissive: matCfg.emissive || 0x000000,
+                                emissiveIntensity: matCfg.emissive ? 0.55 : 0,
                                 vertexColors: true,
                             });
                             resolve(); 
@@ -1227,7 +1231,7 @@ window.perlin = perlinInstance;
 
         function getMaxStackSize(itemId) {
             const itemDef = blockMaterials[itemId];
-            return itemDef?.toolType ? 1 : 64;
+            return itemDef?.toolType || itemDef?.nonStackable ? 1 : 64;
         }
 
         function shouldShowItemCount(item) {
@@ -1284,6 +1288,17 @@ window.perlin = perlinInstance;
         function getSelectedItemId() {
             const held = inventory[selectedHotbarIndex];
             return held ? held.id : null;
+        }
+
+        function setSelectedHotbarItem(itemId, count = 1) {
+            if (!Number.isFinite(itemId) || itemId <= 0 || count <= 0) {
+                inventory[selectedHotbarIndex] = null;
+            } else {
+                inventory[selectedHotbarIndex] = { id: itemId, count: count };
+            }
+            updateHotbarUI();
+            if (isInventoryOpen) renderInventoryScreen();
+            return true;
         }
 
         function setItemKnockbackEnchant(itemId, amount) {
@@ -3138,10 +3153,28 @@ window.perlin = perlinInstance;
             }
 
             const item = inventory[selectedHotbarIndex];
-            if (!item || !isPlaceableBlock(item.id)) return;
+            if (!item) return;
 
             const placePos = hit.point.clone().add(hit.face.normal.clone().multiplyScalar(0.01));
-            const px = Math.floor(placePos.x), py = Math.floor(placePos.y), pz = Math.floor(placePos.z);
+            const px = Math.floor(placePos.x);
+            const py = Math.floor(placePos.y);
+            const pz = Math.floor(placePos.z);
+
+            const bucketContext = {
+                heldItemId: item.id,
+                targetBlockId,
+                targetPos: { wx, wy, wz },
+                placePos: { wx: px, wy: py, wz: pz },
+                getBlock: getBlockType,
+                setBlock: (xw, yw, zw, newType) => setBlockTypeRaw(xw, yw, zw, newType, true),
+                setSelectedItem: setSelectedHotbarItem,
+                showGameMessage,
+            };
+            if (window.SingleplayerWaterBucket?.tryInteract?.(bucketContext)) return;
+            if (window.SingleplayerLavaBucket?.tryInteract?.(bucketContext)) return;
+
+            if (!isPlaceableBlock(item.id)) return;
+
             const playerBox = new THREE.Box3(
                 new THREE.Vector3(yawObject.position.x - PLAYER_RADIUS, yawObject.position.y, yawObject.position.z - PLAYER_RADIUS),
                 new THREE.Vector3(yawObject.position.x + PLAYER_RADIUS, yawObject.position.y + currentPlayerHeight, yawObject.position.z + PLAYER_RADIUS)
@@ -3254,7 +3287,7 @@ window.perlin = perlinInstance;
 
             const oldMat = blockMaterials[oldType];
             const newMat = blockMaterials[newType];
-            const lightingSensitive = Boolean(oldMat?.emissive || newMat?.emissive || oldType === 22 || newType === 22 || oldType === 4 || newType === 4 || oldType === 33 || newType === 33);
+            const lightingSensitive = Boolean(oldMat?.emissive || newMat?.emissive || oldType === 22 || newType === 22 || oldType === 4 || newType === 4 || oldType === 33 || newType === 33 || oldType === 119 || newType === 119);
             if (lightingSensitive) requestChunkAndNeighborsRemesh(cx, cz, 'lighting');
 
             if (newType === 0 && isChunkAllAir(chunkData)) {
@@ -5533,18 +5566,26 @@ window.perlin = perlinInstance;
             torchLightsByChunk.delete(chunkKey);
         }
 
-        function syncTorchLightsForChunk(group, torchPositions) {
+        function syncTorchLightsForChunk(group, torchPositions, glowstonePositions = []) {
             if (!scene) return;
             const chunkKey = `${group.userData.cx},${group.userData.cz}`;
             removeTorchLightsForChunk(chunkKey);
-            if (!torchPositions || torchPositions.length === 0) return;
+            if ((!torchPositions || torchPositions.length === 0) && (!glowstonePositions || glowstonePositions.length === 0)) return;
 
             const maxLightsPerChunk = 24;
             const created = [];
-            for (let i = 0; i < torchPositions.length && created.length < maxLightsPerChunk; i++) {
+            for (let i = 0; i < (torchPositions?.length || 0) && created.length < maxLightsPerChunk; i++) {
                 const p = torchPositions[i];
                 const light = new THREE.PointLight(0xffc88a, 0.88, 12, 2);
                 light.position.set(p.x + 0.5, p.y + 0.62, p.z + 0.5);
+                scene.add(light);
+                created.push(light);
+            }
+            for (let i = 0; i < (glowstonePositions?.length || 0) && created.length < maxLightsPerChunk; i++) {
+                const p = glowstonePositions[i];
+                const glowCfg = blockMaterials[p.id] || {};
+                const light = new THREE.PointLight(glowCfg.emissive || 0xffd27a, glowCfg.lightIntensity || 1.15, glowCfg.lightRadius || 13, 2);
+                light.position.set(p.x + 0.5, p.y + 0.5, p.z + 0.5);
                 scene.add(light);
                 created.push(light);
             }
@@ -5567,6 +5608,7 @@ window.perlin = perlinInstance;
             const cx = group.userData.cx;
             const cz = group.userData.cz;
             const torchPositions = [];
+            const glowstonePositions = [];
 
             const faces = [
                 { name: 'posX', dir: [1,0,0], corners: [[1,1,1],[1,0,1],[1,0,0],[1,1,0]], uv: [0,1, 0,0, 1,0, 1,1] },
@@ -5933,6 +5975,7 @@ window.perlin = perlinInstance;
                         const sideRenderMode = getSideRenderMode(id);
                         const isSideRenderBlock = Boolean(sideRenderMode);
                         if (isTorch) torchPositions.push({ x: x + cx * CS, y, z: z + cz * CS });
+                        if (id === 119) glowstonePositions.push({ x: x + cx * CS, y, z: z + cz * CS, id });
                         const isTrans = mat.transparent || (mat.textured && mat.textureKey === 'LEAVES');
                         if (!isTorch && !isBambooStage && !isBambooStalk && !isSlab && !isSideRenderBlock && !isTrans) continue;
                         const activeFaces = isSideRenderBlock
@@ -6016,7 +6059,7 @@ window.perlin = perlinInstance;
                 meshesByKey.delete(key);
             }
 
-            syncTorchLightsForChunk(group, torchPositions);
+            syncTorchLightsForChunk(group, torchPositions, glowstonePositions);
         }
 
         const SPAWN_MIN_LIGHT_LEVEL = 7;

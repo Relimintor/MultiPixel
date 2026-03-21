@@ -29,7 +29,7 @@
     94: { name: 'Emerald Shovel', tier: 7, softBlockSpeed: 0.10, hardBlockPenalty: 1.10 },
   };
 
-  const HARD_BLOCKS = new Set([3, 13, 21, 24, 27, 29, 18, 30, 35, 40, 43, 54, 17, 20, 32, 34, 36, 37, 41, 45, 55, 68, 23, 71, 39, 104, 106]);
+  const HARD_BLOCKS = new Set([3, 13, 21, 24, 27, 29, 18, 30, 35, 40, 43, 54, 17, 20, 32, 34, 36, 37, 41, 45, 55, 68, 23, 71, 39, 104, 106, 119]);
   const SOFT_BLOCKS = new Set([1,2,7,15,28]);
   const WOOD_BLOCKS = new Set([5, 8, 9, 82, 96, 98, 101, 103, 110, 114]);
 
@@ -99,6 +99,7 @@
     if (blockId === 99 || blockId === 100) return { id: 101, count: 1 };
     if (blockId === 107) return { id: 110, count: 1 };
     if (blockId === 108) return { id: 109, count: 9 };
+    if (blockId === 119) return { id: 118, count: 4 };
     return { id: blockId, count: 1 };
   }
 
