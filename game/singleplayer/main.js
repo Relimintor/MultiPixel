@@ -497,6 +497,35 @@ window.perlin = perlinInstance;
 
         const MOBILE_ASSET_BASE = `${window.SingleplayerConfig?.REPO_BASE_PREFIX || ''}/game/singleplayer/assets/mobile`;
         const mobileControls = playerRuntime.mobileControls;
+        const mobileDeviceControls = window.SingleplayerDeviceMobile?.create?.({
+            mobileControls,
+            mobileAssetBase: MOBILE_ASSET_BASE,
+            player,
+            getIsInventoryOpen: () => isInventoryOpen,
+            getYawObject: () => yawObject,
+            getPitchObject: () => pitchObject,
+            setCrosshairVisible: (visible) => setCrosshairVisible(visible),
+            toggleInventory: () => toggleInventory(),
+            toggleCameraViewMode: () => toggleCameraViewMode(),
+            toggleChat: () => window.SingleplayerChat?.toggle?.(),
+            updateSkinPreviewLook: (x, y) => updateSkinPreviewLook(x, y),
+            getTargetBlockFromCrosshair: () => getTargetBlockFromCrosshair(),
+            beginMiningTarget: (target) => beginMiningTarget(target),
+            updateBreakingOverlay: () => updateBreakingOverlay(),
+            interactOrPlaceAtCrosshair: () => interactOrPlaceAtCrosshair(),
+            getMiningState: () => miningState,
+            setIsLeftMouseDown: (value) => { isLeftMouseDown = value; },
+            getIsLeftMouseDown: () => isLeftMouseDown,
+        }) || null;
+        const pcDeviceControls = window.SingleplayerDevicePc?.create?.({
+            mobileControls,
+            player,
+            getIsInventoryOpen: () => isInventoryOpen,
+            getYawObject: () => yawObject,
+            getPitchObject: () => pitchObject,
+            setCrosshairVisible: (visible) => setCrosshairVisible(visible),
+            toggleInventory: () => toggleInventory(),
+        }) || null;
 
         const renderOptimizationSettings = window.SingleplayerRenderOptimizations?.create?.({
             windowRef: window,
@@ -3952,254 +3981,23 @@ window.perlin = perlinInstance;
        
 
         function setupInputModeChooser() {
-            const mobileBtn = document.getElementById('mode-mobile-btn');
-            const pcBtn = document.getElementById('mode-pc-btn');
-            if (!mobileBtn || !pcBtn) return;
-
-            const applyMode = (mode) => {
-                const mobile = mode === 'mobile';
-                mobileControls.enabled = mobile;
-                mobileBtn.classList.toggle('active', mobile);
-                pcBtn.classList.toggle('active', !mobile);
-                if (mobile) {
-                    if (mobileControls.initialized) setMobileHudVisible(true);
-                    else setupMobileControls();
-                } else {
-                    setMobileHudVisible(false);
-                }
-            };
-
-            mobileBtn.addEventListener('click', (e) => { e.preventDefault(); applyMode('mobile'); });
-            pcBtn.addEventListener('click', (e) => { e.preventDefault(); applyMode('pc'); });
-            applyMode(mobileControls.autoEnabled ? 'mobile' : 'pc');
+            return mobileDeviceControls?.setupInputModeChooser?.() || undefined;
         }
 
         function setMobileHudVisible(visible) {
-            const controlsEl = document.getElementById('mobile-controls');
-            if (controlsEl) {
-                if (visible) controlsEl.classList.add('active');
-                else controlsEl.classList.remove('active');
-            }
-            setCrosshairVisible(!visible);
+            return mobileDeviceControls?.setMobileHudVisible?.(visible) || undefined;
         }
 
         function switchToDesktopMode() {
-            if (!mobileControls.enabled) return;
-            mobileControls.enabled = false;
-            mobileControls.moveX = 0;
-            mobileControls.moveY = 0;
-            mobileControls.sprint = false;
-            mobileControls.jump = false;
-            mobileControls.worldTouchActive = false;
-            mobileControls.lookPointerId = null;
-            setMobileHudVisible(false);
-            if (!isInventoryOpen) {
-                const el = document.body;
-                if (document.pointerLockElement !== el) {
-                    el.requestPointerLock();
-                }
-            }
+            return mobileDeviceControls?.switchToDesktopMode?.() || undefined;
         }
 
-
-
         function setupMobileControls() {
-            if (!mobileControls.enabled || mobileControls.initialized) return;
-            mobileControls.initialized = true;
-
-            const controlsEl = document.getElementById('mobile-controls');
-            const joyWrap = document.getElementById('mobile-joystick');
-            const joyBg = document.getElementById('mobile-joystick-bg');
-            const joyCenter = document.getElementById('mobile-joystick-center');
-            const jumpBtn = document.getElementById('mobile-jump-btn');
-            const invBtn = document.getElementById('mobile-inventory-btn');
-            const fastBtn = document.getElementById('mobile-fast-btn');
-            const camBtn = document.getElementById('mobile-camera-btn');
-            const chatBtn = document.getElementById('mobile-chat-btn');
-
-            if (!controlsEl || !joyWrap || !joyBg || !joyCenter || !jumpBtn || !invBtn || !fastBtn) return;
-
-            setMobileHudVisible(true);
-            joyBg.src = `${MOBILE_ASSET_BASE}/joystick_off.png`;
-            joyCenter.src = `${MOBILE_ASSET_BASE}/joystick_center.png`;
-            jumpBtn.src = `${MOBILE_ASSET_BASE}/jump_btn.png`;
-            invBtn.src = `${MOBILE_ASSET_BASE}/inventory_btn.png`;
-            fastBtn.src = `${MOBILE_ASSET_BASE}/fast_btn.png`;
-            if (camBtn) camBtn.src = `${MOBILE_ASSET_BASE}/camera_btn.png`;
-            if (chatBtn) {
-                chatBtn.src = `${MOBILE_ASSET_BASE}/chat_btn.png`;
-                chatBtn.onerror = () => {
-                    chatBtn.onerror = null;
-                    chatBtn.src = `${MOBILE_ASSET_BASE}/inventory_btn.png`;
-                };
-            }
-            document.getElementById('instructions').style.opacity = 0;
-            player.canMove = true;
-
-            function resetJoystick() {
-                mobileControls.moveX = 0;
-                mobileControls.moveY = 0;
-                mobileControls.joystickPointerId = null;
-                joyCenter.style.left = '40px';
-                joyCenter.style.top = '40px';
-                joyBg.src = `${MOBILE_ASSET_BASE}/joystick_off.png`;
-            }
-
-            joyBg.addEventListener('pointerdown', (e) => {
-                mobileControls.joystickPointerId = e.pointerId;
-                joyBg.setPointerCapture(e.pointerId);
-                joyBg.src = `${MOBILE_ASSET_BASE}/joystick_bg.png`;
-                e.preventDefault();
-            });
-
-            joyBg.addEventListener('pointermove', (e) => {
-                if (mobileControls.joystickPointerId !== e.pointerId) return;
-                const rect = joyWrap.getBoundingClientRect();
-                const cx = rect.left + rect.width / 2;
-                const cy = rect.top + rect.height / 2;
-                const dx = e.clientX - cx;
-                const dy = e.clientY - cy;
-                const maxR = 44;
-                const len = Math.hypot(dx, dy) || 1;
-                const clamped = Math.min(maxR, len);
-                const nx = (dx / len) * clamped;
-                const ny = (dy / len) * clamped;
-                mobileControls.moveX = nx / maxR;
-                mobileControls.moveY = ny / maxR;
-                joyCenter.style.left = `${40 + nx}px`;
-                joyCenter.style.top = `${40 + ny}px`;
-            });
-
-            const releaseJoystick = (e) => {
-                if (mobileControls.joystickPointerId !== e.pointerId) return;
-                resetJoystick();
-            };
-            joyBg.addEventListener('pointerup', releaseJoystick);
-            joyBg.addEventListener('pointercancel', releaseJoystick);
-
-            const holdButton = (el, key) => {
-                const start = (e) => { mobileControls[key] = true; e.preventDefault(); };
-                const end = (e) => { mobileControls[key] = false; e.preventDefault(); };
-                el.addEventListener('pointerdown', start);
-                el.addEventListener('pointerup', end);
-                el.addEventListener('pointercancel', end);
-                el.addEventListener('pointerleave', end);
-            };
-
-            holdButton(jumpBtn, 'jump');
-            holdButton(fastBtn, 'sprint');
-
-            invBtn.addEventListener('pointerdown', (e) => {
-                e.preventDefault();
-                toggleInventory();
-            });
-            if (camBtn) camBtn.addEventListener('pointerdown', (e) => {
-                e.preventDefault();
-                toggleCameraViewMode();
-            });
-            if (chatBtn) chatBtn.addEventListener('pointerdown', (e) => {
-                e.preventDefault();
-                window.SingleplayerChat?.toggle?.();
-            });
-
-            const mobileControlTargets = new Set([joyBg, jumpBtn, invBtn, fastBtn, camBtn, chatBtn]);
-            window.addEventListener('pointerdown', (e) => {
-                if (!mobileControls.enabled || !player.canMove || isInventoryOpen) return;
-                if (mobileControlTargets.has(e.target)) return;
-                if (e.pointerType !== 'touch') return;
-                mobileControls.worldTouchActive = true;
-                mobileControls.worldTouchPointerId = e.pointerId;
-                mobileControls.worldTouchStartMs = performance.now();
-                mobileControls.isMiningTouch = false;
-                mobileControls.lookPointerId = e.pointerId;
-                mobileControls.lastLookX = e.clientX;
-                mobileControls.lastLookY = e.clientY;
-                if (mobileControls.miningTimer) clearTimeout(mobileControls.miningTimer);
-                mobileControls.miningTimer = setTimeout(() => {
-                    if (!mobileControls.worldTouchActive) return;
-                    const target = getTargetBlockFromCrosshair();
-                    if (!target) return;
-                    isLeftMouseDown = true;
-                    mobileControls.isMiningTouch = true;
-                    beginMiningTarget(target);
-                    updateBreakingOverlay();
-                }, 180);
-            }, { passive: false });
-
-            window.addEventListener('pointermove', (e) => {
-                if (!mobileControls.enabled || !player.canMove) return;
-                if (isInventoryOpen) {
-                    updateSkinPreviewLook(e.clientX, e.clientY);
-                    return;
-                }
-                if (e.pointerType !== 'touch') return;
-                if (mobileControls.lookPointerId !== e.pointerId) return;
-
-                const dx = e.clientX - mobileControls.lastLookX;
-                const dy = e.clientY - mobileControls.lastLookY;
-                mobileControls.lastLookX = e.clientX;
-                mobileControls.lastLookY = e.clientY;
-
-                yawObject.rotation.y -= dx * player.rotationSpeed * 0.85;
-                pitchObject.rotation.x -= dy * player.rotationSpeed * 0.85;
-                pitchObject.rotation.x = Math.max(-1.5, Math.min(1.5, pitchObject.rotation.x));
-            }, { passive: true });
-
-            const endWorldTouch = (e) => {
-                if (!mobileControls.enabled || e.pointerType !== 'touch') return;
-                if (mobileControls.worldTouchPointerId !== e.pointerId) return;
-                if (mobileControls.miningTimer) clearTimeout(mobileControls.miningTimer);
-
-                const wasMining = mobileControls.isMiningTouch;
-                const touchDuration = performance.now() - mobileControls.worldTouchStartMs;
-                mobileControls.worldTouchActive = false;
-                mobileControls.worldTouchPointerId = null;
-                mobileControls.isMiningTouch = false;
-                mobileControls.lookPointerId = null;
-                isLeftMouseDown = false;
-                miningState.active = false;
-                updateBreakingOverlay();
-
-                if (!wasMining && touchDuration < 220) {
-                    interactOrPlaceAtCrosshair();
-                }
-            };
-
-            window.addEventListener('pointerup', endWorldTouch, { passive: false });
-            window.addEventListener('pointercancel', endWorldTouch, { passive: false });
+            return mobileDeviceControls?.setupMobileControls?.() || undefined;
         }
 
         function setupPointerLockControls() {
-            const el = document.body;
-            document.addEventListener('pointerlockchange', () => {
-                if (mobileControls.enabled) return;
-                if (document.pointerLockElement === el) {
-                    player.canMove = true;
-                    if(isInventoryOpen) toggleInventory(); 
-                    document.getElementById('instructions').style.opacity = 0;
-                    setCrosshairVisible(true);
-                } else {
-                    player.canMove = false;
-                    if(!isInventoryOpen) {
-                        document.getElementById('instructions').style.opacity = 1;
-                                }
-                }
-            });
-            document.addEventListener('mousemove', e => {
-                if (mobileControls.enabled) return;
-                if (!player.canMove || isInventoryOpen) return;
-                yawObject.rotation.y -= e.movementX * player.rotationSpeed;
-                pitchObject.rotation.x -= e.movementY * player.rotationSpeed;
-                pitchObject.rotation.x = Math.max(-1.5, Math.min(1.5, pitchObject.rotation.x));
-            });
-            document.getElementById('instructions').onclick = () => {
-                if (mobileControls.enabled) {
-                    player.canMove = true;
-                    document.getElementById('instructions').style.opacity = 0;
-                    return;
-                }
-                if(!isInventoryOpen) el.requestPointerLock();
-            };
+            return pcDeviceControls?.setupPointerLockControls?.() || undefined;
         }
 
         function ensureSteveSkinTextureLoaded() {
