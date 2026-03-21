@@ -426,6 +426,8 @@ window.perlin = perlinInstance;
         const worldGroup = new THREE.Group();
         let frustumOptimizations = null;
         let chunkStreamOptimizations = null;
+        let defaultPlayerSkin = null;
+        let dirtToGrassLoop = null;
         remeshOptimizations = window.SingleplayerChunkRemeshOptimizations?.create?.({
             getChunkKey: chunkKeyFromCoords,
             getChunk: (key) => chunks.get(key),
@@ -495,8 +497,6 @@ window.perlin = perlinInstance;
             syncPlayerHeightVisuals();
             return true;
         }
-        let defaultPlayerSkin = null;
-        let dirtToGrassLoop = null;
         let iglooStructureDef = null;
         const villageTemplatesByBiomeKey = new Map();
         const gnomeEntities = [];
@@ -6376,6 +6376,11 @@ window.perlin = perlinInstance;
 
             return placedAny;
         }
+
+
+
+
+
 
 
 
