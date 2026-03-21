@@ -4185,7 +4185,7 @@ window.perlin = perlinInstance;
         }
 
         function chooseJungleTreeProfile({ topY, wx, wz, seaLevel, hashRand2D }) {
-            const useLarge = hashRand2D(wx, wz, 911) < 0.18;
+            const useLarge = hashRand2D(wx, wz, 911) < 0.1;
             const profile = resolveMinecraftLikeTreeProfile(useLarge ? 'jungle_large' : 'jungle_small');
             if (!profile?.trunkHeight) return null;
             return {
@@ -4481,8 +4481,10 @@ window.perlin = perlinInstance;
                      }
                  }
              }
-             if (treesPlacedInChunk === 0) {
-                 oakTreeDecoration?.placeFallbackTree?.({
+             const chunkCenterBiome = getBiome(cx * CHUNK_SIZE + Math.floor(CHUNK_SIZE / 2), cz * CHUNK_SIZE + Math.floor(CHUNK_SIZE / 2));
+             const minimumTreesForChunk = chunkCenterBiome === 'Jungle Forest' ? 5 : (chunkCenterBiome === 'Forest' ? 2 : 0);
+             while (treesPlacedInChunk < minimumTreesForChunk) {
+                 const placedFallbackTree = oakTreeDecoration?.placeFallbackTree?.({
                      data,
                      cx,
                      cz,
@@ -4491,6 +4493,8 @@ window.perlin = perlinInstance;
                      chunkSize: CHUNK_SIZE,
                      chunkHeight: CHUNK_HEIGHT
                  });
+                 if (!placedFallbackTree) break;
+                 treesPlacedInChunk++;
              }
 
              placeAmethystGeodesInChunk(data, cx, cz);

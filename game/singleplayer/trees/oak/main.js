@@ -74,11 +74,11 @@
         const density = treeNoise * 0.7 + scatter * 0.3;
         const chance = getTreeSpawnChanceForBiome(biome, topY);
         const clusterBase = Number(worldGenSettings.treeClusterBonus ?? 0.12);
-        const clusterBonus = isJungleForest ? clusterBase * 1.18 : (isOakForest ? clusterBase : clusterBase * 0.92);
-        const spacingRadius = isJungleForest ? 2 : 3;
+        const clusterBonus = isJungleForest ? clusterBase * 1.28 : (isOakForest ? clusterBase * 1.08 : clusterBase * 0.92);
+        const spacingRadius = isJungleForest ? 1 : (isOakForest ? 2 : 3);
         const nearbyTree = hasNearbyTreeTrunk(data, x, z, spacingRadius);
         const spacingBase = Number(worldGenSettings.treeMinSpacingChance ?? 0.65);
-        const spacingGate = isJungleForest ? Math.max(spacingBase, 0.92) : (isOakForest ? Math.max(spacingBase, 0.58) : spacingBase);
+        const spacingGate = isJungleForest ? Math.max(spacingBase, 0.98) : (isOakForest ? Math.max(spacingBase, 0.72) : spacingBase);
         const spawnRoll = hashRand2D(wx, wz, 431);
         const shouldTrySpawn = (spawnRoll < (chance + density * clusterBonus)) && (!nearbyTree || spawnRoll < spacingGate);
         if (!shouldTrySpawn) {
@@ -98,12 +98,14 @@
 
         if (data[topIdx] === 2) data[topIdx] = 1;
         placeMinecraftLikeTree(data, x, z, topY, trunkHeight, wx, wz, treeStyle);
+        fallbackTreeCandidates.splice(candidateIndex, 1);
         return true;
       },
       placeFallbackTree({ data, cx, cz, fallbackTreeCandidates, hashRand2D, chunkSize }) {
         if (!fallbackTreeCandidates.length) return false;
         const pick = Math.floor(hashRand2D(cx, cz, 6083) * fallbackTreeCandidates.length);
-        const candidate = fallbackTreeCandidates[Math.max(0, Math.min(fallbackTreeCandidates.length - 1, pick))];
+        const candidateIndex = Math.max(0, Math.min(fallbackTreeCandidates.length - 1, pick));
+        const candidate = fallbackTreeCandidates[candidateIndex];
         if (!candidate) return false;
 
         const { x, z, topY, wx, wz, biome } = candidate;
@@ -118,6 +120,7 @@
         const topIdx = x + topY * chunkSize + z * chunkSize * chunkHeight;
         if (data[topIdx] === 2) data[topIdx] = 1;
         placeMinecraftLikeTree(data, x, z, topY, trunkHeight, wx, wz, treeStyle);
+        fallbackTreeCandidates.splice(candidateIndex, 1);
         return true;
       },
     };
