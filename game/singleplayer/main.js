@@ -6381,11 +6381,6 @@ window.perlin = perlinInstance;
 
 
 
-
-
-
-
-
         function placePumpkinPatchInChunk(data, cx, cz) {
             const pumpkinCfg = worldGenSettings.decorations?.pumpkins || {};
             if (pumpkinCfg.enabled === false) return;
