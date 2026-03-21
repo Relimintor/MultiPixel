@@ -24,6 +24,7 @@
             blockMaterials,
             SOLID_BLOCKS,
             LIQUID_BLOCKS,
+            SIDE_RENDER_BLOCK_IDS = [],
             DEFAULT_PLAYER
         } = window.SingleplayerConfig;
 
@@ -842,7 +843,10 @@ window.perlin = perlinInstance;
 
                 const path = ASSET_FILEPATHS[key];
                 
-                const promise = new Promise((resolve, reject) => {
+                const promise = new Promise((resolve) => {
+                    const matId = getMaterialIdByTextureKey(key);
+                    const matCfg = matId >= 0 ? blockMaterials[matId] : {};
+                    const isDoubleSidedCutout = key === 'LEAVES' || matCfg.renderAs === 'cross' || matCfg.renderAs === 'plane';
                     loader.load(
                         path, // <-- DIRECTLY using the calculated path
                         (texture) => {
@@ -854,13 +858,11 @@ window.perlin = perlinInstance;
                             if (renderer && renderer.capabilities) {
                                 texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
                             }
-                            const matId = getMaterialIdByTextureKey(key);
-                            const matCfg = matId >= 0 ? blockMaterials[matId] : {};
                             materials[key] = new THREE.MeshStandardMaterial({
                                 map: texture,
-                                side: key === 'LEAVES' ? THREE.DoubleSide : THREE.FrontSide,
+                                side: isDoubleSidedCutout ? THREE.DoubleSide : THREE.FrontSide,
                                 transparent: matCfg.transparent || false,
-                                alphaTest: key === 'LEAVES' ? 0.5 : 0,
+                                alphaTest: key === 'LEAVES' || matCfg.alphaCutout ? 0.5 : 0,
                                 depthWrite: true,
                                 opacity: matCfg.opacity || 1.0,
                                 vertexColors: true,
@@ -869,9 +871,16 @@ window.perlin = perlinInstance;
                         },
                         undefined,
                         (err) => {
-                            // This error is expected since the files don't exist in the runtime environment
                             console.error(`Error loading texture from specified path: ${path}. Block will use solid color fallback.`, err);
-                            // Still resolve so the game can continue
+                            materials[key] = new THREE.MeshStandardMaterial({
+                                color: matCfg.color || 0xd1c17e,
+                                side: isDoubleSidedCutout ? THREE.DoubleSide : THREE.FrontSide,
+                                transparent: matCfg.transparent || false,
+                                alphaTest: key === 'LEAVES' || matCfg.alphaCutout ? 0.5 : 0,
+                                depthWrite: true,
+                                opacity: matCfg.opacity || 1.0,
+                                vertexColors: true,
+                            });
                             resolve(); 
                         }
                     );
@@ -1735,7 +1744,9 @@ window.perlin = perlinInstance;
             for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
                 const idx = lx + y * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
                 const block = data[idx];
-                if (block !== 0 && block !== 6) return y;
+                if (block === 0 || block === 6) continue;
+                if (blockMaterials[block]?.renderAs) continue;
+                return y;
             }
             return -1;
         }
@@ -3068,7 +3079,7 @@ window.perlin = perlinInstance;
             }
 
             const item = inventory[selectedHotbarIndex];
-            if (!item || !isSolid(item.id)) return;
+            if (!item || !isPlaceableBlock(item.id)) return;
 
             const placePos = hit.point.clone().add(hit.face.normal.clone().multiplyScalar(0.01));
             const px = Math.floor(placePos.x), py = Math.floor(placePos.y), pz = Math.floor(placePos.z);
@@ -4174,7 +4185,7 @@ window.perlin = perlinInstance;
         }
 
         function chooseJungleTreeProfile({ topY, wx, wz, seaLevel, hashRand2D }) {
-            const useLarge = hashRand2D(wx, wz, 911) < 0.28;
+            const useLarge = hashRand2D(wx, wz, 911) < 0.18;
             const profile = resolveMinecraftLikeTreeProfile(useLarge ? 'jungle_large' : 'jungle_small');
             if (!profile?.trunkHeight) return null;
             return {
@@ -4560,6 +4571,16 @@ window.perlin = perlinInstance;
                  CHUNK_SIZE,
                  CHUNK_HEIGHT,
                  SEA_LEVEL
+             });
+             window.SideFloraWorldgen?.placeFlowerPatchesInChunk?.({
+                 data,
+                 cx,
+                 cz,
+                 hashRand2D,
+                 getBiome,
+                 blockMaterials,
+                 CHUNK_SIZE,
+                 CHUNK_HEIGHT,
              });
              return { data, heightmap, spawnedGnomes, spawnedPigs, spawnedWolves, spawnedPandas, spawnedVillagers };
         }
@@ -5358,14 +5379,25 @@ window.perlin = perlinInstance;
                     else if (faceDir[2] === -1) key = mat.textureByFace.negZ || key;
                 }
                 // Use the loaded material key if it exists, otherwise use a colored fallback key
-                if (materials[key] && materials[key].map) return key; 
-                return `textures/Fallback.png`;
+                if (materials[key]) return key; 
+                return 'COLORED_OPAQUE';
             }
             if (id === 4) return 'WATER'; 
             if (id === 5) return 'WOOD';  
             
             // For non-textured blocks that might have been assigned a vertex color
             return 'COLORED_OPAQUE';
+        }
+
+        const sideRenderBlockIds = new Set(SIDE_RENDER_BLOCK_IDS);
+
+        function getSideRenderMode(id) {
+            if (!sideRenderBlockIds.has(id)) return null;
+            return blockMaterials[id]?.renderAs || 'cross';
+        }
+
+        function isPlaceableBlock(id) {
+            return isSolid(id) || Boolean(blockMaterials[id]?.placeable);
         }
 
         function getFaceName(faceDir) {
@@ -5469,6 +5501,16 @@ window.perlin = perlinInstance;
                 { name: 'posZ', dir: [0,0,1], corners: [[0.45,1.0,0.55],[0.45,0.0,0.55],[0.55,0.0,0.55],[0.55,1.0,0.55]], uv: [0,1,0,0,1,0,1,1] },
                 { name: 'negZ', dir: [0,0,-1], corners: [[0.55,1.0,0.45],[0.55,0.0,0.45],[0.45,0.0,0.45],[0.45,1.0,0.45]], uv: [0,1,0,0,1,0,1,1] }
             ];
+            const crossPlantFaces = [
+                { dir: [0.7071, 0, -0.7071], corners: [[0.1464,1,0.1464],[0.1464,0,0.1464],[0.8536,0,0.8536],[0.8536,1,0.8536]], uv: [0,1,0,0,1,0,1,1] },
+                { dir: [-0.7071, 0, 0.7071], corners: [[0.8536,1,0.8536],[0.8536,0,0.8536],[0.1464,0,0.1464],[0.1464,1,0.1464]], uv: [0,1,0,0,1,0,1,1] },
+                { dir: [0.7071, 0, 0.7071], corners: [[0.1464,1,0.8536],[0.1464,0,0.8536],[0.8536,0,0.1464],[0.8536,1,0.1464]], uv: [0,1,0,0,1,0,1,1] },
+                { dir: [-0.7071, 0, -0.7071], corners: [[0.8536,1,0.1464],[0.8536,0,0.1464],[0.1464,0,0.8536],[0.1464,1,0.8536]], uv: [0,1,0,0,1,0,1,1] },
+            ];
+            const singlePlaneFaces = [
+                { name: 'posZ', dir: [0, 0, 1], corners: [[0.15,1,0.5],[0.15,0,0.5],[0.85,0,0.5],[0.85,1,0.5]], uv: [0,1,0,0,1,0,1,1] },
+            ];
+
 
             const CH = CHUNK_HEIGHT;
             const CS = CHUNK_SIZE;
@@ -5779,26 +5821,30 @@ window.perlin = perlinInstance;
                         const isTorch = id === 22;
                         const isBambooStage = id === 99 || id === 100;
                         const isBambooStalk = id === 101;
+                        const sideRenderMode = getSideRenderMode(id);
+                        const isSideRenderBlock = Boolean(sideRenderMode);
                         if (isTorch) torchPositions.push({ x: x + cx * CS, y, z: z + cz * CS });
                         const isTrans = mat.transparent || (mat.textured && mat.textureKey === 'LEAVES');
-                        if (!isTorch && !isBambooStage && !isBambooStalk && !isTrans) continue;
-                        const activeFaces = isTorch ? torchFaces : (isBambooStalk ? bambooStalkFaces : (isBambooStage ? bambooStageFaces : faces));
+                        if (!isTorch && !isBambooStage && !isBambooStalk && !isSideRenderBlock && !isTrans) continue;
+                        const activeFaces = isSideRenderBlock
+                            ? (sideRenderMode === 'plane' ? singlePlaneFaces : crossPlantFaces)
+                            : (isTorch ? torchFaces : (isBambooStalk ? bambooStalkFaces : (isBambooStage ? bambooStageFaces : faces)));
 
-                        for (let i = 0; i < 6; i++) {
+                        for (let i = 0; i < activeFaces.length; i++) {
                             const f = activeFaces[i];
                             const nid = get(x + f.dir[0], y + f.dir[1], z + f.dir[2]);
                             let draw = false;
-                            if (isTorch || isBambooStage || isBambooStalk) draw = true;
+                            if (isTorch || isBambooStage || isBambooStalk || isSideRenderBlock) draw = true;
                             else if (shouldDrawFace(id, nid)) draw = true;
                             if (!draw) continue;
 
                             const materialKey = getMaterialKey(id, f.dir);
-                            const faceName = f.name || getFaceName(f.dir);
+                            const faceName = f.name || getFaceName(f.dir) || 'posX';
                             const uvInfo = getFaceUvInfo(id, faceName, f.uv);
                             const wx = x + cx * CS;
                             const wz = z + cz * CS;
                             const corners = f.corners.map((c) => [wx + c[0], y + c[1], wz + c[2]]);
-                            emitQuad(id, materialKey, f.dir, corners, uvInfo.uv, !(isTorch || isBambooStage || isBambooStalk));
+                            emitQuad(id, materialKey, f.dir, corners, uvInfo.uv, !(isTorch || isBambooStage || isBambooStalk || isSideRenderBlock));
                         }
                     }
                 }
