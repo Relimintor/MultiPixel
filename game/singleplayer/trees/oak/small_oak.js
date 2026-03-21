@@ -2,6 +2,9 @@
   const SmallOakTree = {
     style: 'small_oak',
     trunkOffsets: [{ x: 0, z: 0 }],
+    trunkBlockId: 5,
+    leafBlockId: 6,
+    crownRadius: 0,
     trunkHeight({ hashRand2D, wx, wz }) {
       return 3 + Math.floor(hashRand2D(wx, wz, 211) * 2);
     },

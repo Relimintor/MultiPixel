@@ -4108,35 +4108,32 @@ window.perlin = perlinInstance;
         }
 
 
+        function resolveMinecraftLikeTreeProfile(treeStyle = 'oak') {
+            const oakProfile = window.OakTreeGeneration?.resolveOakTreeProfile?.(treeStyle);
+            if (oakProfile) return oakProfile;
+            if (treeStyle === 'jungle_large') return window.JungleLargeTree || null;
+            if (treeStyle === 'jungle_small') return window.JungleSmallTree || null;
+            return null;
+        }
+
         function chooseJungleTreeProfile({ topY, wx, wz, seaLevel, hashRand2D }) {
             const useLarge = hashRand2D(wx, wz, 911) < 0.28;
+            const profile = resolveMinecraftLikeTreeProfile(useLarge ? 'jungle_large' : 'jungle_small');
+            if (!profile?.trunkHeight) return null;
             return {
-                style: useLarge ? 'jungle_large' : 'jungle_small',
-                trunkHeight: useLarge
-                    ? (8 + Math.floor(hashRand2D(wx, wz, 913) * 4))
-                    : (5 + Math.floor(hashRand2D(wx, wz, 157) * 3)),
+                style: profile.style,
+                trunkHeight: profile.trunkHeight({ topY, wx, wz, seaLevel, hashRand2D }),
             };
         }
 
         function getMinecraftLikeTreeLayout(treeStyle, relY) {
-            const oakLayout = window.OakTreeGeneration?.getOakTreeLayout?.(treeStyle, relY);
-            if (oakLayout) return oakLayout;
-            if (treeStyle === 'jungle_large') {
-                const profile = window.JungleLargeTree;
-                if (profile?.canopyRadius) return { radius: profile.canopyRadius(relY), trunkOffsets: profile.trunkOffsets || [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 }, { x: 1, z: 1 }] };
-                if (relY >= 2) return { radius: 2, trunkOffsets: [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 }, { x: 1, z: 1 }] };
-                if (relY >= 1) return { radius: 3, trunkOffsets: [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 }, { x: 1, z: 1 }] };
-                if (relY >= 0) return { radius: 4, trunkOffsets: [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 }, { x: 1, z: 1 }] };
-                if (relY >= -1) return { radius: 4, trunkOffsets: [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 }, { x: 1, z: 1 }] };
-                return { radius: 3, trunkOffsets: [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 }, { x: 1, z: 1 }] };
-            }
-
-            const profile = window.JungleSmallTree;
-            if (profile?.canopyRadius) return { radius: profile.canopyRadius(relY), trunkOffsets: profile.trunkOffsets || [{ x: 0, z: 0 }] };
-            if (relY >= 1) return { radius: 1, trunkOffsets: [{ x: 0, z: 0 }] };
-            if (relY >= 0) return { radius: 2, trunkOffsets: [{ x: 0, z: 0 }] };
-            if (relY >= -1) return { radius: 2, trunkOffsets: [{ x: 0, z: 0 }] };
-            return { radius: 1, trunkOffsets: [{ x: 0, z: 0 }] };
+            const profile = resolveMinecraftLikeTreeProfile(treeStyle);
+            if (!profile?.canopyRadius) return null;
+            return {
+                radius: profile.canopyRadius(relY),
+                trunkOffsets: profile.trunkOffsets || [{ x: 0, z: 0 }],
+                crownRadius: Number.isFinite(profile.crownRadius) ? profile.crownRadius : 0,
+            };
         }
 
         function canPlaceMinecraftLikeTree(data, x, z, topY, trunkHeight, treeStyle = 'oak') {
@@ -4183,10 +4180,10 @@ window.perlin = perlinInstance;
 
         function placeMinecraftLikeTree(data, x, z, topY, trunkHeight, wx, wz, treeStyle = 'oak') {
             const trunkTopY = topY + trunkHeight;
-            const isJungleTree = treeStyle === 'jungle_small' || treeStyle === 'jungle_large' || treeStyle === 'jungle_mountain';
-            const trunkType = treeStyle === 'glass_mushroom' ? 80 : (isJungleTree ? 96 : 5);
-            const leafType = treeStyle === 'glass_mushroom' ? 26 : (isJungleTree ? 97 : 6);
-            const trunkOffsets = treeStyle === 'jungle_mountain' ? [{ x: 0, z: 0 }] : getMinecraftLikeTreeLayout(treeStyle, 0).trunkOffsets;
+            const treeProfile = treeStyle === 'jungle_mountain' ? null : resolveMinecraftLikeTreeProfile(treeStyle);
+            const trunkType = treeStyle === 'glass_mushroom' ? 80 : (treeProfile?.trunkBlockId ?? 5);
+            const leafType = treeStyle === 'glass_mushroom' ? 26 : (treeProfile?.leafBlockId ?? 6);
+            const trunkOffsets = treeStyle === 'jungle_mountain' ? [{ x: 0, z: 0 }] : (treeProfile?.trunkOffsets || getMinecraftLikeTreeLayout(treeStyle, 0)?.trunkOffsets || [{ x: 0, z: 0 }]);
             for (let i = 1; i <= trunkHeight; i++) {
                 const ty = topY + i;
                 for (const offset of trunkOffsets) {
@@ -4216,10 +4213,20 @@ window.perlin = perlinInstance;
                 }
             }
 
+            const crownRadius = treeStyle === 'jungle_mountain'
+                ? 0
+                : (treeProfile?.crownRadius ?? getMinecraftLikeTreeLayout(treeStyle, 0)?.crownRadius ?? 0);
             const crownY = trunkTopY + 2;
             if (crownY < CHUNK_HEIGHT) {
-                const crownIdx = x + crownY * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
-                if (data[crownIdx] === 0) data[crownIdx] = leafType;
+                for (let ox = -crownRadius; ox <= crownRadius; ox++) {
+                    for (let oz = -crownRadius; oz <= crownRadius; oz++) {
+                        const tx = x + ox;
+                        const tz = z + oz;
+                        if (tx < 0 || tx >= CHUNK_SIZE || tz < 0 || tz >= CHUNK_SIZE) continue;
+                        const crownIdx = tx + crownY * CHUNK_SIZE + tz * CHUNK_SIZE * CHUNK_HEIGHT;
+                        if (data[crownIdx] === 0) data[crownIdx] = leafType;
+                    }
+                }
             }
         }
         
