@@ -1,0 +1,34 @@
+# textdomain: node_view
+
+Hand=
+Pickaxe=
+Sword=
+Shears=
+Axe=
+Shovel=
+
+Unbreakable=
+None=
+Type=
+Health=
+
+Unknown=
+
+Preview=
+Hud Alignment=
+Top-Middle=
+Top-Right=
+Top-Left=
+Middle-Right=
+Middle-Left=
+Bottom-Right=
+Bottom-Left=
+Health in=
+Points=
+Hearts=
+Set to Default=
+Change Preview to=
+Node=
+Entity=
+Cancel=
+Apply Changes=
