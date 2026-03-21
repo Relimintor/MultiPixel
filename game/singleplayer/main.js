@@ -203,6 +203,24 @@
             return designs;
         }
 
+        async function loadVillagePieceDefinitions(biomeKey, pieceIds) {
+            const definitions = {};
+            const ids = Array.isArray(pieceIds) ? pieceIds : [];
+            await Promise.all(ids.map(async (pieceId) => {
+                const normalizedPieceId = normalizeVillagePieceId(pieceId);
+                if (!normalizedPieceId) return;
+                const path = `./structures/villages/${normalizeVillageBiomeKey(biomeKey)}/${normalizedPieceId}.json`;
+                try {
+                    const res = await fetch(path, { cache: 'no-store' });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    definitions[normalizedPieceId] = await res.json();
+                } catch (err) {
+                    console.warn('[VillagePiece] failed to load', path, err);
+                }
+            }));
+            return definitions;
+        }
+
         function resolveWorldSeed() {
             // Always use a fresh random seed per game load so terrain changes each time.
             // Optional override: if WORLD_GEN_SETTINGS.seed is provided, honor that value.
@@ -1303,7 +1321,8 @@ window.perlin = perlinInstance;
                     const parsed = await res.json();
                     const layout = parsed?.layout && typeof parsed.layout === 'object' ? parsed.layout : fallbackLayout;
                     const pieceDesigns = await loadVillagePieceDesigns(biomeKey, parsed?.pieces);
-                    villageTemplatesByBiomeKey.set(biomeKey, { ...parsed, layout, pieceDesigns });
+                    const pieceDefinitions = await loadVillagePieceDefinitions(biomeKey, parsed?.pieces);
+                    villageTemplatesByBiomeKey.set(biomeKey, { ...parsed, layout, pieceDesigns, pieceDefinitions });
                 } catch (err) {
                     console.warn(`[Village] Failed to load ${path}, using defaults.`, err);
                     villageTemplatesByBiomeKey.set(biomeKey, {
@@ -1311,7 +1330,8 @@ window.perlin = perlinInstance;
                         biome: biomeKey,
                         pathBlock: 'cobblestone',
                         layout: fallbackLayout,
-                        pieceDesigns: {}
+                        pieceDesigns: {},
+                        pieceDefinitions: {}
                     });
                 }
             }));
@@ -5085,6 +5105,32 @@ window.perlin = perlinInstance;
                     const houseTemplates = Array.isArray(layout.buildings) && layout.buildings.length
                         ? layout.buildings
                         : getDefaultVillageLayout().buildings;
+                    const pieceDefinitions = template.pieceDefinitions || {};
+                    const placeableVillagePieces = Object.values(pieceDefinitions).filter((piece) => {
+                        const category = String(piece?.category || '').toLowerCase();
+                        return category === 'house' || category === 'church' || category === 'farm' || category === 'platform' || category === 'igloo';
+                    });
+                    const piecePlacementCounts = new Map();
+
+                    function chooseVillagePieceForSlot(tpl, step) {
+                        const explicitPieceId = normalizeVillagePieceId(tpl?.piece || tpl?.structure);
+                        if (explicitPieceId && pieceDefinitions[explicitPieceId]) return pieceDefinitions[explicitPieceId];
+                        const candidates = placeableVillagePieces.filter((piece) => {
+                            const category = String(piece?.category || '').toLowerCase();
+                            if (category === 'church' && (piecePlacementCounts.get('church') || 0) >= 1) return false;
+                            if (category === 'igloo' && (piecePlacementCounts.get('igloo') || 0) >= 1) return false;
+                            return true;
+                        });
+                        const pool = candidates.length ? candidates : placeableVillagePieces;
+                        if (!pool.length) return { id: 'house_small', category: 'house', footprint: { width: 7, depth: 7 }, weight: 1 };
+                        const totalWeight = pool.reduce((sum, piece) => sum + Math.max(1, Number(piece?.weight) || 1), 0);
+                        let roll = seedRand01(coreX + step * 3, coreZ - step * 5, 200 + step) * totalWeight;
+                        for (const piece of pool) {
+                            roll -= Math.max(1, Number(piece?.weight) || 1);
+                            if (roll <= 0) return piece;
+                        }
+                        return pool[pool.length - 1];
+                    }
 
                     const wellConnectors = Array.isArray(layout.wellConnectors) && layout.wellConnectors.length
                         ? layout.wellConnectors
@@ -5151,10 +5197,13 @@ window.perlin = perlinInstance;
                         if (srcDepth > branchDepthLimit) continue;
 
                         const tpl = houseTemplates[Math.floor(seedRand01(coreX + step * 3, coreZ - step * 5, 2 + step) * houseTemplates.length)] || houseTemplates[0];
-                        const pieceId = normalizeVillagePieceId(tpl.piece || tpl.structure || (String(tpl.id || '').toLowerCase().includes('church') ? 'church_small' : 'house_small'));
+                        const selectedPiece = chooseVillagePieceForSlot(tpl, step);
+                        const pieceId = normalizeVillagePieceId(selectedPiece?.id || tpl.piece || tpl.structure || (String(tpl.id || '').toLowerCase().includes('church') ? 'church_small' : 'house_small'));
                         const pieceDesign = getVillagePieceDesignFromTemplate(template, biomeKey, pieceId);
-                        const footprint = getVillageFootprintFromDesign(pieceDesign, Number(tpl.size) || 5);
+                        const footprintSource = pieceDesign?.footprint || selectedPiece?.footprint || null;
+                        const footprint = getVillageFootprintFromDesign(footprintSource ? { footprint: footprintSource, size: pieceDesign?.size || selectedPiece?.size } : pieceDesign, Number(tpl.size) || 5);
                         const size = Math.max(3, footprint.width, footprint.depth, Number(tpl.size) || 5);
+                        const pieceCategory = String(pieceDesign?.category || selectedPiece?.category || 'house').toLowerCase();
                         const dist = minSpacing + Math.floor(seedRand01(coreX - step * 7, coreZ + step * 11, 3 + step) * (maxSpacing - minSpacing + 1));
                         const dir = String(src.dir || 'N').toUpperCase();
                         const vec = DIR_VECTORS[dir] || DIR_VECTORS.N;
@@ -5184,8 +5233,22 @@ window.perlin = perlinInstance;
                         const extraDoors = Array.isArray(tpl.doorDirs) ? tpl.doorDirs : (Array.isArray(pieceDesign?.doorDirs) ? pieceDesign.doorDirs : []);
                         const doorDirs = Array.from(new Set([primaryDoorDir, ...extraDoors.map((d) => String(d || '').toUpperCase()).filter((d) => DIR_VECTORS[d]) ]));
 
-                        const built = placeGroundedHouse(centerX, centerZ, size, wall, roof, doorDirs, biomeKey, pieceDesign);
-                        spawnedVillagers.push({ wx: centerX + 0.5, wy: built.baseY + 1, wz: centerZ + 0.5, homeX: centerX + 0.5, homeZ: centerZ + 0.5, centerX: coreX + 0.5, centerZ: coreZ + 0.5, poiTargets: [{ key: 'well', x: coreX + 0.5, z: coreZ + 0.5 }] });
+                        let built = null;
+                        if (pieceCategory.includes('farm')) {
+                            built = placeVillageFarm(centerX, centerZ, { path: pathBlock, water }, pieceDesign);
+                        } else if (pieceCategory.includes('platform')) {
+                            built = placeVillagePlatform(centerX, centerZ, wall, pieceDesign);
+                        } else {
+                            built = placeGroundedHouse(centerX, centerZ, size, wall, roof, doorDirs, biomeKey, pieceDesign);
+                        }
+                        if (!built?.ok) continue;
+                        if (!Array.isArray(built.doors) || !built.doors.length) {
+                            built.doors = [getConnectorPoint(centerX, centerZ, size, primaryDoorDir)];
+                        }
+                        piecePlacementCounts.set(pieceCategory, (piecePlacementCounts.get(pieceCategory) || 0) + 1);
+                        if (pieceCategory.includes('house') || pieceCategory.includes('church') || pieceCategory.includes('igloo')) {
+                            spawnedVillagers.push({ wx: centerX + 0.5, wy: built.baseY + 1, wz: centerZ + 0.5, homeX: centerX + 0.5, homeZ: centerZ + 0.5, centerX: coreX + 0.5, centerZ: coreZ + 0.5, poiTargets: [{ key: 'well', x: coreX + 0.5, z: coreZ + 0.5 }] });
+                        }
                         addBuildingObstacle(centerX, centerZ, size);
                         buildingCenters.push({ x: centerX, z: centerZ, size });
 
