@@ -10,7 +10,8 @@
     "footprint": {
         "width": 9,
         "depth": 7
-    }
+    },
+    "cropBlockId": 2
 }
   });
 })();

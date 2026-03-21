@@ -1366,7 +1366,31 @@ window.perlin = perlinInstance;
             };
         }
 
+        function resolveVillageDesignBlockId(blockRef, context) {
+            if (blockRef === null || blockRef === undefined || blockRef === '' || blockRef === 'skip') return null;
+            if (typeof blockRef === 'number' && Number.isFinite(blockRef)) return blockRef;
+            const normalized = String(blockRef).toLowerCase().trim();
+            const named = {
+                air: 0,
+                wall: context.wallId,
+                roof: context.roofId,
+                beam: context.beamId,
+                floor: context.floorId,
+                window: context.windowId,
+                foundation: context.foundationId,
+                support: context.foundationId,
+                chest: 82,
+                water: context.waterId,
+                path: context.pathId,
+                dirt: 2,
+            };
+            if (Object.prototype.hasOwnProperty.call(named, normalized)) return named[normalized];
+            const parsed = Number(blockRef);
+            return Number.isFinite(parsed) ? parsed : null;
+        }
+
         function placeVillageLinearFeature(centerX, centerZ, blockId, design = null) {
+            const pathBlockId = Number(design?.blockId) || blockId;
             const footprint = getVillageFootprintFromDesign(design, 7);
             const axis = String(design?.axis || 'z').toLowerCase() === 'x' ? 'x' : 'z';
             const halfWidth = Math.floor(footprint.width / 2);
@@ -1380,7 +1404,7 @@ window.perlin = perlinInstance;
                 for (let z = minZ; z <= maxZ; z++) {
                     const floorY = getSurfaceYForEntity(x, z);
                     if (!Number.isFinite(floorY) || floorY < 2 || floorY >= CHUNK_HEIGHT - 4) continue;
-                    setBlockTypeRaw(x, floorY, z, blockId, true);
+                    setBlockTypeRaw(x, floorY, z, pathBlockId, true);
                     if (design?.supportBlockId) {
                         for (let y = floorY - 1; y >= Math.max(1, floorY - (Number(design.supportDepth) || 4)); y--) {
                             setBlockTypeRaw(x, y, z, Number(design.supportBlockId), true);
@@ -1395,16 +1419,17 @@ window.perlin = perlinInstance;
         }
 
         function placeVillagePlatform(centerX, centerZ, baseBlockId, design = null) {
+            const deckBlockId = Number(design?.deckBlockId) || baseBlockId;
             const footprint = getVillageFootprintFromDesign(design, 7);
             const halfW = Math.floor(footprint.width / 2);
             const halfD = Math.floor(footprint.depth / 2);
             const floorY = getSurfaceYForEntity(centerX, centerZ);
             if (!Number.isFinite(floorY) || floorY < 2 || floorY >= CHUNK_HEIGHT - 6) return { ok: false, message: 'Could not place platform on current terrain.' };
             const deckY = floorY + Math.max(1, Number(design?.deckHeight) || 3);
-            const supportId = Number(design?.supportBlockId) || baseBlockId;
+            const supportId = Number(design?.supportBlockId) || deckBlockId;
             for (let x = centerX - halfW; x <= centerX + halfW; x++) {
                 for (let z = centerZ - halfD; z <= centerZ + halfD; z++) {
-                    setBlockTypeRaw(x, deckY, z, baseBlockId, true);
+                    setBlockTypeRaw(x, deckY, z, deckBlockId, true);
                 }
             }
             const supportOffsets = design?.supportOffsets || [
@@ -1426,6 +1451,9 @@ window.perlin = perlinInstance;
         }
 
         function placeVillageFarm(centerX, centerZ, palette, design = null) {
+            const borderBlockId = Number(design?.borderBlockId) || palette.path;
+            const cropBlockId = Number(design?.cropBlockId) || 2;
+            const waterBlockId = Number(design?.waterBlockId) || palette.water;
             const footprint = getVillageFootprintFromDesign(design, 9);
             const halfW = Math.floor(footprint.width / 2);
             const halfD = Math.floor(footprint.depth / 2);
@@ -1434,9 +1462,9 @@ window.perlin = perlinInstance;
             for (let x = centerX - halfW; x <= centerX + halfW; x++) {
                 for (let z = centerZ - halfD; z <= centerZ + halfD; z++) {
                     const edge = x === centerX - halfW || x === centerX + halfW || z === centerZ - halfD || z === centerZ + halfD;
-                    setBlockTypeRaw(x, floorY, z, edge ? palette.path : 2, true);
+                    setBlockTypeRaw(x, floorY, z, edge ? borderBlockId : cropBlockId, true);
                     if (!edge && x === centerX) {
-                        setBlockTypeRaw(x, floorY + 1, z, palette.water, true);
+                        setBlockTypeRaw(x, floorY + 1, z, waterBlockId, true);
                     }
                 }
             }
@@ -1485,6 +1513,8 @@ window.perlin = perlinInstance;
         }
 
         function placeSimpleVillageWell(centerX, centerZ, baseBlockId, waterBlockId, design = null) {
+            baseBlockId = Number(design?.baseBlockId) || baseBlockId;
+            waterBlockId = Number(design?.waterBlockId) || waterBlockId;
             const floorY = getSurfaceYForEntity(centerX, centerZ);
             if (!Number.isFinite(floorY) || floorY < 2 || floorY >= CHUNK_HEIGHT - 5) return { ok: false, message: 'Could not place well on current terrain.' };
 
@@ -4860,6 +4890,48 @@ window.perlin = perlinInstance;
                 const floorId = Number(design?.floorBlockId) || ((biomeStyleKey === 'desert' || biomeStyleKey === 'snowy_plains') ? wallId : 8);
                 const windowId = Number(design?.windowBlockId) || (biomeStyleKey === 'snowy_plains' ? 80 : 26);
                 const foundationId = Number(design?.foundationBlockId) || ((biomeStyleKey === 'desert' || biomeStyleKey === 'snowy_plains') ? wallId : 17);
+
+                if (Array.isArray(design?.structure?.layers) && design.structure.layers.length) {
+                    for (let x = centerX - half; x <= centerX + half; x++) {
+                        for (let z = centerZ - half; z <= centerZ + half; z++) {
+                            const gy = getGroundYAt(x, z);
+                            if (Number.isFinite(gy)) {
+                                for (let fy = gy + 1; fy <= baseY; fy++) placeSolid(x, fy, z, foundationId);
+                            }
+                        }
+                    }
+                    const tokens = design?.tokens || design?.structure?.tokens || {};
+                    const blockContext = { wallId, roofId, beamId, floorId, windowId, foundationId, pathId: null, waterId: null };
+                    for (const layer of design.structure.layers) {
+                        const rows = Array.isArray(layer?.rows) ? layer.rows : [];
+                        const layerDepth = rows.length;
+                        const layerWidth = rows.reduce((max, row) => Math.max(max, String(row || '').length), 0);
+                        const startZ = centerZ - Math.floor(layerDepth / 2);
+                        const startX = centerX - Math.floor(layerWidth / 2);
+                        const y = baseY + Math.floor(Number(layer?.yOffset) || 0);
+                        for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+                            const row = String(rows[rowIndex] || '');
+                            for (let colIndex = 0; colIndex < row.length; colIndex++) {
+                                const token = row[colIndex];
+                                const blockRef = Object.prototype.hasOwnProperty.call(tokens, token) ? tokens[token] : (token === ' ' ? 'skip' : null);
+                                const blockId = resolveVillageDesignBlockId(blockRef, blockContext);
+                                if (blockId === null) continue;
+                                placeSolid(startX + colIndex, y, startZ + rowIndex, blockId);
+                            }
+                        }
+                    }
+                    const dirs = Array.isArray(doorDirs) && doorDirs.length ? doorDirs : (Array.isArray(design?.doorDirs) && design.doorDirs.length ? design.doorDirs : ['N']);
+                    const resultDoors = dirs.map((dirRaw) => String(dirRaw || '').toUpperCase()).filter((dir) => DIR_VECTORS[dir]).map((dir) => getConnectorPoint(centerX, centerZ, sizeForPlacement, dir));
+                    return {
+                        ok: true,
+                        x: centerX,
+                        y: baseY + 1,
+                        z: centerZ,
+                        doors: resultDoors,
+                        baseY,
+                        slopeDelta: Number.isFinite(maxGround) && Number.isFinite(minGround) ? (maxGround - minGround) : 0
+                    };
+                }
 
                 for (let x = centerX - half; x <= centerX + half; x++) {
                     for (let z = centerZ - half; z <= centerZ + half; z++) {

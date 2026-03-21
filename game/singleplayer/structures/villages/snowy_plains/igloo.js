@@ -6,37 +6,88 @@
     biome: 'snowy_plains',
     pieceId: 'igloo',
     design: {
-    "category": "house",
+    "category": "igloo",
     "footprint": {
         "width": 7,
         "depth": 7
     },
-    "wallHeight": 4,
+    "windowBlockId": 80,
+    "structure": {
+        "tokens": {
+            "#": "wall",
+            ".": "floor",
+            "w": "window",
+            "=": "roof",
+            "c": "chest",
+            " ": "air"
+        },
+        "layers": [
+            {
+                "yOffset": 0,
+                "rows": [
+                    "  ...  ",
+                    " ..... ",
+                    ".......",
+                    "...c...",
+                    ".......",
+                    " ..... ",
+                    "  ...  "
+                ]
+            },
+            {
+                "yOffset": 1,
+                "rows": [
+                    "  ##   ",
+                    " ## ## ",
+                    "##   ##",
+                    "#     #",
+                    "#  w  #",
+                    " ## ## ",
+                    "  ###  "
+                ]
+            },
+            {
+                "yOffset": 2,
+                "rows": [
+                    "  ==   ",
+                    " == == ",
+                    "==   ==",
+                    "=  w  =",
+                    "=     =",
+                    " == == ",
+                    "  ===  "
+                ]
+            },
+            {
+                "yOffset": 3,
+                "rows": [
+                    "   =   ",
+                    "  ===  ",
+                    " ===== ",
+                    "==   ==",
+                    " ===== ",
+                    "  ===  ",
+                    "   =   "
+                ]
+            },
+            {
+                "yOffset": 4,
+                "rows": [
+                    "       ",
+                    "   =   ",
+                    "  ===  ",
+                    "  ===  ",
+                    "  ===  ",
+                    "   =   ",
+                    "       "
+                ]
+            }
+        ]
+    },
+    "placeChest": false,
     "doorDirs": [
         "N"
-    ],
-    "windowRows": [
-        2
-    ],
-    "roofLayers": [
-        {
-            "yOffset": 0,
-            "inset": 0,
-            "edgeOnly": true
-        },
-        {
-            "yOffset": 1,
-            "inset": 1,
-            "edgeOnly": false
-        },
-        {
-            "yOffset": 2,
-            "inset": 2,
-            "edgeOnly": false
-        }
-    ],
-    "windowBlockId": 80,
-    "placeChest": true
+    ]
 }
   });
 })();
