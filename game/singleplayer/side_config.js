@@ -85,18 +85,20 @@
 
   const flowerPatchFeatures = {
     Plains: {
-      patchesPerChunk: 4,
-      tries: 88,
-      xzSpread: 7,
-      ySpread: 3,
+      patchesPerChunk: 3,
+      patchSkipChance: 0.4,
+      tries: 24,
+      xzSpread: 11,
+      ySpread: 4,
       substrateIds: [1],
       flowerIds: flowerSpawnConfig.Plains.slice(),
     },
     Forest: {
       patchesPerChunk: 2,
-      tries: 64,
-      xzSpread: 6,
-      ySpread: 2,
+      patchSkipChance: 0.55,
+      tries: 16,
+      xzSpread: 9,
+      ySpread: 4,
       substrateIds: [1],
       flowerIds: flowerSpawnConfig.Forest.slice(),
     },

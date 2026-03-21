@@ -46,13 +46,15 @@
       const getColumnTop = createColumnTopGetter(data, CHUNK_SIZE, CHUNK_HEIGHT, isIgnoredBlock);
 
       const patchesPerChunk = Math.max(0, Math.floor(Number(feature.patchesPerChunk) || 0));
-      const triesPerPatch = Math.max(1, Math.floor(Number(feature.tries) || 64));
-      const xzSpread = Math.max(1, Math.floor(Number(feature.xzSpread) || 7));
-      const ySpread = Math.max(0, Math.floor(Number(feature.ySpread) || 3));
+      const patchSkipChance = Math.max(0, Math.min(0.95, Number(feature.patchSkipChance) || 0));
+      const triesPerPatch = Math.max(1, Math.floor(Number(feature.tries) || 24));
+      const xzSpread = Math.max(1, Math.floor(Number(feature.xzSpread) || 9));
+      const ySpread = Math.max(0, Math.floor(Number(feature.ySpread) || 4));
       const substrateIds = new Set(Array.isArray(feature.substrateIds) && feature.substrateIds.length ? feature.substrateIds : [1]);
       let placed = 0;
 
       for (let patchIndex = 0; patchIndex < patchesPerChunk; patchIndex++) {
+        if (hashRand2D(cx * 149 + patchIndex * 17, cz * 151 - patchIndex * 19, 12400) < patchSkipChance) continue;
         const originLX = Math.floor(hashRand2D(cx * 173 + patchIndex * 11, cz * 197 - patchIndex * 7, 12401) * CHUNK_SIZE);
         const originLZ = Math.floor(hashRand2D(cx * 211 - patchIndex * 13, cz * 227 + patchIndex * 5, 12402) * CHUNK_SIZE);
         const originTopY = getColumnTop(originLX, originLZ);
@@ -70,6 +72,11 @@
 
           const belowId = data[idx(targetLX, targetY - 1, targetLZ)];
           if (!substrateIds.has(belowId)) continue;
+          if (data[idx(targetLX, targetY + 1, targetLZ)] !== 0) continue;
+
+          const targetWX = cx * CHUNK_SIZE + targetLX;
+          const targetWZ = cz * CHUNK_SIZE + targetLZ;
+          if (typeof getBiome === 'function' && getBiome(targetWX, targetWZ) !== chunkBiome) continue;
 
           const flowerId = feature.flowerIds[Math.floor(hashRand2D(cx * 421 + patchIndex * 41 + attempt, cz * 439 - patchIndex * 43 - attempt, 12413) * feature.flowerIds.length)] || 0;
           if (!flowerId) continue;
