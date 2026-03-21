@@ -1744,7 +1744,9 @@ window.perlin = perlinInstance;
             for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
                 const idx = lx + y * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
                 const block = data[idx];
-                if (block !== 0 && block !== 6) return y;
+                if (block === 0 || block === 6) continue;
+                if (blockMaterials[block]?.renderAs) continue;
+                return y;
             }
             return -1;
         }
@@ -4569,6 +4571,16 @@ window.perlin = perlinInstance;
                  CHUNK_SIZE,
                  CHUNK_HEIGHT,
                  SEA_LEVEL
+             });
+             window.SideFloraWorldgen?.placeFlowerPatchesInChunk?.({
+                 data,
+                 cx,
+                 cz,
+                 hashRand2D,
+                 getBiome,
+                 blockMaterials,
+                 CHUNK_SIZE,
+                 CHUNK_HEIGHT,
              });
              return { data, heightmap, spawnedGnomes, spawnedPigs, spawnedWolves, spawnedPandas, spawnedVillagers };
         }

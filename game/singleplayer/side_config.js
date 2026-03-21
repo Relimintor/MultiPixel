@@ -83,6 +83,25 @@
       .map(({ id }) => id),
   };
 
+  const flowerPatchFeatures = {
+    Plains: {
+      patchesPerChunk: 4,
+      tries: 88,
+      xzSpread: 7,
+      ySpread: 3,
+      substrateIds: [1],
+      flowerIds: flowerSpawnConfig.Plains.slice(),
+    },
+    Forest: {
+      patchesPerChunk: 2,
+      tries: 64,
+      xzSpread: 6,
+      ySpread: 2,
+      substrateIds: [1],
+      flowerIds: flowerSpawnConfig.Forest.slice(),
+    },
+  };
+
   window.SingleplayerSideConfig = {
     FIRST_FLOWER_ID,
     LAST_FLOWER_ID: FIRST_FLOWER_ID + flowerDefinitions.length - 1,
@@ -95,6 +114,7 @@
     FLOWER_BLOCK_MATERIALS: flowerBlockMaterials,
     FLOWER_ASSET_FILEPATHS: flowerAssetFilepaths,
     FLOWER_SPAWN_CONFIG: flowerSpawnConfig,
+    FLOWER_PATCH_FEATURES: flowerPatchFeatures,
     VINE_ID: vineDefinition.id,
     VINE_DEFINITION: {
       ...vineDefinition,
