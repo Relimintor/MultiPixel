@@ -1,4 +1,44 @@
 (function () {
+  const VINE_ID = window.SingleplayerSideConfig?.VINE_ID || 146;
+  const FLOWER_DEFINITIONS = window.SingleplayerSideConfig?.FLOWER_DEFINITIONS || [];
+  const DYED_GLASS_DEFINITIONS = window.SingleplayerSideConfig?.DYED_GLASS_DEFINITIONS || [];
+  const DYE_MIX_RECIPES = window.SingleplayerSideConfig?.DYE_MIX_RECIPES || [];
+
+  function createAdjacentPairRecipes(name, leftId, rightId, output) {
+    return [
+      { name, output, shape: [[leftId, rightId]] },
+      { name, output, shape: [[rightId, leftId]] },
+      { name, output, shape: [[leftId], [rightId]] },
+      { name, output, shape: [[rightId], [leftId]] },
+    ];
+  }
+
+  const FLOWER_DYE_RECIPES = FLOWER_DEFINITIONS
+    .filter((flower) => Number.isFinite(flower.id) && Number.isFinite(flower.dyeId))
+    .map((flower) => ({
+      name: `${flower.name} Dye`,
+      output: { id: flower.dyeId, count: 1 },
+      shape: [[flower.id]],
+    }));
+
+  const MIXED_DYE_RECIPES = DYE_MIX_RECIPES.flatMap((recipe) =>
+    createAdjacentPairRecipes(
+      `Mixed Dye ${recipe.outputId}`,
+      recipe.ingredientIds[0],
+      recipe.ingredientIds[1],
+      { id: recipe.outputId, count: 1 }
+    )
+  );
+
+  const DYED_GLASS_RECIPES = DYED_GLASS_DEFINITIONS.flatMap((glass) =>
+    createAdjacentPairRecipes(
+      glass.name,
+      glass.dyeId,
+      26,
+      { id: glass.id, count: 1 }
+    )
+  );
+
   const CRAFTING_RECIPES = [
     { name: 'Oak Planks', output: { id: 8, count: 4 }, shape: [[5]] },
     { name: 'Crafting Table', output: { id: 9, count: 1 }, shape: [[8, 8], [8, 8]] },
@@ -11,6 +51,8 @@
     { name: 'Snow Block', output: { id: 15, count: 1 }, shape: [[16, 16], [16, 16]] },
     { name: 'Coal Block', output: { id: 20, count: 1 }, shape: [[19, 19, 19], [19, 19, 19], [19, 19, 19]] },
     { name: 'Stone Brick', output: { id: 21, count: 4 }, shape: [[3, 3], [3, 3]] },
+    { name: 'Mossy Cobblestone', output: { id: 113, count: 1 }, shape: [[VINE_ID, 17]] },
+    { name: 'Mossy Cobblestone', output: { id: 113, count: 1 }, shape: [[17, VINE_ID]] },
     { name: 'Sand Stone', output: { id: 7, count: 4 }, shape: [[13]] },
     { name: 'Coal Block', output: { id: 19, count: 9 }, shape: [[20]] },
     { name: 'Snow Block', output: { id: 16, count: 4 }, shape: [[15]] },
@@ -30,6 +72,8 @@
     { name: 'Black Dye', output: { id: 57, count: 1}, shape: [[19]] },
     { name: 'Black Dye', output: { id: 57, count: 1}, shape: [[25]] },
     { name: 'Green Dye', output: { id: 58, count: 1}, shape: [[6]] },
+    ...FLOWER_DYE_RECIPES,
+    ...MIXED_DYE_RECIPES,
     { name: 'Steel Block', output: { id: 68, count: 1}, shape: [[67, 67, 67], [67, 67, 67], [67, 67, 67]] },
     { name: 'Steel', output: { id: 67, count: 9}, shape: [[68]] },
     { name: 'copper block', output: { id: 34, count: 1}, shape: [[69, 69, 69], [69, 69, 69], [69, 69, 69]] },
@@ -40,8 +84,7 @@
     { name: 'Blue Ice', output: { id: 91, count: 1}, shape: [[81, 81, 81], [81, 81, 81], [81, 81, 81]] },
     
     /*Glass*/
-    { name: 'Black Stained Glass', output: { id: 79, count: 1}, shape: [[57, 26]] },
-    { name: 'Green Stained Glass', output: { id: 80, count: 1}, shape: [[58, 26]] },
+    ...DYED_GLASS_RECIPES,
     
     /*Åickaxes*/
     { name: 'Wooden Pickaxe', output: { id: 11, count: 1 }, shape: [[8, 8, 8], [0, 10, 0], [0, 10, 0]] },
@@ -54,6 +97,34 @@
     { name: 'Iron Pickaxe', output: { id: 74, count: 1}, shape: [[67, 67, 67 ], [0, 10, 0], [0, 10, 0]] },
     { name: 'Diamond Pickaxe', output: { id: 75, count: 1}, shape: [[44, 44, 44], [0, 10, 0], [0, 10, 0]] },
     { name: 'Emerald Pickaxe', output: { id: 93, count: 1}, shape: [[56, 56, 56], [0, 10, 0], [0, 10, 0]] },
+    { name: 'Wooden Axe', output: { id: 127, count: 1 }, shape: [[8, 8], [8, 10], [0, 10]] },
+    { name: 'Wooden Axe', output: { id: 127, count: 1 }, shape: [[8, 8], [10, 8], [10, 0]] },
+    { name: 'Wooden Axe (Jungle)', output: { id: 127, count: 1 }, shape: [[98, 98], [98, 10], [0, 10]] },
+    { name: 'Wooden Axe (Jungle)', output: { id: 127, count: 1 }, shape: [[98, 98], [10, 98], [10, 0]] },
+    { name: 'Wooden Axe (Bamboo)', output: { id: 127, count: 1 }, shape: [[103, 103], [103, 10], [0, 10]] },
+    { name: 'Wooden Axe (Bamboo)', output: { id: 127, count: 1 }, shape: [[103, 103], [10, 103], [10, 0]] },
+    { name: 'Stone Axe', output: { id: 128, count: 1 }, shape: [[17, 17], [17, 10], [0, 10]] },
+    { name: 'Stone Axe', output: { id: 128, count: 1 }, shape: [[17, 17], [10, 17], [10, 0]] },
+    { name: 'Stone Axe', output: { id: 128, count: 1 }, shape: [[3, 3], [3, 10], [0, 10]] },
+    { name: 'Stone Axe', output: { id: 128, count: 1 }, shape: [[3, 3], [10, 3], [10, 0]] },
+    { name: 'Gold Axe', output: { id: 129, count: 1 }, shape: [[70, 70], [70, 10], [0, 10]] },
+    { name: 'Gold Axe', output: { id: 129, count: 1 }, shape: [[70, 70], [10, 70], [10, 0]] },
+    { name: 'Copper Axe', output: { id: 130, count: 1 }, shape: [[69, 69], [69, 10], [0, 10]] },
+    { name: 'Copper Axe', output: { id: 130, count: 1 }, shape: [[69, 69], [10, 69], [10, 0]] },
+    { name: 'Iron Axe', output: { id: 131, count: 1 }, shape: [[67, 67], [67, 10], [0, 10]] },
+    { name: 'Iron Axe', output: { id: 131, count: 1 }, shape: [[67, 67], [10, 67], [10, 0]] },
+    { name: 'Diamond Axe', output: { id: 132, count: 1 }, shape: [[44, 44], [44, 10], [0, 10]] },
+    { name: 'Diamond Axe', output: { id: 132, count: 1 }, shape: [[44, 44], [10, 44], [10, 0]] },
+    { name: 'Emerald Axe', output: { id: 133, count: 1 }, shape: [[56, 56], [56, 10], [0, 10]] },
+    { name: 'Emerald Axe', output: { id: 133, count: 1 }, shape: [[56, 56], [10, 56], [10, 0]] },
+    { name: 'Wooden Dagger', output: { id: 121, count: 1 }, shape: [[8], [10]] },
+    { name: 'Wooden Dagger (Jungle)', output: { id: 121, count: 1 }, shape: [[98], [10]] },
+    { name: 'Wooden Dagger (Bamboo)', output: { id: 121, count: 1 }, shape: [[103], [10]] },
+    { name: 'Stone Dagger', output: { id: 122, count: 1 }, shape: [[17], [10]] },
+    { name: 'Stone Dagger', output: { id: 122, count: 1 }, shape: [[3], [10]] },
+    { name: 'Gold Dagger', output: { id: 123, count: 1 }, shape: [[70], [10]] },
+    { name: 'Steel Dagger', output: { id: 124, count: 1 }, shape: [[67], [10]] },
+    { name: 'Emerald Dagger', output: { id: 125, count: 1 }, shape: [[56], [10]] },
     { name: 'Wooden Shovel', output: { id: 83, count: 1 }, shape: [[8], [10], [10]] },
     { name: 'Wooden Shovel (Jungle)', output: { id: 83, count: 1 }, shape: [[98], [10], [10]] },
     { name: 'Wooden Shovel (Bamboo)', output: { id: 83, count: 1 }, shape: [[103], [10], [10]] },

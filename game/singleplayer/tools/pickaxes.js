@@ -1,12 +1,22 @@
 (function () {
   const PICKAXE_BY_ITEM_ID = {
-    11: { name: 'Wooden Pickaxe', tier: 1, hardBlockSpeed: 0.56, softBlockPenalty: 1 },
-    12: { name: 'Stone Pickaxe', tier: 2, hardBlockSpeed: 0.38, softBlockPenalty: 1 },
-    72: { name: 'Gold Pickaxe', tier: 3, hardBlockSpeed: 0.10, softBlockPenalty: 1 },
-    73: { name: 'Copper Pickaxe', tier: 4, hardBlockSpeed: 0.30, softBlockPenalty: 1 },
-    74: { name: 'Iron Pickaxe', tier: 5, hardBlockSpeed: 0.18, softBlockPenalty: 1 },
-    75: { name: 'Diamond Pickaxe', tier: 6, hardBlockSpeed: 0.14, softBlockPenalty: 1 },
-    93: { name: 'Emerald Pickaxe', tier: 7, hardBlockSpeed: 0.12, softBlockPenalty: 1 },
+    11: { name: 'Wooden Pickaxe', tier: 1, hardBlockSpeed: 0.56, utilityBlockSpeed: 1.08, softBlockPenalty: 1.18 },
+    12: { name: 'Stone Pickaxe', tier: 2, hardBlockSpeed: 0.38, utilityBlockSpeed: 0.94, softBlockPenalty: 1.08 },
+    72: { name: 'Gold Pickaxe', tier: 3, hardBlockSpeed: 0.10, utilityBlockSpeed: 0.52, softBlockPenalty: 0.84 },
+    73: { name: 'Copper Pickaxe', tier: 4, hardBlockSpeed: 0.30, utilityBlockSpeed: 0.82, softBlockPenalty: 0.98 },
+    74: { name: 'Iron Pickaxe', tier: 5, hardBlockSpeed: 0.18, utilityBlockSpeed: 0.68, softBlockPenalty: 0.90 },
+    75: { name: 'Diamond Pickaxe', tier: 6, hardBlockSpeed: 0.14, utilityBlockSpeed: 0.58, softBlockPenalty: 0.84 },
+    93: { name: 'Emerald Pickaxe', tier: 7, hardBlockSpeed: 0.12, utilityBlockSpeed: 0.50, softBlockPenalty: 0.78 },
+  };
+
+  const AXE_BY_ITEM_ID = {
+    127: { name: 'Wooden Axe', tier: 1, woodBlockSpeed: 0.56, nonWoodPenalty: 1.08 },
+    128: { name: 'Stone Axe', tier: 2, woodBlockSpeed: 0.38, nonWoodPenalty: 1.08 },
+    129: { name: 'Gold Axe', tier: 3, woodBlockSpeed: 0.10, nonWoodPenalty: 1.06 },
+    130: { name: 'Copper Axe', tier: 4, woodBlockSpeed: 0.30, nonWoodPenalty: 1.06 },
+    131: { name: 'Iron Axe', tier: 5, woodBlockSpeed: 0.18, nonWoodPenalty: 1.04 },
+    132: { name: 'Diamond Axe', tier: 6, woodBlockSpeed: 0.14, nonWoodPenalty: 1.02 },
+    133: { name: 'Emerald Axe', tier: 7, woodBlockSpeed: 0.12, nonWoodPenalty: 1.0 },
   };
 
   const SHOVEL_BY_ITEM_ID = {
@@ -21,6 +31,7 @@
 
   const HARD_BLOCKS = new Set([3, 13, 21, 24, 27, 29, 18, 30, 35, 40, 43, 54, 17, 20, 32, 34, 36, 37, 41, 45, 55, 68, 23, 71, 39, 104, 106]);
   const SOFT_BLOCKS = new Set([1,2,7,15,28]);
+  const WOOD_BLOCKS = new Set([5, 8, 9, 82, 96, 98, 101, 103, 110]);
 
   function getEquippedPickaxe(item) {
     if (!item) return null;
@@ -33,6 +44,8 @@
     if (pickaxe) return { ...pickaxe, toolType: 'pickaxe' };
     const shovel = SHOVEL_BY_ITEM_ID[item.id];
     if (shovel) return { ...shovel, toolType: 'shovel' };
+    const axe = AXE_BY_ITEM_ID[item.id];
+    if (axe) return { ...axe, toolType: 'axe' };
     return null;
   }
 
@@ -49,12 +62,18 @@
 
     if (equippedTool.toolType === 'pickaxe') {
       if (isHard) return baseMs * equippedTool.hardBlockSpeed;
-      return baseMs * equippedTool.softBlockPenalty;
+      if (isSoft) return baseMs * equippedTool.softBlockPenalty;
+      return baseMs * equippedTool.utilityBlockSpeed;
     }
 
     if (equippedTool.toolType === 'shovel') {
       if (isSoft) return baseMs * equippedTool.softBlockSpeed;
       return baseMs * equippedTool.hardBlockPenalty;
+    }
+
+    if (equippedTool.toolType === 'axe') {
+      if (WOOD_BLOCKS.has(blockId)) return baseMs * equippedTool.woodBlockSpeed;
+      return baseMs * equippedTool.nonWoodPenalty;
     }
 
     return baseMs;
