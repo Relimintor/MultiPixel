@@ -6879,6 +6879,14 @@ function buildPartFaceRects(x, y, w, h, d) {
             return chunkStreamOptimizations?.isChunkAllAir?.(data) || false;
         }
 
+        function computeChunkHash(data) {
+            return remeshOptimizations?.computeChunkHash?.(data) || 0;
+        }
+
+        function isChunkAllAir(data) {
+            return chunkStreamOptimizations?.isChunkAllAir?.(data) || false;
+        }
+
         function createChunk(cx, cz) {
 
             const generated = generateChunkData(cx, cz);
