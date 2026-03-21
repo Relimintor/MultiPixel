@@ -6380,95 +6380,82 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
              const spawnedWolves = [];
              const spawnedPandas = [];
              const spawnedVillagers = [];
-             placeIglooInChunk(data, cx, cz, spawnedGnomes);
+             window.SnowyPlainsWorldgen?.placeIglooInChunk?.({
+                 data,
+                 cx,
+                 cz,
+                 spawnedGnomes,
+                 hashRand2D,
+                 getBiome,
+                 iglooStructureDef,
+                 CHUNK_SIZE,
+                 CHUNK_HEIGHT,
+                 SEA_LEVEL
+             });
              const placedVillage = placeVillageInChunk(data, cx, cz, spawnedVillagers);
-             if (!placedVillage) placeDesertWellInChunk(data, cx, cz, spawnedPigs);
-             placeWolfPackInChunk(data, heightmap, cx, cz, spawnedWolves);
-             placePandaPackInChunk(data, heightmap, cx, cz, spawnedPandas);
-             placeBambooInChunk(data, cx, cz);
+             if (!placedVillage) {
+                 window.DesertWorldgen?.placeDesertWellInChunk?.({
+                     data,
+                     cx,
+                     cz,
+                     spawnedPigs,
+                     hashRand2D,
+                     getBiome,
+                     CHUNK_SIZE,
+                     CHUNK_HEIGHT,
+                     SEA_LEVEL
+                 });
+             }
+             window.OakForestWorldgen?.placeWolfPackInChunk?.({
+                 data,
+                 heightmap,
+                 cx,
+                 cz,
+                 spawnedWolves,
+                 hashRand2D,
+                 getBiome,
+                 CHUNK_SIZE,
+                 CHUNK_HEIGHT,
+                 SEA_LEVEL
+             });
+             window.JungleForestWorldgen?.placePandaPackInChunk?.({
+                 data,
+                 heightmap,
+                 cx,
+                 cz,
+                 spawnedPandas,
+                 hashRand2D,
+                 getBiome,
+                 CHUNK_SIZE,
+                 CHUNK_HEIGHT,
+                 SEA_LEVEL
+             });
+             window.JungleForestWorldgen?.placeBambooInChunk?.({
+                 data,
+                 cx,
+                 cz,
+                 hashRand2D,
+                 getBiome,
+                 hasNearbyTreeTrunk,
+                 CHUNK_SIZE,
+                 CHUNK_HEIGHT,
+                 SEA_LEVEL
+             });
              placePumpkinPatchInChunk(data, cx, cz);
-             placeMelonsInChunk(data, cx, cz);
+             window.JungleForestWorldgen?.placeMelonsInChunk?.({
+                 data,
+                 cx,
+                 cz,
+                 hashRand2D,
+                 getBiome,
+                 worldGenSettings,
+                 CHUNK_SIZE,
+                 CHUNK_HEIGHT,
+                 SEA_LEVEL
+             });
              return { data, heightmap, spawnedGnomes, spawnedPigs, spawnedWolves, spawnedPandas, spawnedVillagers };
         }
 
-        function placeIglooInChunk(data, cx, cz, spawnedGnomes) {
-            const snowyTerrain = window.SnowyPlainsTerrain || {};
-            const iglooRules = snowyTerrain.structures?.igloo;
-            if (!iglooRules || !iglooStructureDef) return;
-            const canSpawn = snowyTerrain.shouldSpawnIgloo
-                ? snowyTerrain.shouldSpawnIgloo({ cx, cz, hashRand2D, spawnChance: iglooRules.spawnChancePerChunk })
-                : false;
-            if (!canSpawn) return;
-
-            const radius = Math.max(2, Math.min(6, Number(iglooStructureDef.radius) || 4));
-            const centerX = Math.floor(CHUNK_SIZE / 2);
-            const centerZ = Math.floor(CHUNK_SIZE / 2);
-            if (centerX - radius < 1 || centerX + radius >= CHUNK_SIZE - 1 || centerZ - radius < 1 || centerZ + radius >= CHUNK_SIZE - 1) return;
-
-            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
-            const getColumnTop = (lx, lz) => {
-                for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
-                    const t = data[idx(lx, y, lz)];
-                    if (t !== 0 && t !== 4) return y;
-                }
-                return -1;
-            };
-
-            const centerTopY = getColumnTop(centerX, centerZ);
-            if (centerTopY < SEA_LEVEL) return;
-            const requiredGround = iglooRules.validSurfaceBlockId ?? 15;
-            if (data[idx(centerX, centerTopY, centerZ)] !== requiredGround) return;
-
-            const maxSlope = Number(iglooStructureDef.maxSurfaceSlope) || 2;
-            for (let dx = -radius; dx <= radius; dx++) {
-                for (let dz = -radius; dz <= radius; dz++) {
-                    const lx = centerX + dx;
-                    const lz = centerZ + dz;
-                    const topY = getColumnTop(lx, lz);
-                    if (topY < 1 || Math.abs(topY - centerTopY) > maxSlope) return;
-                }
-            }
-
-            const floorBlock = Number(iglooStructureDef.floorBlockId) || 59;
-            const wallBlock = Number(iglooStructureDef.wallBlockId) || 15;
-            const windowBlock = Number(iglooStructureDef.windowBlockId) || wallBlock;
-            const domeHeight = Number(iglooStructureDef.interiorHeadroom) || 3;
-            const doorHeight = Math.max(2, Number(iglooStructureDef.doorHeight) || 2);
-
-            const centerY = centerTopY + 1;
-            for (let dx = -radius; dx <= radius; dx++) {
-                for (let dz = -radius; dz <= radius; dz++) {
-                    const dist = Math.sqrt(dx * dx + dz * dz);
-                    const lx = centerX + dx;
-                    const lz = centerZ + dz;
-                    if (dist <= radius - 0.35) data[idx(lx, centerTopY, lz)] = floorBlock;
-
-                    for (let dy = 0; dy <= domeHeight; dy++) {
-                        const ly = centerY + dy;
-                        if (ly < 1 || ly >= CHUNK_HEIGHT - 1) continue;
-                        const shellDist = Math.sqrt(dx * dx + dz * dz + (dy * 1.22) * (dy * 1.22));
-                        if (shellDist <= radius + 0.18 && shellDist >= radius - 1.05) {
-                            data[idx(lx, ly, lz)] = wallBlock;
-                        } else if (shellDist < radius - 1.05) {
-                            data[idx(lx, ly, lz)] = 0;
-                        }
-                    }
-                }
-            }
-
-            for (let dy = 0; dy < doorHeight; dy++) {
-                const ly = centerY + dy;
-                data[idx(centerX, ly, centerZ + radius)] = 0;
-                data[idx(centerX, ly, centerZ + radius - 1)] = 0;
-            }
-            data[idx(centerX - radius + 1, centerY + 1, centerZ)] = windowBlock;
-            data[idx(centerX + radius - 1, centerY + 1, centerZ)] = windowBlock;
-
-            const worldX = cx * CHUNK_SIZE + centerX;
-            const worldZ = cz * CHUNK_SIZE + centerZ;
-            const gnomeY = centerTopY + (Number(iglooStructureDef.gnomeSpawnOffsetY) || 1);
-            spawnedGnomes.push({ wx: worldX, wy: gnomeY, wz: worldZ });
-        }
 
         function placeVillageInChunk(data, cx, cz, spawnedVillagers = []) {
             const vg = window.VillageGeneration || {};
@@ -6967,186 +6954,12 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             return placedAny;
         }
 
-        function placeDesertWellInChunk(data, cx, cz, spawnedPigs) {
-            const centerX = Math.floor(CHUNK_SIZE / 2);
-            const centerZ = Math.floor(CHUNK_SIZE / 2);
-            const worldX = cx * CHUNK_SIZE + centerX;
-            const worldZ = cz * CHUNK_SIZE + centerZ;
-
-            if (getBiome(worldX, worldZ) !== 'Desert') return;
-            if (hashRand2D(cx, cz, 9127) > 0.08) return;
-
-            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
-            const getColumnTop = (lx, lz) => {
-                for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
-                    const t = data[idx(lx, y, lz)];
-                    if (t !== 0 && t !== 4) return y;
-                }
-                return -1;
-            };
-
-            const radius = 2;
-            if (centerX - radius < 2 || centerX + radius >= CHUNK_SIZE - 2 || centerZ - radius < 2 || centerZ + radius >= CHUNK_SIZE - 2) return;
-
-            const topY = getColumnTop(centerX, centerZ);
-            if (topY < SEA_LEVEL - 1) return;
-            if (data[idx(centerX, topY, centerZ)] !== 7) return;
-
-            for (let dx = -radius; dx <= radius; dx++) {
-                for (let dz = -radius; dz <= radius; dz++) {
-                    const lx = centerX + dx;
-                    const lz = centerZ + dz;
-                    const y = getColumnTop(lx, lz);
-                    if (y < 1 || Math.abs(y - topY) > 1) return;
-                    const ground = data[idx(lx, y, lz)];
-                    if (ground !== 7 && ground !== 13) return;
-                }
-            }
-
-            const sandstone = 13;
-            const water = 4;
-            const copperBlock = 34;
-            const wellY = topY + 1;
-
-            // 5x5 sandstone base
-            for (let dx = -2; dx <= 2; dx++) {
-                for (let dz = -2; dz <= 2; dz++) {
-                    data[idx(centerX + dx, wellY, centerZ + dz)] = sandstone;
-                }
-            }
-
-            // water basin cross
-            data[idx(centerX, wellY, centerZ)] = water;
-            data[idx(centerX + 1, wellY, centerZ)] = water;
-            data[idx(centerX - 1, wellY, centerZ)] = water;
-            data[idx(centerX, wellY, centerZ + 1)] = water;
-            data[idx(centerX, wellY, centerZ - 1)] = water;
-
-            // copper block under center
-            if (wellY - 1 >= 1) data[idx(centerX, wellY - 1, centerZ)] = copperBlock;
-
-            // pillars
-            for (let py = wellY + 1; py <= wellY + 3; py++) {
-                data[idx(centerX - 1, py, centerZ - 1)] = sandstone;
-                data[idx(centerX - 1, py, centerZ + 1)] = sandstone;
-                data[idx(centerX + 1, py, centerZ - 1)] = sandstone;
-                data[idx(centerX + 1, py, centerZ + 1)] = sandstone;
-            }
-
-            // roof
-            const roofY = wellY + 4;
-            for (let dx = -1; dx <= 1; dx++) {
-                for (let dz = -1; dz <= 1; dz++) {
-                    data[idx(centerX + dx, roofY, centerZ + dz)] = sandstone;
-                }
-            }
-
-            spawnedPigs.push({ wx: worldX + 0.5, wy: wellY + 1, wz: worldZ + 0.5 });
-        }
-
-        function placeWolfPackInChunk(data, heightmap, cx, cz, spawnedWolves) {
-            const centerX = Math.floor(CHUNK_SIZE / 2);
-            const centerZ = Math.floor(CHUNK_SIZE / 2);
-            const worldX = cx * CHUNK_SIZE + centerX;
-            const worldZ = cz * CHUNK_SIZE + centerZ;
-            if (getBiome(worldX, worldZ) !== 'Forest') return;
-            if (hashRand2D(cx, cz, 7701) > 0.12) return;
-
-            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
-            const getColumnTop = (lx, lz) => {
-                for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
-                    const t = data[idx(lx, y, lz)];
-                    if (t !== 0 && t !== 4) return y;
-                }
-                return -1;
-            };
-
-            const packSize = 1 + Math.floor(hashRand2D(cx, cz, 7702) * 5);
-            for (let i = 0; i < packSize; i++) {
-                const rx = Math.floor(hashRand2D(cx * 37 + i * 7, cz * 53 + i * 11, 7703) * CHUNK_SIZE);
-                const rz = Math.floor(hashRand2D(cx * 41 + i * 13, cz * 29 + i * 17, 7704) * CHUNK_SIZE);
-                if (rx < 1 || rz < 1 || rx >= CHUNK_SIZE - 1 || rz >= CHUNK_SIZE - 1) continue;
-                const topY = getColumnTop(rx, rz);
-                if (topY < SEA_LEVEL || topY > SEA_LEVEL + 24) continue;
-                const under = data[idx(rx, topY, rz)];
-                if (under !== 1 && under !== 2) continue;
-                spawnedWolves.push({ wx: cx * CHUNK_SIZE + rx + 0.5, wy: topY + 1, wz: cz * CHUNK_SIZE + rz + 0.5 });
-            }
-        }
 
 
-        function placePandaPackInChunk(data, heightmap, cx, cz, spawnedPandas) {
-            const centerX = Math.floor(CHUNK_SIZE / 2);
-            const centerZ = Math.floor(CHUNK_SIZE / 2);
-            const worldX = cx * CHUNK_SIZE + centerX;
-            const worldZ = cz * CHUNK_SIZE + centerZ;
-            if (getBiome(worldX, worldZ) !== 'Jungle Forest') return;
 
-            const cfg = window.JungleDecorationConfig?.panda || {};
-            const chance = Number(cfg.packSpawnChancePerChunk) || 0.14;
-            if (hashRand2D(cx, cz, 9901) > chance) return;
 
-            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
-            const getColumnTop = (lx, lz) => {
-                for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
-                    const t = data[idx(lx, y, lz)];
-                    if (t !== 0 && t !== 4) return y;
-                }
-                return -1;
-            };
 
-            const minPack = Math.max(1, Number(cfg.minPack) || 1);
-            const maxPack = Math.max(minPack, Number(cfg.maxPack) || 3);
-            const packSize = minPack + Math.floor(hashRand2D(cx, cz, 9902) * (maxPack - minPack + 1));
-            for (let i = 0; i < packSize; i++) {
-                const rx = Math.floor(hashRand2D(cx * 17 + i * 5, cz * 23 + i * 3, 9903) * CHUNK_SIZE);
-                const rz = Math.floor(hashRand2D(cx * 13 + i * 7, cz * 31 + i * 11, 9904) * CHUNK_SIZE);
-                if (rx < 1 || rz < 1 || rx >= CHUNK_SIZE - 1 || rz >= CHUNK_SIZE - 1) continue;
-                const topY = getColumnTop(rx, rz);
-                if (topY < SEA_LEVEL || topY > SEA_LEVEL + 28) continue;
-                const under = data[idx(rx, topY, rz)];
-                if (under !== 1 && under !== 2) continue;
-                spawnedPandas.push({ wx: cx * CHUNK_SIZE + rx + 0.5, wy: topY + 1, wz: cz * CHUNK_SIZE + rz + 0.5 });
-            }
-        }
 
-        function placeBambooInChunk(data, cx, cz) {
-            const centerX = Math.floor(CHUNK_SIZE / 2);
-            const centerZ = Math.floor(CHUNK_SIZE / 2);
-            const worldX = cx * CHUNK_SIZE + centerX;
-            const worldZ = cz * CHUNK_SIZE + centerZ;
-            if (getBiome(worldX, worldZ) !== 'Jungle Forest') return;
-
-            const cfg = window.JungleDecorationConfig?.bamboo || {};
-            const baseChance = Number(cfg.baseSpawnChancePerColumn) || 0.055;
-            const nearTreeBoost = Number(cfg.nearTreeBoost) || 0.03;
-
-            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
-            const getColumnTop = (lx, lz) => {
-                for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
-                    const t = data[idx(lx, y, lz)];
-                    if (t !== 0 && t !== 4 && t !== 6 && t !== 97) return y;
-                }
-                return -1;
-            };
-
-            for (let x = 1; x < CHUNK_SIZE - 1; x++) {
-                for (let z = 1; z < CHUNK_SIZE - 1; z++) {
-                    const wx = cx * CHUNK_SIZE + x;
-                    const wz = cz * CHUNK_SIZE + z;
-                    const topY = getColumnTop(x, z);
-                    if (topY < SEA_LEVEL - 1 || topY >= CHUNK_HEIGHT - 2) continue;
-                    const ground = data[idx(x, topY, z)];
-                    if (ground !== 1 && ground !== 2) continue;
-                    if (data[idx(x, topY + 1, z)] !== 0) continue;
-
-                    const nearbyTree = hasNearbyTreeTrunk(data, x, z, 2);
-                    const chance = baseChance + (nearbyTree ? nearTreeBoost : 0);
-                    if (hashRand2D(wx, wz, 9910) > chance) continue;
-                    data[idx(x, topY + 1, z)] = 99;
-                }
-            }
-        }
 
 
 
@@ -7182,42 +6995,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             }
         }
 
-        function placeMelonsInChunk(data, cx, cz) {
-            const melonCfg = worldGenSettings.decorations?.melons || {};
-            if (melonCfg.enabled === false) return;
-            const centerX = Math.floor(CHUNK_SIZE / 2);
-            const centerZ = Math.floor(CHUNK_SIZE / 2);
-            const worldX = cx * CHUNK_SIZE + centerX;
-            const worldZ = cz * CHUNK_SIZE + centerZ;
-            if (getBiome(worldX, worldZ) !== 'Jungle Forest') return;
-            const chancePerJungleChunk = Number(melonCfg.chancePerJungleChunk);
-            const spawnChance = Number.isFinite(chancePerJungleChunk) ? chancePerJungleChunk : 0.25;
-            if (hashRand2D(cx, cz, 12201) > spawnChance) return;
 
-            const MELON_BLOCK_ID = 108;
-            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
-            const getColumnTop = (lx, lz) => {
-                for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
-                    const t = data[idx(lx, y, lz)];
-                    if (t !== 0 && t !== 4 && t !== 6 && t !== 97) return y;
-                }
-                return -1;
-            };
-
-            const minPatch = Math.max(1, Math.floor(Number(melonCfg.minPatch) || 4));
-            const maxPatch = Math.max(minPatch, Math.floor(Number(melonCfg.maxPatch) || 9));
-            const count = minPatch + Math.floor(hashRand2D(cx * 13, cz * 17, 12202) * (maxPatch - minPatch + 1));
-            for (let i = 0; i < count; i++) {
-                const lx = 1 + Math.floor(hashRand2D(cx * 37 + i * 13, cz * 41 - i * 9, 12203) * (CHUNK_SIZE - 2));
-                const lz = 1 + Math.floor(hashRand2D(cx * 43 - i * 7, cz * 47 + i * 5, 12204) * (CHUNK_SIZE - 2));
-                const topY = getColumnTop(lx, lz);
-                if (topY < SEA_LEVEL - 1 || topY >= CHUNK_HEIGHT - 2) continue;
-                const ground = data[idx(lx, topY, lz)];
-                if (ground !== 1 && ground !== 2) continue;
-                if (data[idx(lx, topY + 1, lz)] !== 0) continue;
-                data[idx(lx, topY + 1, lz)] = MELON_BLOCK_ID;
-            }
-        }
 
         function placeAmethystGeodesInChunk(data, cx, cz) {
             const geodeCfg = worldGenSettings.decorations?.amethystGeodes || {};
