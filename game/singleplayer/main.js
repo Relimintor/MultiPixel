@@ -572,6 +572,7 @@ window.perlin = perlinInstance;
         let chunkStreamOptimizations = null;
         let defaultPlayerSkin = null;
         let dirtToGrassLoop = null;
+        let waypointsMod = null;
         let pigMob = null;
         let zombieMob = null;
         let wolfMob = null;
@@ -616,6 +617,13 @@ window.perlin = perlinInstance;
             getBlockType,
             getColumnTopFromData,
             setBlockTypeRaw,
+        }) || null;
+        waypointsMod = window.SingleplayerWaypoints?.create?.({
+            THREE,
+            getCamera: () => camera,
+            getRenderer: () => renderer,
+            getPlayerPosition: () => yawObject?.position || null,
+            showGameMessage,
         }) || null;
         pigMob = window.SingleplayerPigMob?.create?.({
             THREE,
@@ -1082,6 +1090,8 @@ window.perlin = perlinInstance;
             renderHearts();
             renderAirBubbles(false);
             updateHotbarUI();
+            waypointsMod?.initUi?.();
+            waypointsMod?.setInventoryOpen?.(false);
             const closeBtn = document.getElementById('inventory-close-btn');
             const closeIcon = document.getElementById('inventory-close-icon');
             const furnaceCloseBtn = document.getElementById('furnace-close-btn');
@@ -2057,6 +2067,7 @@ window.perlin = perlinInstance;
             activeChestKey = null;
             buildCreativeCatalog();
             renderInventoryScreen();
+            waypointsMod?.setInventoryOpen?.(false);
             creativeScreen.classList.remove('hidden');
             document.getElementById('inventory-screen')?.classList.add('hidden');
             document.getElementById('furnace-screen')?.classList.add('hidden');
@@ -2084,6 +2095,7 @@ window.perlin = perlinInstance;
             heldItemSourceType = null;
             renderHeldItem();
             updateHotbarUI();
+            waypointsMod?.setInventoryOpen?.(false);
             return true;
         }
 
@@ -2500,6 +2512,9 @@ window.perlin = perlinInstance;
 
             if (!mainGrid || !hotbarGrid) return;
 
+            const waypointMenuEnabled = isInventoryOpen && !usingFurnaceScreen && !usingChestScreen && !isCreativeMenuOpen;
+            waypointsMod?.renderWaypointUi?.({ enabled: waypointMenuEnabled });
+
             mainGrid.innerHTML = '';
             hotbarGrid.innerHTML = '';
             if (craftInputGrid2x2) craftInputGrid2x2.innerHTML = '';
@@ -2694,6 +2709,7 @@ window.perlin = perlinInstance;
                 }
                 renderHeldItem();
                 updateHotbarUI();
+                waypointsMod?.setInventoryOpen?.(false);
                 return;
             }
 
@@ -2722,6 +2738,7 @@ window.perlin = perlinInstance;
             craftingOutput = checkCraftingRecipe(inputGrid, gridWidth);
 
             renderInventoryScreen();
+            waypointsMod?.setInventoryOpen?.(true);
             if (invScreen) invScreen.classList.remove('hidden');
             if (furnaceScreen) furnaceScreen.classList.add('hidden');
             if (chestScreen) chestScreen.classList.add('hidden');
@@ -2749,6 +2766,7 @@ window.perlin = perlinInstance;
             heldItemSourceType = null;
 
             renderInventoryScreen();
+            waypointsMod?.setInventoryOpen?.(false);
             if (invScreen) invScreen.classList.add('hidden');
             if (furnaceScreen) furnaceScreen.classList.remove('hidden');
             if (chestScreen) chestScreen.classList.add('hidden');
@@ -2777,6 +2795,7 @@ window.perlin = perlinInstance;
             heldItemSourceType = null;
 
             renderInventoryScreen();
+            waypointsMod?.setInventoryOpen?.(false);
             if (invScreen) invScreen.classList.add('hidden');
             if (furnaceScreen) furnaceScreen.classList.add('hidden');
             if (chestScreen) chestScreen.classList.remove('hidden');
@@ -6486,6 +6505,7 @@ window.perlin = perlinInstance;
             }
             updateAdaptiveCrosshair();
             updateCoordinatesUI();
+            waypointsMod?.update?.(time, delta);
             renderer.render(scene, camera);
         }
         
