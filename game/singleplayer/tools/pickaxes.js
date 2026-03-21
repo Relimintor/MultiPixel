@@ -9,6 +9,16 @@
     93: { name: 'Emerald Pickaxe', tier: 7, hardBlockSpeed: 0.12, softBlockPenalty: 1 },
   };
 
+  const AXE_BY_ITEM_ID = {
+    127: { name: 'Wooden Axe', tier: 1, woodBlockSpeed: 0.56, nonWoodPenalty: 1.08 },
+    128: { name: 'Stone Axe', tier: 2, woodBlockSpeed: 0.38, nonWoodPenalty: 1.08 },
+    129: { name: 'Gold Axe', tier: 3, woodBlockSpeed: 0.10, nonWoodPenalty: 1.06 },
+    130: { name: 'Copper Axe', tier: 4, woodBlockSpeed: 0.30, nonWoodPenalty: 1.06 },
+    131: { name: 'Iron Axe', tier: 5, woodBlockSpeed: 0.18, nonWoodPenalty: 1.04 },
+    132: { name: 'Diamond Axe', tier: 6, woodBlockSpeed: 0.14, nonWoodPenalty: 1.02 },
+    133: { name: 'Emerald Axe', tier: 7, woodBlockSpeed: 0.12, nonWoodPenalty: 1.0 },
+  };
+
   const SHOVEL_BY_ITEM_ID = {
     83: { name: 'Wooden Shovel', tier: 1, softBlockSpeed: 0.54, hardBlockPenalty: 1.22 },
     84: { name: 'Stone Shovel', tier: 2, softBlockSpeed: 0.40, hardBlockPenalty: 1.22 },
@@ -21,6 +31,7 @@
 
   const HARD_BLOCKS = new Set([3, 13, 21, 24, 27, 29, 18, 30, 35, 40, 43, 54, 17, 20, 32, 34, 36, 37, 41, 45, 55, 68, 23, 71, 39, 104, 106]);
   const SOFT_BLOCKS = new Set([1,2,7,15,28]);
+  const WOOD_BLOCKS = new Set([5, 8, 9, 82, 96, 98, 101, 103, 110]);
 
   function getEquippedPickaxe(item) {
     if (!item) return null;
@@ -33,6 +44,8 @@
     if (pickaxe) return { ...pickaxe, toolType: 'pickaxe' };
     const shovel = SHOVEL_BY_ITEM_ID[item.id];
     if (shovel) return { ...shovel, toolType: 'shovel' };
+    const axe = AXE_BY_ITEM_ID[item.id];
+    if (axe) return { ...axe, toolType: 'axe' };
     return null;
   }
 
@@ -55,6 +68,11 @@
     if (equippedTool.toolType === 'shovel') {
       if (isSoft) return baseMs * equippedTool.softBlockSpeed;
       return baseMs * equippedTool.hardBlockPenalty;
+    }
+
+    if (equippedTool.toolType === 'axe') {
+      if (WOOD_BLOCKS.has(blockId)) return baseMs * equippedTool.woodBlockSpeed;
+      return baseMs * equippedTool.nonWoodPenalty;
     }
 
     return baseMs;
