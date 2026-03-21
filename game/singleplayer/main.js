@@ -1267,6 +1267,24 @@ window.perlin = perlinInstance;
             return Number(knockbackEnchantByItemId.get(held.id) || 0);
         }
 
+        function getHeldMeleeProfile() {
+            const held = inventory[selectedHotbarIndex];
+            const heldDef = held ? blockMaterials[held.id] : null;
+            if (heldDef?.toolType === 'dagger') {
+                return {
+                    damage: Number(heldDef.meleeDamage) || 3,
+                    range: Math.max(0, Number(heldDef.attackRange) || 1.5),
+                    toolType: 'dagger',
+                };
+            }
+            return { damage: 4, range: Infinity, toolType: heldDef?.toolType || null };
+        }
+
+        function isTargetWithinMeleeRange(target, maxRange) {
+            if (!target?.root || !Number.isFinite(maxRange)) return true;
+            return target.root.position.distanceTo(yawObject.position) <= maxRange;
+        }
+
         function showGameMessage(msg) {
             const el = document.getElementById('game-message');
             el.textContent = msg;
@@ -3109,8 +3127,9 @@ window.perlin = perlinInstance;
 
             if (event.button === 0) {
                 const attackKnockback = getHeldKnockbackEnchantLevel();
+                const meleeProfile = getHeldMeleeProfile();
                 const wolfHit = wolfMob?.getHitFromCrosshair?.();
-                if (wolfHit) {
+                if (wolfHit && isTargetWithinMeleeRange(wolfHit, meleeProfile.range)) {
                     const held = inventory[selectedHotbarIndex];
                     if (!wolfHit.tamed && held && held.id === 95) {
                         consumeSelectedItem();
@@ -3121,33 +3140,33 @@ window.perlin = perlinInstance;
                             showGameMessage('The wolf refused the bone.');
                         }
                     } else {
-                        wolfMob?.hurt?.(wolfHit, 4, yawObject.position, attackKnockback);
+                        wolfMob?.hurt?.(wolfHit, meleeProfile.damage, yawObject.position, attackKnockback);
                     }
                     return;
                 }
 
                 const pandaHit = pandaMob?.getHitFromCrosshair?.();
-                if (pandaHit) {
-                    pandaMob?.hurt?.(pandaHit, 4, 'player', yawObject.position, attackKnockback);
+                if (pandaHit && isTargetWithinMeleeRange(pandaHit, meleeProfile.range)) {
+                    pandaMob?.hurt?.(pandaHit, meleeProfile.damage, 'player', yawObject.position, attackKnockback);
                     return;
                 }
 
                 const zombieHit = zombieMob?.getHitFromCrosshair?.();
-                if (zombieHit) {
-                    zombieMob?.hurt?.(zombieHit, 4, yawObject.position, attackKnockback);
+                if (zombieHit && isTargetWithinMeleeRange(zombieHit, meleeProfile.range)) {
+                    zombieMob?.hurt?.(zombieHit, meleeProfile.damage, yawObject.position, attackKnockback);
                     wolfMob?.commandTamedAttack?.(zombieHit, 'zombie');
                     return;
                 }
 
                 const villagerHit = villagerMob?.getHitFromCrosshair?.();
-                if (villagerHit) {
-                    villagerMob?.hurt?.(villagerHit, 4, 'player', yawObject.position, attackKnockback);
+                if (villagerHit && isTargetWithinMeleeRange(villagerHit, meleeProfile.range)) {
+                    villagerMob?.hurt?.(villagerHit, meleeProfile.damage, 'player', yawObject.position, attackKnockback);
                     return;
                 }
 
                 const pigHit = pigMob?.getHitFromCrosshair?.();
-                if (pigHit) {
-                    pigMob?.hurt?.(pigHit, 4, 'player', yawObject.position, attackKnockback);
+                if (pigHit && isTargetWithinMeleeRange(pigHit, meleeProfile.range)) {
+                    pigMob?.hurt?.(pigHit, meleeProfile.damage, 'player', yawObject.position, attackKnockback);
                     wolfMob?.commandTamedAttack?.(pigHit, 'pig');
                     return;
                 }

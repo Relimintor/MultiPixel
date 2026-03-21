@@ -230,6 +230,13 @@
     DIAMOND_AXE: getAssetPath('textures/item/tool/axe/diamond_axe.png'),
     EMERALD_AXE: getAssetPath('textures/item/tool/axe/emerald_axe.png'),
 
+    /*Daggers*/
+    WOOD_DAGGER: getAssetPath('textures/item/tool/dagger/wood_dagger.png'),
+    STONE_DAGGER: getAssetPath('textures/item/tool/dagger/stone_dagger.png'),
+    GOLD_DAGGER: getAssetPath('textures/item/tool/dagger/gold_dagger.png'),
+    STEEL_DAGGER: getAssetPath('textures/item/tool/dagger/steel_dagger.png'),
+    EMERALD_DAGGER: getAssetPath('textures/item/tool/dagger/emerald_dagger.png'),
+
     //Shovel
     WOODEN_SHOVEL: getAssetPath('textures/item/tool/shovel/wooden_shovel.png'),
     STONE_SHOVEL: getAssetPath('textures/item/tool/shovel/stone_shovel.png'),
@@ -546,6 +553,11 @@
     131: { name: 'Iron Axe', id: 131, textured: true, textureKey: 'IRON_AXE', toolType: 'axe', tier: 5 },
     132: { name: 'Diamond Axe', id: 132, textured: true, textureKey: 'DIAMOND_AXE', toolType: 'axe', tier: 6 },
     133: { name: 'Emerald Axe', id: 133, textured: true, textureKey: 'EMERALD_AXE', toolType: 'axe', tier: 7 },
+    121: { name: 'Wooden Dagger', id: 121, textured: true, textureKey: 'WOOD_DAGGER', toolType: 'dagger', tier: 1, meleeDamage: 3, attackRange: 1.5 },
+    122: { name: 'Stone Dagger', id: 122, textured: true, textureKey: 'STONE_DAGGER', toolType: 'dagger', tier: 2, meleeDamage: 3.5, attackRange: 1.5 },
+    123: { name: 'Gold Dagger', id: 123, textured: true, textureKey: 'GOLD_DAGGER', toolType: 'dagger', tier: 3, meleeDamage: 3.25, attackRange: 1.5 },
+    124: { name: 'Steel Dagger', id: 124, textured: true, textureKey: 'STEEL_DAGGER', toolType: 'dagger', tier: 5, meleeDamage: 4.5, attackRange: 1.5 },
+    125: { name: 'Emerald Dagger', id: 125, textured: true, textureKey: 'EMERALD_DAGGER', toolType: 'dagger', tier: 7, meleeDamage: 5, attackRange: 1.5 },
 
     //SHovel
     83: { name: 'Wooden Shovel', id: 83, textured: true, textureKey: 'WOODEN_SHOVEL', toolType: 'shovel', tier: 1 },
