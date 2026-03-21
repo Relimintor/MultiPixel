@@ -1377,6 +1377,33 @@ window.perlin = perlinInstance;
             return template?.pieceDesigns?.[normalizedPieceId] || getVillagePieceDesign(biomeKey, normalizedPieceId) || null;
         }
 
+        function normalizeVillagePieceCategory(category, pieceId = '') {
+            const normalizedCategory = String(category || '').trim().toLowerCase();
+            if (normalizedCategory === 'tree') return 'platform';
+            if (!normalizedCategory && String(pieceId || '').toLowerCase().includes('platform')) return 'platform';
+            return normalizedCategory;
+        }
+
+        function getVillagePieceDefinitionFromTemplate(template, biomeKey, pieceId) {
+            const normalizedPieceId = normalizeVillagePieceId(pieceId);
+            if (!normalizedPieceId) return null;
+            const definition = template?.pieceDefinitions?.[normalizedPieceId] || null;
+            const design = getVillagePieceDesignFromTemplate(template, biomeKey, normalizedPieceId);
+            return {
+                ...(definition || {}),
+                id: normalizedPieceId,
+                biome: definition?.biome || biomeKey,
+                category: normalizeVillagePieceCategory(definition?.category || design?.category, normalizedPieceId),
+                footprint: definition?.footprint || design?.footprint || null,
+                size: Number(definition?.size || design?.size) || undefined,
+                weight: Math.max(1, Number(definition?.weight || design?.weight) || 1),
+                doorDirs: Array.isArray(definition?.doorDirs) && definition.doorDirs.length
+                    ? definition.doorDirs
+                    : (Array.isArray(design?.doorDirs) ? design.doorDirs : []),
+                design,
+            };
+        }
+
         function getVillageFootprintFromDesign(design, fallbackSize = 5) {
             const width = Math.max(3, Number(design?.footprint?.width || design?.size || fallbackSize) || fallbackSize);
             const depth = Math.max(3, Number(design?.footprint?.depth || design?.size || fallbackSize) || fallbackSize);
@@ -1607,10 +1634,11 @@ window.perlin = perlinInstance;
             const layoutEntry = Array.isArray(layout.buildings)
                 ? layout.buildings.find((b) => String(b?.piece || b?.id || '').toLowerCase().includes(requested) || requested.includes('house'))
                 : null;
-            const pieceDesign = getVillagePieceDesignFromTemplate(template, biomeKey, requested);
-            const footprint = getVillageFootprintFromDesign(pieceDesign, Number(layoutEntry?.size) || 5);
+            const pieceDefinition = getVillagePieceDefinitionFromTemplate(template, biomeKey, requested);
+            const pieceDesign = pieceDefinition?.design || getVillagePieceDesignFromTemplate(template, biomeKey, requested);
+            const footprint = getVillageFootprintFromDesign(pieceDefinition?.footprint ? { footprint: pieceDefinition.footprint, size: pieceDefinition?.size } : pieceDesign, Number(layoutEntry?.size) || 5);
             const size = Math.max(footprint.width, footprint.depth, requested.includes('church') ? 7 : 0, requested.includes('igloo') ? (Number(iglooStructureDef?.radius) ? Number(iglooStructureDef.radius) * 2 + 1 : 7) : 0);
-            const category = String(pieceDesign?.category || requested || '').toLowerCase();
+            const category = normalizeVillagePieceCategory(pieceDefinition?.category || pieceDesign?.category || requested, requested);
             let placed = null;
             if (category.includes('street') || category.includes('bridge')) {
                 placed = placeVillageLinearFeature(centerX, centerZ, palette.path, pieceDesign);
@@ -5105,24 +5133,31 @@ window.perlin = perlinInstance;
                     const houseTemplates = Array.isArray(layout.buildings) && layout.buildings.length
                         ? layout.buildings
                         : getDefaultVillageLayout().buildings;
-                    const pieceDefinitions = template.pieceDefinitions || {};
-                    const placeableVillagePieces = Object.values(pieceDefinitions).filter((piece) => {
-                        const category = String(piece?.category || '').toLowerCase();
-                        return category === 'house' || category === 'church' || category === 'farm' || category === 'platform' || category === 'igloo';
-                    });
+                    const configuredPieceIds = Array.isArray(template?.pieces) && template.pieces.length
+                        ? template.pieces
+                        : Object.keys(template?.pieceDefinitions || {});
+                    const placeableVillagePieces = configuredPieceIds
+                        .map((pieceId) => getVillagePieceDefinitionFromTemplate(template, biomeKey, pieceId))
+                        .filter((piece) => {
+                            const category = normalizeVillagePieceCategory(piece?.category, piece?.id);
+                            return category === 'house' || category === 'church' || category === 'farm' || category === 'platform' || category === 'igloo';
+                        });
                     const piecePlacementCounts = new Map();
 
                     function chooseVillagePieceForSlot(tpl, step) {
                         const explicitPieceId = normalizeVillagePieceId(tpl?.piece || tpl?.structure);
-                        if (explicitPieceId && pieceDefinitions[explicitPieceId]) return pieceDefinitions[explicitPieceId];
+                        if (explicitPieceId) {
+                            const explicitPiece = getVillagePieceDefinitionFromTemplate(template, biomeKey, explicitPieceId);
+                            if (explicitPiece) return explicitPiece;
+                        }
                         const candidates = placeableVillagePieces.filter((piece) => {
-                            const category = String(piece?.category || '').toLowerCase();
+                            const category = normalizeVillagePieceCategory(piece?.category, piece?.id);
                             if (category === 'church' && (piecePlacementCounts.get('church') || 0) >= 1) return false;
                             if (category === 'igloo' && (piecePlacementCounts.get('igloo') || 0) >= 1) return false;
                             return true;
                         });
                         const pool = candidates.length ? candidates : placeableVillagePieces;
-                        if (!pool.length) return { id: 'house_small', category: 'house', footprint: { width: 7, depth: 7 }, weight: 1 };
+                        if (!pool.length) return getVillagePieceDefinitionFromTemplate(template, biomeKey, 'house_small') || { id: 'house_small', category: 'house', footprint: { width: 7, depth: 7 }, weight: 1, design: null };
                         const totalWeight = pool.reduce((sum, piece) => sum + Math.max(1, Number(piece?.weight) || 1), 0);
                         let roll = seedRand01(coreX + step * 3, coreZ - step * 5, 200 + step) * totalWeight;
                         for (const piece of pool) {
@@ -5199,11 +5234,10 @@ window.perlin = perlinInstance;
                         const tpl = houseTemplates[Math.floor(seedRand01(coreX + step * 3, coreZ - step * 5, 2 + step) * houseTemplates.length)] || houseTemplates[0];
                         const selectedPiece = chooseVillagePieceForSlot(tpl, step);
                         const pieceId = normalizeVillagePieceId(selectedPiece?.id || tpl.piece || tpl.structure || (String(tpl.id || '').toLowerCase().includes('church') ? 'church_small' : 'house_small'));
-                        const pieceDesign = getVillagePieceDesignFromTemplate(template, biomeKey, pieceId);
-                        const footprintSource = pieceDesign?.footprint || selectedPiece?.footprint || null;
-                        const footprint = getVillageFootprintFromDesign(footprintSource ? { footprint: footprintSource, size: pieceDesign?.size || selectedPiece?.size } : pieceDesign, Number(tpl.size) || 5);
+                        const pieceDesign = selectedPiece?.design || getVillagePieceDesignFromTemplate(template, biomeKey, pieceId);
+                        const footprint = getVillageFootprintFromDesign(selectedPiece?.footprint ? { footprint: selectedPiece.footprint, size: selectedPiece?.size } : pieceDesign, Number(tpl.size) || 5);
                         const size = Math.max(3, footprint.width, footprint.depth, Number(tpl.size) || 5);
-                        const pieceCategory = String(pieceDesign?.category || selectedPiece?.category || 'house').toLowerCase();
+                        const pieceCategory = normalizeVillagePieceCategory(selectedPiece?.category || pieceDesign?.category || 'house', pieceId);
                         const dist = minSpacing + Math.floor(seedRand01(coreX - step * 7, coreZ + step * 11, 3 + step) * (maxSpacing - minSpacing + 1));
                         const dir = String(src.dir || 'N').toUpperCase();
                         const vec = DIR_VECTORS[dir] || DIR_VECTORS.N;
@@ -5230,7 +5264,7 @@ window.perlin = perlinInstance;
 
                         const wall = Number(tpl.wallBlockId) || houseWall;
                         const roof = Number(tpl.roofBlockId) || houseRoof;
-                        const extraDoors = Array.isArray(tpl.doorDirs) ? tpl.doorDirs : (Array.isArray(pieceDesign?.doorDirs) ? pieceDesign.doorDirs : []);
+                        const extraDoors = Array.isArray(tpl.doorDirs) ? tpl.doorDirs : (Array.isArray(selectedPiece?.doorDirs) ? selectedPiece.doorDirs : (Array.isArray(pieceDesign?.doorDirs) ? pieceDesign.doorDirs : []));
                         const doorDirs = Array.from(new Set([primaryDoorDir, ...extraDoors.map((d) => String(d || '').toUpperCase()).filter((d) => DIR_VECTORS[d]) ]));
 
                         let built = null;
