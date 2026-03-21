@@ -115,13 +115,10 @@
             getHeight: function (ctx) { return ctx.BASE_LAND_Y + 10 + ctx.continentalMask * 14 + ctx.terrainNoise * 14 + ctx.ridgeNoise * 8; }
         };
 
-        // --- DAY/NIGHT CYCLE CONFIG ---
-        const DAY_SEGMENTS = { sunrise: 2 * 60 * 1000, day: 8 * 60 * 1000, sunset: 2 * 60 * 1000, night: 8 * 60 * 1000 };
-        const DAY_CYCLE_DURATION = DAY_SEGMENTS.sunrise + DAY_SEGMENTS.day + DAY_SEGMENTS.sunset + DAY_SEGMENTS.night;
-        let cycleTimeMs = DAY_SEGMENTS.sunrise + DAY_SEGMENTS.day / 2; // Start near noon
         let lastTime = 0; // For delta time calculation
         let inventoryEntityUpdateAccumulatorMs = 0;
         let ambientLight, hemiLight, moonLight, dirLight; // global lighting rig
+        let dayNightCycle = null;
 
         const BREATH_MAX = 20;
         const playerRuntime = window.SingleplayerPlayerCore.createRuntime({
@@ -245,11 +242,11 @@ window.perlin = perlinInstance;
                     hitboxes.push({ hitbox, profile });
                 }
             };
-            pushHitboxes(zombieEntities, 'zombieHitbox', { style: 'hostile' });
-            pushHitboxes(wolfEntities, 'wolfHitbox', { style: 'passive' });
-            pushHitboxes(pandaEntities, 'pandaHitbox', { style: 'passive' });
-            pushHitboxes(villagerEntities, 'villagerHitbox', { style: 'interact' });
-            pushHitboxes(pigEntities, 'pigHitbox', { style: 'passive' });
+            pushHitboxes(zombieMob?.getEntities?.() || [], 'zombieHitbox', { style: 'hostile' });
+            pushHitboxes(wolfMob?.getEntities?.() || [], 'wolfHitbox', { style: 'passive' });
+            pushHitboxes(pandaMob?.getEntities?.() || [], 'pandaHitbox', { style: 'passive' });
+            pushHitboxes(villagerMob?.getEntities?.() || [], 'villagerHitbox', { style: 'interact' });
+            pushHitboxes(pigMob?.getEntities?.() || [], 'pigHitbox', { style: 'passive' });
             if (!hitboxes.length) return null;
             const hits = raycaster.intersectObjects(hitboxes.map((entry) => entry.hitbox), false);
             if (!hits.length) return null;
@@ -348,128 +345,73 @@ window.perlin = perlinInstance;
         const particleMaterials = { break: null, lava: null };
         let lavaParticleScanMs = 0;
         let lastPhysicsTickMs = 0;
-        const dirtyChunkRemeshReasons = new Map();
-        let blockUpdateBatchDepth = 0;
-        const batchedChunkRemeshNeeds = new Map();
-
         function chunkKeyFromCoords(cx, cz) {
             return `${cx},${cz}`;
         }
 
-        // Mesh caching policy:
-        // keep chunk meshes in GPU buffers and only remesh on explicit triggers.
+        let remeshOptimizations = null;
+
         function requestChunkRemesh(cx, cz, reason = 'block') {
-            const key = chunkKeyFromCoords(cx, cz);
-            const rank = { load: 0, neighbor: 1, block: 2, lighting: 3 };
-            const prev = dirtyChunkRemeshReasons.get(key);
-            if (!prev || (rank[reason] ?? 0) >= (rank[prev] ?? 0)) {
-                dirtyChunkRemeshReasons.set(key, reason);
-            }
+            remeshOptimizations?.requestChunkRemesh?.(cx, cz, reason);
         }
 
         function requestChunkAndNeighborsRemesh(cx, cz, reason = 'neighbor') {
-            requestChunkRemesh(cx, cz, reason);
-            requestChunkRemesh(cx - 1, cz, reason);
-            requestChunkRemesh(cx + 1, cz, reason);
-            requestChunkRemesh(cx, cz - 1, reason);
-            requestChunkRemesh(cx, cz + 1, reason);
+            remeshOptimizations?.requestChunkAndNeighborsRemesh?.(cx, cz, reason);
         }
 
         function rebuildDirtyChunkMeshes(forceAll = false) {
-            if (dirtyChunkRemeshReasons.size === 0) return 0;
-            const budget = forceAll ? MESH_REBUILD_BUDGET_FORCE : MESH_REBUILD_BUDGET_PER_FRAME;
-            let processed = 0;
-
-            const pending = Array.from(dirtyChunkRemeshReasons.entries());
-            for (const [key, reason] of pending) {
-                if (processed >= budget) break;
-                dirtyChunkRemeshReasons.delete(key);
-                const g = chunks.get(key);
-                if (!g) continue;
-                const forceRemesh = reason === 'lighting';
-                updateChunkGeometry(g, g.userData.chunkData, forceRemesh);
-                processed++;
-            }
-            return processed;
+            return remeshOptimizations?.rebuildDirtyChunkMeshes?.(forceAll) || 0;
         }
 
         function markBatchedChunkRemeshNeed(cx, cz, includeNeighbors = false) {
-            const key = chunkKeyFromCoords(cx, cz);
-            const prev = batchedChunkRemeshNeeds.get(key);
-            batchedChunkRemeshNeeds.set(key, Boolean(prev || includeNeighbors));
+            remeshOptimizations?.markBatchedChunkRemeshNeed?.(cx, cz, includeNeighbors);
         }
 
         function beginBlockUpdateBatch() {
-            blockUpdateBatchDepth++;
+            remeshOptimizations?.beginBlockUpdateBatch?.();
         }
 
         function endBlockUpdateBatch() {
-            if (blockUpdateBatchDepth <= 0) return;
-            blockUpdateBatchDepth--;
-            if (blockUpdateBatchDepth > 0) return;
-
-            for (const [key, includeNeighbors] of batchedChunkRemeshNeeds.entries()) {
-                const [cxs, czs] = key.split(',');
-                const cx = Number(cxs);
-                const cz = Number(czs);
-                if (!Number.isFinite(cx) || !Number.isFinite(cz)) continue;
-                requestChunkRemesh(cx, cz, 'block');
-                if (includeNeighbors) requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
-            }
-            batchedChunkRemeshNeeds.clear();
+            remeshOptimizations?.endBlockUpdateBatch?.();
         }
 
         function applyBlockUpdateBatch(cb) {
-            beginBlockUpdateBatch();
-            try {
-                return cb();
-            } finally {
-                endBlockUpdateBatch();
-            }
+            if (!remeshOptimizations?.applyBlockUpdateBatch) return cb();
+            return remeshOptimizations.applyBlockUpdateBatch(cb);
         }
         let physicsCursorY = 1;
 
         const MOBILE_ASSET_BASE = `${window.SingleplayerConfig?.REPO_BASE_PREFIX || ''}/game/singleplayer/assets/mobile`;
         const mobileControls = playerRuntime.mobileControls;
 
-        const deviceMemoryGb = typeof navigator.deviceMemory === 'number' ? navigator.deviceMemory : null;
-        const cpuThreads = typeof navigator.hardwareConcurrency === 'number' ? navigator.hardwareConcurrency : null;
-        const prefersReducedMotion = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)').matches : false;
-        const isLowEndDevice = Boolean(
-            prefersReducedMotion ||
-            (deviceMemoryGb !== null && deviceMemoryGb <= 4) ||
-            (cpuThreads !== null && cpuThreads <= 4)
-        );
+        const renderOptimizationSettings = window.SingleplayerRenderOptimizations?.create?.({
+            windowRef: window,
+            navigatorRef: navigator,
+            worldGenSettings,
+            WORLD_RADIUS,
+            CHUNK_SIZE,
+        }) || {};
+        const isLowEndDevice = Boolean(renderOptimizationSettings.isLowEndDevice);
         function computeRenderPixelRatio() {
-            const rawDeviceRatio = window.devicePixelRatio || 1;
-            const ratioCap = isLowEndDevice ? 1 : 1.5;
-            // Limit drawing-buffer pixel count to avoid huge VRAM/RAM spikes on large displays.
-            const maxRenderPixels = isLowEndDevice ? 2_000_000 : 3_000_000;
-            const viewportPixels = Math.max(1, window.innerWidth * window.innerHeight);
-            const budgetRatio = Math.sqrt(maxRenderPixels / viewportPixels);
-            const safeRatio = Math.max(0.75, Math.min(ratioCap, budgetRatio));
-            return Math.min(rawDeviceRatio, safeRatio);
+            if (renderOptimizationSettings.computeRenderPixelRatio) {
+                return renderOptimizationSettings.computeRenderPixelRatio();
+            }
+            return window.devicePixelRatio || 1;
         }
 
-        let targetRenderPixelRatio = computeRenderPixelRatio();
-        const configuredChunkRenderDistance = Math.floor(Number(worldGenSettings.chunkRenderDistance) || 4);
-        const baseChunkRenderDistance = Math.max(4, Math.min(WORLD_RADIUS, configuredChunkRenderDistance));
+        let targetRenderPixelRatio = Number(renderOptimizationSettings.initialRenderPixelRatio) || computeRenderPixelRatio();
+        const baseChunkRenderDistance = Math.max(4, Math.min(WORLD_RADIUS, Number(renderOptimizationSettings.baseChunkRenderDistance) || 4));
         let currentChunkLoadRadius = baseChunkRenderDistance;
         // Backward-compatible alias for code paths that still reference the old name.
         let effectiveChunkLoadRadius = currentChunkLoadRadius;
         const ENTITY_ACTIVATION_RANGE = Math.max(24, Number(worldGenSettings.entityActivationRange) || 72);
         const ENTITY_ACTIVATION_RANGE_SQ = ENTITY_ACTIVATION_RANGE * ENTITY_ACTIVATION_RANGE;
-        const CHUNK_UPDATE_INTERVAL_MS = isLowEndDevice ? 220 : 90;
-        const FRUSTUM_CULL_INTERVAL_MS = isLowEndDevice ? 120 : 60;
-        const FOG_BASE_NEAR = Math.max(12, effectiveChunkLoadRadius * CHUNK_SIZE * 0.18);
-        const FOG_DAY_NEAR_BOOST = Math.max(4, effectiveChunkLoadRadius * CHUNK_SIZE * 0.05);
-        const FOG_BASE_FAR = Math.max(54, effectiveChunkLoadRadius * CHUNK_SIZE * 0.72);
-        const FOG_DAY_FAR_BOOST = Math.max(16, effectiveChunkLoadRadius * CHUNK_SIZE * 0.22);
-        const chunkOffsetsByRadius = new Map();
-        let lastChunkUpdateMs = -Infinity;
-        let lastFrustumCullMs = -Infinity;
-        let lastChunkCoordX = Number.NaN;
-        let lastChunkCoordZ = Number.NaN;
+        const CHUNK_UPDATE_INTERVAL_MS = Math.max(1, Number(renderOptimizationSettings.chunkUpdateIntervalMs) || 90);
+        const FRUSTUM_CULL_INTERVAL_MS = Math.max(1, Number(renderOptimizationSettings.frustumCullIntervalMs) || 60);
+        const FOG_BASE_NEAR = Number(renderOptimizationSettings.fogBaseNear) || Math.max(12, effectiveChunkLoadRadius * CHUNK_SIZE * 0.18);
+        const FOG_DAY_NEAR_BOOST = Number(renderOptimizationSettings.fogDayNearBoost) || Math.max(4, effectiveChunkLoadRadius * CHUNK_SIZE * 0.05);
+        const FOG_BASE_FAR = Number(renderOptimizationSettings.fogBaseFar) || Math.max(54, effectiveChunkLoadRadius * CHUNK_SIZE * 0.72);
+        const FOG_DAY_FAR_BOOST = Number(renderOptimizationSettings.fogDayFarBoost) || Math.max(16, effectiveChunkLoadRadius * CHUNK_SIZE * 0.22);
      
 
       
@@ -479,16 +421,147 @@ window.perlin = perlinInstance;
         let wasmRuntime = window.WorldgenWasmRuntime || null;
         let lightingSystem = null;
         const torchLightsByChunk = new Map();
-        const frustum = new THREE.Frustum();
-        const cameraViewProj = new THREE.Matrix4();
-        const frustumTempCenter = new THREE.Vector3();
-        const frustumTempSphere = new THREE.Sphere();
-        const lastFrustumCameraPos = new THREE.Vector3();
-        const lastFrustumCameraQuat = new THREE.Quaternion();
-        let hasFrustumCameraState = false;
         const chunks = new Map();
         const sparseAirChunkKeys = new Set();
         const worldGroup = new THREE.Group();
+        let frustumOptimizations = null;
+        let chunkStreamOptimizations = null;
+        let defaultPlayerSkin = null;
+        let dirtToGrassLoop = null;
+        let pigMob = null;
+        let zombieMob = null;
+        let wolfMob = null;
+        let pandaMob = null;
+        let villagerMob = null;
+        remeshOptimizations = window.SingleplayerChunkRemeshOptimizations?.create?.({
+            getChunkKey: chunkKeyFromCoords,
+            getChunk: (key) => chunks.get(key),
+            updateChunkGeometry,
+            meshRebuildBudgetPerFrame: MESH_REBUILD_BUDGET_PER_FRAME,
+            meshRebuildBudgetForce: MESH_REBUILD_BUDGET_FORCE,
+        }) || null;
+        dayNightCycle = window.SingleplayerDayNightCycle?.create?.({
+            THREE,
+            getScene: () => scene,
+            getLights: () => ({ ambientLight, hemiLight, moonLight, dirLight }),
+            getBiomeAt: (x, z) => getBiome(x, z),
+            getPlayerPosition: () => yawObject?.position,
+            getCurrentRenderDistance: () => currentChunkLoadRadius,
+            CHUNK_SIZE,
+        }) || null;
+        defaultPlayerSkin = window.SingleplayerDefaultSkin?.create?.({
+            THREE,
+            playerRuntime,
+            player,
+            getCamera: () => camera,
+            getPlayerPrivileges: () => playerPrivileges,
+            getIsFlyActive: () => isFlyActive,
+            getIsInventoryOpen: () => isInventoryOpen,
+            getSelectedHotbarIndex: () => selectedHotbarIndex,
+            getInventory: () => inventory,
+            getBlockMaterials: () => blockMaterials,
+            getAssetFilepaths: () => ASSET_FILEPATHS,
+            getMiningSwingTimerMs: () => miningSwingTimerMs,
+            showGameMessage,
+        }) || null;
+        dirtToGrassLoop = window.SingleplayerDirtToGrassLoop?.create?.({
+            CHUNK_SIZE,
+            CHUNK_HEIGHT,
+            getYawObject: () => yawObject,
+            getChunks: () => chunks,
+            getBlockType,
+            getColumnTopFromData,
+            setBlockTypeRaw,
+        }) || null;
+        pigMob = window.SingleplayerPigMob?.create?.({
+            THREE,
+            getScene: () => scene,
+            getYawObject: () => yawObject,
+            getInventory: () => inventory,
+            getSelectedHotbarIndex: () => selectedHotbarIndex,
+            getLightingSystem: () => lightingSystem,
+            getRaycaster: () => raycaster,
+            prepareCrosshairRaycast,
+            getSurfaceYForEntity,
+            getBlockType,
+            isLiquid,
+            isSolid,
+            isEntityActiveAt,
+            applyMobCommandHeight,
+            applyHitFeedback,
+            tickMobHitFeedback,
+            showGameMessage,
+        }) || null;
+        zombieMob = window.SingleplayerZombieMob?.create?.({
+            THREE,
+            getScene: () => scene,
+            CHUNK_HEIGHT,
+            getYawObject: () => yawObject,
+            getLightingSystem: () => lightingSystem,
+            getTimePhaseInfo,
+            getRaycaster: () => raycaster,
+            prepareCrosshairRaycast,
+            getSurfaceYForEntity,
+            getBlockType,
+            isLiquid,
+            isSolid,
+            isEntityActiveAt,
+            applyMobCommandHeight,
+            applyHitFeedback,
+            tickMobHitFeedback,
+            takeDamage,
+            addToInventory,
+            showGameMessage,
+        }) || null;
+        wolfMob = window.SingleplayerWolfMob?.create?.({
+            THREE,
+            getScene: () => scene,
+            getYawObject: () => yawObject,
+            getRaycaster: () => raycaster,
+            prepareCrosshairRaycast,
+            getSurfaceYForEntity,
+            isEntityActiveAt,
+            applyMobCommandHeight,
+            applyHitFeedback,
+            showGameMessage,
+            getPigEntities: () => pigMob?.getEntities?.() || [],
+            getZombieEntities: () => zombieMob?.getEntities?.() || [],
+            hurtPig: (pig, amount, source, sourcePos, extraKnockback) => pigMob?.hurt?.(pig, amount, source, sourcePos, extraKnockback),
+            hurtZombie: (zombie, amount, sourcePos, extraKnockback) => zombieMob?.hurt?.(zombie, amount, sourcePos, extraKnockback),
+        }) || null;
+        pandaMob = window.SingleplayerPandaMob?.create?.({
+            THREE,
+            getScene: () => scene,
+            getYawObject: () => yawObject,
+            getRaycaster: () => raycaster,
+            prepareCrosshairRaycast,
+            getSurfaceYForEntity,
+            isEntityActiveAt,
+            applyMobCommandHeight,
+            applyHitFeedback,
+            tickMobHitFeedback,
+            showGameMessage,
+            addToInventory,
+            takeDamage,
+        }) || null;
+        villagerMob = window.SingleplayerVillagerMob?.create?.({
+            THREE,
+            getScene: () => scene,
+            getYawObject: () => yawObject,
+            getRaycaster: () => raycaster,
+            prepareCrosshairRaycast,
+            getSurfaceYForEntity,
+            getBlockType,
+            isLiquid,
+            isEntityActiveAt,
+            applyMobCommandHeight,
+            applyHitFeedback,
+            tickMobHitFeedback,
+            showGameMessage,
+            getZombieEntities: () => zombieMob?.getEntities?.() || [],
+            createStevePartMesh,
+            getSkinPartRects,
+        }) || null;
         let yawObject, pitchObject; 
         let currentPlayerHeight = playerRuntime.currentPlayerHeight;
 
@@ -500,6 +573,7 @@ window.perlin = perlinInstance;
             if (pitchObject) {
                 pitchObject.position.y = getPlayerEyeHeight();
             }
+            const playerAvatar = defaultPlayerSkin?.getPlayerAvatar?.();
             if (playerAvatar) {
                 const avatarScale = currentPlayerHeight / PLAYER_HEIGHT;
                 playerAvatar.scale.set(avatarScale, avatarScale, avatarScale);
@@ -517,39 +591,10 @@ window.perlin = perlinInstance;
             syncPlayerHeightVisuals();
             return true;
         }
-        let cameraViewMode = playerRuntime.cameraViewMode; // 0=first, 1=second, 2=third
-        let playerAvatar = playerRuntime.playerAvatar;
-        let playerAvatarParts = playerRuntime.playerAvatarParts;
-        let steveSkinTexture = playerRuntime.steveSkinTexture;
-        let steveSkinFailed = playerRuntime.steveSkinFailed;
-        let steveSkinReady = playerRuntime.steveSkinReady;
-        let steveSkinLoadPromise = playerRuntime.steveSkinLoadPromise;
-        let firstPersonHandEl = playerRuntime.firstPersonHandEl;
-        let firstPersonHeldItemEl = playerRuntime.firstPersonHeldItemEl;
-        let inventorySkinRigEl = playerRuntime.inventorySkinRigEl;
-        let skinSystem = playerRuntime.skinSystem;
         let iglooStructureDef = null;
         const villageTemplatesByBiomeKey = new Map();
         const gnomeEntities = [];
-        const pigEntities = [];
-        const zombieEntities = [];
-        const wolfEntities = [];
-        const pandaEntities = [];
-        const villagerEntities = [];
-        const pigMobDef = window.SingleplayerMobData?.categories?.passive?.pig || null;
-        const pigGoalPriority = Array.isArray(pigMobDef?.behavior?.goals)
-            ? [...pigMobDef.behavior.goals].sort((a, b) => a.priority - b.priority)
-            : [];
-        const villagerMobDef = window.SingleplayerMobData?.categories?.passive?.villager || null;
-        const villagerGoalPriority = Array.isArray(villagerMobDef?.behavior?.goals)
-            ? [...villagerMobDef.behavior.goals].sort((a, b) => a.priority - b.priority)
-            : [];
-        let pigTexture = null;
-        let pandaTexture = null;
-        let zombieTexture = null;
-        let zombieSpawnTimerMs = 0;
         let bambooGrowthTimerMs = 0;
-        let grassSpreadTimerMs = 0;
         let eatOverlayEl = playerRuntime.eatOverlayEl;
         let eatItemEl = playerRuntime.eatItemEl;
         let eatingAnimState = playerRuntime.eatingAnimState;
@@ -573,11 +618,11 @@ window.perlin = perlinInstance;
             PlayerMobInteractions.resolveMobEntityPushing({
                 yawObject,
                 PLAYER_RADIUS,
-                pigEntities,
-                wolfEntities,
-                pandaEntities,
-                zombieEntities,
-                villagerEntities,
+                pigEntities: pigMob?.getEntities?.() || [],
+                wolfEntities: wolfMob?.getEntities?.() || [],
+                pandaEntities: pandaMob?.getEntities?.() || [],
+                zombieEntities: zombieMob?.getEntities?.() || [],
+                villagerEntities: villagerMob?.getEntities?.() || [],
                 gnomeEntities,
                 mobCollisionRadius: MOB_COLLISION_RADIUS,
             });
@@ -590,17 +635,7 @@ window.perlin = perlinInstance;
         function isLiquid(type) { return LIQUID_BLOCKS.includes(type); }
 
         function getChunkOffsetsForRadius(radius) {
-            const cached = chunkOffsetsByRadius.get(radius);
-            if (cached) return cached;
-            const offsets = [];
-            for (let dx = -radius; dx <= radius; dx++) {
-                for (let dz = -radius; dz <= radius; dz++) {
-                    offsets.push({ dx, dz, dist2: dx * dx + dz * dz });
-                }
-            }
-            offsets.sort((a, b) => a.dist2 - b.dist2);
-            chunkOffsetsByRadius.set(radius, offsets);
-            return offsets;
+            return chunkStreamOptimizations?.getChunkOffsetsForRadius?.(radius) || [];
         }
 
         function getTexturePackScriptPath(packId) {
@@ -781,7 +816,7 @@ window.perlin = perlinInstance;
             scene.add(yawObject);
 
             await ensureSteveSkinTextureLoaded();
-            playerAvatar = createPlayerAvatar();
+            const playerAvatar = createPlayerAvatar();
             playerAvatar.visible = false;
             yawObject.add(playerAvatar);
             applyCameraMode();
@@ -800,13 +835,13 @@ window.perlin = perlinInstance;
             scene.add(worldGroup);
 
     
-            await loadPigTexture();
-            await loadPandaTexture();
-            await loadZombieTexture();
+            await pigMob?.loadTexture?.();
+            await pandaMob?.loadTexture?.();
+            await zombieMob?.loadTexture?.();
             generateWorld();
-            spawnInitialPigs();
-            spawnInitialWolves();
-            spawnInitialPandas();
+            pigMob?.spawnInitial?.();
+            wolfMob?.spawnInitial?.();
+            pandaMob?.spawnInitial?.();
             setupPointerLockControls();
             setupKeyboardControls();
             setupBlockInteraction();
@@ -818,22 +853,18 @@ window.perlin = perlinInstance;
             renderHearts();
             renderAirBubbles(false);
             updateHotbarUI();
-            skinSystem = window.SingleplayerSkinSystem?.create({ showGameMessage }) || null;
             const closeBtn = document.getElementById('inventory-close-btn');
             const closeIcon = document.getElementById('inventory-close-icon');
-            const editSkinBtn = document.getElementById('edit-skin-btn');
-            const editSkinIcon = document.getElementById('edit-skin-icon');
             const furnaceCloseBtn = document.getElementById('furnace-close-btn');
             const furnaceCloseIcon = document.getElementById('furnace-close-icon');
             const chestCloseBtn = document.getElementById('chest-close-btn');
             const chestCloseIcon = document.getElementById('chest-close-icon');
             const assetBasePath = `${window.SingleplayerConfig?.REPO_BASE_PREFIX || ''}/game/singleplayer/assets`;
             const closeIconPath = `${assetBasePath}/mobile/cdb_clear.png`;
-            const editSkinIconPath = `${assetBasePath}/ui/inventory/edit_skin_button.png`;
             if (closeIcon) closeIcon.src = closeIconPath;
-            if (editSkinIcon) editSkinIcon.src = editSkinIconPath;
             if (furnaceCloseIcon) furnaceCloseIcon.src = closeIconPath;
             if (chestCloseIcon) chestCloseIcon.src = closeIconPath;
+            defaultPlayerSkin?.initSkinUi?.();
             const creativeCloseIcon = document.getElementById('creative-close-icon');
             const creativeInventoryIcon = document.getElementById('creative-inventory-icon');
             if (creativeCloseIcon) creativeCloseIcon.src = closeIconPath;
@@ -850,9 +881,6 @@ window.perlin = perlinInstance;
             });
             if (closeBtn) closeBtn.addEventListener('click', () => {
                 if (isInventoryOpen) toggleInventory();
-            });
-            if (editSkinBtn) editSkinBtn.addEventListener('click', () => {
-                window.location.href = `${window.SingleplayerConfig?.REPO_BASE_PREFIX || '/MultiPixel'}/game/singleplayer/edit/index.html`;
             });
             if (furnaceCloseBtn) furnaceCloseBtn.addEventListener('click', () => {
                 if (isInventoryOpen) toggleInventory();
@@ -881,8 +909,6 @@ window.perlin = perlinInstance;
             targetRenderPixelRatio = computeRenderPixelRatio();
             renderer.setPixelRatio(targetRenderPixelRatio);
             document.body.appendChild(renderer.domElement);
-            setupFirstPersonHandOverlay();
-            setupInventorySkinRig();
             setupEatingOverlay();
             
             window.addEventListener('resize', onWindowResize);
@@ -916,61 +942,23 @@ window.perlin = perlinInstance;
         
         // --- Day/Night Cycle Logic ---
         function getTimePhaseInfo() {
-            const t = cycleTimeMs % DAY_CYCLE_DURATION;
-            const sunriseEnd = DAY_SEGMENTS.sunrise;
-            const dayEnd = sunriseEnd + DAY_SEGMENTS.day;
-            const sunsetEnd = dayEnd + DAY_SEGMENTS.sunset;
-
-            if (t < sunriseEnd) return { phase: 'Sunrise', localT: t / DAY_SEGMENTS.sunrise };
-            if (t < dayEnd) return { phase: 'Day', localT: (t - sunriseEnd) / DAY_SEGMENTS.day };
-            if (t < sunsetEnd) return { phase: 'Sunset', localT: (t - dayEnd) / DAY_SEGMENTS.sunset };
-            return { phase: 'Night', localT: (t - sunsetEnd) / DAY_SEGMENTS.night };
+            return dayNightCycle?.getTimePhaseInfo?.() || { phase: 'Day', localT: 1 };
         }
 
         function getSunFactor() {
-            const phaseInfo = getTimePhaseInfo();
-            if (phaseInfo.phase === 'Day') return 1;
-            if (phaseInfo.phase === 'Night') return -0.85;
-            if (phaseInfo.phase === 'Sunrise') return -0.85 + 1.85 * phaseInfo.localT;
-            return 1 - 1.85 * phaseInfo.localT;
+            return dayNightCycle?.getSunFactor?.() ?? 1;
         }
 
         function getCurrentSkyLightCap() {
-            const normalized = Math.max(0, Math.min(1, (getSunFactor() + 0.85) / 1.85));
-            return Math.max(0, Math.min(15, Math.floor(normalized * 15)));
+            return dayNightCycle?.getCurrentSkyLightCap?.() ?? 15;
         }
 
         function setTimeByClock(hours, minutes) {
-            const hh = Number.parseInt(hours, 10);
-            const mm = Number.parseInt(minutes, 10);
-            if (!Number.isFinite(hh) || !Number.isFinite(mm)) return false;
-            if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return false;
-            const minutesOfDay = hh * 60 + mm;
-            const dayProgress = minutesOfDay / 1440;
-            cycleTimeMs = dayProgress * DAY_CYCLE_DURATION;
-            updateSkyAndSun();
-            return true;
+            return dayNightCycle?.setTimeByClock?.(hours, minutes) || false;
         }
 
-        function getFogDistances(renderDistance) {
-            const radius = Math.max(1, Number(renderDistance) || 1);
-            return {
-                nearBase: Math.max(10, radius * CHUNK_SIZE * 0.12),
-                nearDayBoost: Math.max(3, radius * CHUNK_SIZE * 0.04),
-                farBase: Math.max(42, radius * CHUNK_SIZE * 0.52),
-                farDayBoost: Math.max(10, radius * CHUNK_SIZE * 0.16),
-            };
-        }
-
-
-        function getBiomeFogAndHumidityEffects() {
-            const wx = Math.floor(yawObject?.position?.x || 0);
-            const wz = Math.floor(yawObject?.position?.z || 0);
-            const biome = getBiome(wx, wz);
-            if (biome === 'Jungle Forest') {
-                return { humidity: 0.9, nearMul: 1.18, farMul: 0.7 };
-            }
-            return { humidity: 0.5, nearMul: 1.0, farMul: 1.0 };
+        function updateSkyAndSun() {
+            dayNightCycle?.updateSkyAndSun?.();
         }
 
         function setRenderDistance(amount) {
@@ -980,7 +968,7 @@ window.perlin = perlinInstance;
             if (normalized === currentChunkLoadRadius) return true;
             currentChunkLoadRadius = normalized;
             effectiveChunkLoadRadius = currentChunkLoadRadius;
-            lastChunkUpdateMs = -Infinity;
+            updateSkyAndSun();
             ensureChunksAroundPlayer(true);
             return true;
         }
@@ -998,51 +986,6 @@ window.perlin = perlinInstance;
             return Number(camera?.fov || 90);
         }
 
-        function updateSkyAndSun() {
-            const sunFactor = getSunFactor();
-
-            const dayColor = new THREE.Color(0x87ceeb);
-            const twilightColor = new THREE.Color(0x9a7d90);
-            const nightColor = new THREE.Color(0x1a1a2e);
-
-            let skyColor;
-            if (sunFactor > 0.1) {
-                const k = Math.min(1, Math.max(0, (sunFactor - 0.1) / 0.9));
-                skyColor = twilightColor.clone().lerp(dayColor, k);
-            } else {
-                const k = Math.min(1, Math.max(0, (sunFactor + 0.85) / 0.95));
-                skyColor = nightColor.clone().lerp(twilightColor, k);
-            }
-
-            scene.background.copy(skyColor);
-            scene.fog.color.copy(skyColor);
-
-            const angle = (cycleTimeMs / DAY_CYCLE_DURATION) * (2 * Math.PI);
-            const daylight = Math.max(0, sunFactor + 0.1);
-            const nightness = Math.max(0, -sunFactor);
-
-            dirLight.intensity = Math.max(0.04, daylight) * 1.18;
-            dirLight.position.x = Math.sin(angle) * 100;
-            dirLight.position.y = Math.cos(angle) * 100;
-            dirLight.position.z = Math.sin(angle) * 50;
-
-            moonLight.intensity = 0.06 + nightness * 0.34;
-            moonLight.position.x = -Math.sin(angle) * 85;
-            moonLight.position.y = Math.max(8, -Math.cos(angle) * 85);
-            moonLight.position.z = -Math.sin(angle) * 45;
-
-            ambientLight.intensity = 0.26 + daylight * 0.45;
-            hemiLight.intensity = 0.18 + daylight * 0.55;
-            const fog = getFogDistances(currentChunkLoadRadius);
-            const biomeEffects = getBiomeFogAndHumidityEffects();
-            scene.fog.near = (fog.nearBase + daylight * fog.nearDayBoost) * biomeEffects.nearMul;
-            scene.fog.far = (fog.farBase + daylight * fog.farDayBoost) * biomeEffects.farMul;
-            window.SingleplayerClimateState = window.SingleplayerClimateState || {};
-            window.SingleplayerClimateState.humidity = biomeEffects.humidity;
-        }
-
-
-     
         function getMaxStackSize(itemId) {
             const itemDef = blockMaterials[itemId];
             return itemDef?.toolType ? 1 : 64;
@@ -1428,354 +1371,6 @@ window.perlin = perlinInstance;
             }
         }
 
-        async function loadPigTexture() {
-            const path = window.SingleplayerConfig?.ASSET_FILEPATHS?.PIG_TEXTURE;
-            if (!path) return;
-            pigTexture = await new Promise((resolve) => {
-                new THREE.TextureLoader().load(path, (t) => {
-                    t.magFilter = THREE.NearestFilter;
-                    t.minFilter = THREE.NearestFilter;
-                    t.flipY = false;
-                    t.wrapS = THREE.ClampToEdgeWrapping;
-                    t.wrapT = THREE.ClampToEdgeWrapping;
-                    resolve(t);
-                }, undefined, () => resolve(null));
-            });
-        }
-
-        async function loadPandaTexture() {
-            const path = window.SingleplayerConfig?.ASSET_FILEPATHS?.PANDA_TEXTURE;
-            if (!path) return;
-            pandaTexture = await new Promise((resolve) => {
-                new THREE.TextureLoader().load(path, (t) => {
-                    t.magFilter = THREE.NearestFilter;
-                    t.minFilter = THREE.NearestFilter;
-                    t.flipY = false;
-                    t.wrapS = THREE.ClampToEdgeWrapping;
-                    t.wrapT = THREE.ClampToEdgeWrapping;
-                    resolve(t);
-                }, undefined, () => resolve(null));
-            });
-        }
-
-        async function loadZombieTexture() {
-            const path = window.SingleplayerConfig?.ASSET_FILEPATHS?.ZOMBIE_TEXTURE;
-            if (!path) return;
-            zombieTexture = await new Promise((resolve) => {
-                new THREE.TextureLoader().load(path, (t) => {
-                    t.magFilter = THREE.NearestFilter;
-                    t.minFilter = THREE.NearestFilter;
-                    t.flipY = false;
-                    t.wrapS = THREE.ClampToEdgeWrapping;
-                    t.wrapT = THREE.ClampToEdgeWrapping;
-                    resolve(t);
-                }, undefined, () => resolve(null));
-            });
-        }
-
-        function createAtlasFaceTexture(baseTex, rect, atlasW = 64, atlasH = 32) {
-            if (!baseTex || !rect) return null;
-            const [x, y, w, h] = rect;
-            const tex = baseTex.clone();
-            tex.magFilter = THREE.NearestFilter;
-            tex.minFilter = THREE.NearestFilter;
-            tex.flipY = false;
-            tex.wrapS = THREE.ClampToEdgeWrapping;
-            tex.wrapT = THREE.ClampToEdgeWrapping;
-            tex.repeat.set(w / atlasW, h / atlasH);
-            tex.offset.set(x / atlasW, 1 - ((y + h) / atlasH));
-            tex.needsUpdate = true;
-            return tex;
-        }
-
-        function buildMobPartFaceRects(x, y, w, h, d) {
-            return {
-                0: [x, y + d, w, h],
-                1: [x + w + d, y + d, w, h],
-                2: [x + w, y, w, d],
-                3: [x + w + d, y, w, d],
-                4: [x + w, y + d, w, h],
-                5: [x + (w * 2) + d, y + d, w, h],
-            };
-        }
-
-        function createPigPart(dim, rects) {
-            const mats = [];
-            for (let i = 0; i < 6; i++) {
-                const faceTex = createAtlasFaceTexture(pigTexture, rects[i], 64, 32);
-                mats.push(new THREE.MeshStandardMaterial({ map: faceTex || null, color: faceTex ? 0xffffff : 0xe8b6b8, roughness: 0.92 }));
-            }
-            return new THREE.Mesh(new THREE.BoxGeometry(dim[0], dim[1], dim[2]), mats);
-        }
-
-        function createPigMesh() {
-            const U = 1 / 16;
-            const pig = new THREE.Group();
-
-            const body = createPigPart([10 * U, 8 * U, 16 * U], buildMobPartFaceRects(28, 8, 10, 8, 16));
-            body.position.y = 10 * U;
-            pig.add(body);
-
-            const head = createPigPart([8 * U, 8 * U, 8 * U], buildMobPartFaceRects(0, 0, 8, 8, 8));
-            head.position.set(0, 11 * U, 10 * U);
-            pig.add(head);
-
-            const legRects = buildMobPartFaceRects(0, 16, 4, 6, 4);
-            const legOffsets = [[-3*U, 3*U, 5*U], [3*U, 3*U, 5*U], [-3*U, 3*U, -5*U], [3*U, 3*U, -5*U]];
-            const legs = [];
-            for (const off of legOffsets) {
-                const leg = createPigPart([4 * U, 6 * U, 4 * U], legRects);
-                leg.position.set(off[0], off[1], off[2]);
-                pig.add(leg);
-                legs.push(leg);
-            }
-
-            const hitbox = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.9, 1.0), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
-            hitbox.position.set(0, 0.5, 0);
-            hitbox.userData.pigHitbox = true;
-            pig.add(hitbox);
-            pig.userData.pigHitbox = hitbox;
-            pig.userData.pigHead = head;
-            pig.userData.pigLegs = legs;
-            return pig;
-        }
-
-
-        function createVillagerMesh() {
-            const villager = new THREE.Group();
-            const U = 1 / 16;
-
-            const head = createStevePartMesh(
-                [8 * U, 8 * U, 8 * U],
-                getSkinPartRects('head', false),
-                getSkinPartRects('head', true)
-            );
-            head.position.y = 28 * U;
-
-            const body = createStevePartMesh(
-                [8 * U, 12 * U, 4 * U],
-                getSkinPartRects('body', false),
-                getSkinPartRects('body', true)
-            );
-            body.position.y = 18 * U;
-
-            const rightArmPivot = new THREE.Group();
-            rightArmPivot.position.set(6 * U, 24 * U, 0);
-            const rightArm = createStevePartMesh(
-                [4 * U, 12 * U, 4 * U],
-                getSkinPartRects('rightArm', false),
-                getSkinPartRects('rightArm', true)
-            );
-            rightArm.position.set(0, -6 * U, 0);
-            rightArmPivot.add(rightArm);
-
-            const leftArmPivot = new THREE.Group();
-            leftArmPivot.position.set(-6 * U, 24 * U, 0);
-            const leftArm = createStevePartMesh(
-                [4 * U, 12 * U, 4 * U],
-                getSkinPartRects('leftArm', false),
-                getSkinPartRects('leftArm', true)
-            );
-            leftArm.position.set(0, -6 * U, 0);
-            leftArmPivot.add(leftArm);
-
-            const rightLegPivot = new THREE.Group();
-            rightLegPivot.position.set(2 * U, 12 * U, 0);
-            const rightLeg = createStevePartMesh(
-                [4 * U, 12 * U, 4 * U],
-                getSkinPartRects('rightLeg', false),
-                getSkinPartRects('rightLeg', true)
-            );
-            rightLeg.position.set(0, -6 * U, 0);
-            rightLegPivot.add(rightLeg);
-
-            const leftLegPivot = new THREE.Group();
-            leftLegPivot.position.set(-2 * U, 12 * U, 0);
-            const leftLeg = createStevePartMesh(
-                [4 * U, 12 * U, 4 * U],
-                getSkinPartRects('leftLeg', false),
-                getSkinPartRects('leftLeg', true)
-            );
-            leftLeg.position.set(0, -6 * U, 0);
-            leftLegPivot.add(leftLeg);
-
-            villager.add(body, head, leftArmPivot, rightArmPivot, leftLegPivot, rightLegPivot);
-            const hitbox = new THREE.Mesh(
-                new THREE.BoxGeometry(0.62, 1.78, 0.62),
-                new THREE.MeshBasicMaterial({ visible: false })
-            );
-            hitbox.position.y = 0.9;
-            villager.add(hitbox);
-            villager.userData.villagerParts = { head, leftArmPivot, rightArmPivot, leftLegPivot, rightLegPivot };
-            villager.userData.villagerHitbox = hitbox;
-            return villager;
-        }
-
-        function createWolfMesh() {
-            const U = 1 / 16;
-            const wolf = new THREE.Group();
-            const furMat = new THREE.MeshStandardMaterial({ color: 0x9ea4ad, roughness: 0.9 });
-            const darkMat = new THREE.MeshStandardMaterial({ color: 0x676d75, roughness: 0.92 });
-
-            const body = new THREE.Mesh(new THREE.BoxGeometry(10 * U, 6 * U, 16 * U), furMat);
-            body.position.y = 9 * U;
-            wolf.add(body);
-
-            const neck = new THREE.Mesh(new THREE.BoxGeometry(6 * U, 6 * U, 6 * U), darkMat);
-            neck.position.set(0, 10 * U, 7 * U);
-            wolf.add(neck);
-
-            const head = new THREE.Mesh(new THREE.BoxGeometry(6 * U, 6 * U, 6 * U), furMat);
-            head.position.set(0, 11 * U, 11 * U);
-            wolf.add(head);
-
-            const legOffsets = [[-3*U, 3*U, 5*U], [3*U, 3*U, 5*U], [-3*U, 3*U, -5*U], [3*U, 3*U, -5*U]];
-            const legs = [];
-            for (const off of legOffsets) {
-                const leg = new THREE.Mesh(new THREE.BoxGeometry(3 * U, 6 * U, 3 * U), darkMat);
-                leg.position.set(off[0], off[1], off[2]);
-                wolf.add(leg);
-                legs.push(leg);
-            }
-
-            const tailPivot = new THREE.Group();
-            tailPivot.position.set(0, 9 * U, -8 * U);
-            const tail = new THREE.Mesh(new THREE.BoxGeometry(2 * U, 6 * U, 2 * U), darkMat);
-            tail.position.set(0, 2.5 * U, -0.5 * U);
-            tailPivot.add(tail);
-            wolf.add(tailPivot);
-
-            const hitbox = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.95, 1.05), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
-            hitbox.position.set(0, 0.5, 0);
-            hitbox.userData.wolfHitbox = true;
-            wolf.add(hitbox);
-            wolf.userData.wolfHitbox = hitbox;
-            wolf.userData.wolfParts = { head, legs, tailPivot, neck };
-            return wolf;
-        }
-
-
-        function getPandaPartRects(partName) {
-            if (partName === 'head') return buildMobPartFaceRects(0, 0, 13, 10, 9);
-            if (partName === 'body') return buildMobPartFaceRects(0, 19, 19, 12, 9);
-            if (partName === 'leg') return buildMobPartFaceRects(0, 47, 6, 9, 6);
-            return null;
-        }
-
-        function createPandaPart(dim, rects) {
-            const mats = [];
-            for (let i = 0; i < 6; i++) {
-                const faceTex = createAtlasFaceTexture(pandaTexture, rects[i], 64, 64);
-                mats.push(new THREE.MeshStandardMaterial({ map: faceTex || null, color: faceTex ? 0xffffff : 0xf2f2f2, roughness: 0.88 }));
-            }
-            return new THREE.Mesh(new THREE.BoxGeometry(dim[0], dim[1], dim[2]), mats);
-        }
-
-        function createPandaMesh() {
-            const U = 1 / 16;
-            const panda = new THREE.Group();
-
-            const body = createPandaPart([19 * U, 12 * U, 13 * U], getPandaPartRects('body'));
-            body.position.y = 11 * U;
-            panda.add(body);
-
-            const head = createPandaPart([13 * U, 10 * U, 9 * U], getPandaPartRects('head'));
-            head.position.set(0, 14 * U, 9.5 * U);
-            panda.add(head);
-
-            const earMat = new THREE.MeshStandardMaterial({ color: 0x1f1f1f, roughness: 0.9 });
-            const leftEar = new THREE.Mesh(new THREE.BoxGeometry(2 * U, 2 * U, 2 * U), earMat);
-            const rightEar = leftEar.clone();
-            leftEar.position.set(-4 * U, 20 * U, 6 * U);
-            rightEar.position.set(4 * U, 20 * U, 6 * U);
-            panda.add(leftEar, rightEar);
-
-            const legOffsets = [[-6*U, 4.5*U, 4*U], [6*U, 4.5*U, 4*U], [-6*U, 4.5*U, -4*U], [6*U, 4.5*U, -4*U]];
-            const legs = [];
-            for (const off of legOffsets) {
-                const leg = createPandaPart([6 * U, 9 * U, 6 * U], getPandaPartRects('leg'));
-                leg.position.set(off[0], off[1], off[2]);
-                panda.add(leg);
-                legs.push(leg);
-            }
-
-            const hitbox = new THREE.Mesh(new THREE.BoxGeometry(1.15, 1.15, 1.1), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
-            hitbox.position.set(0, 0.6, 0);
-            hitbox.userData.pandaHitbox = true;
-            panda.add(hitbox);
-            panda.userData.pandaHitbox = hitbox;
-            panda.userData.pandaHead = head;
-            panda.userData.pandaLegs = legs;
-            return panda;
-        }
-
-        function getZombiePartRects(partName) {
-            // Minecraft 64x64 skin layout (classic model):
-            // right arm/leg use upper-sheet regions, left arm/leg use lower-sheet regions.
-            if (partName === 'head') return buildMobPartFaceRects(0, 0, 8, 8, 8);
-            if (partName === 'body') return buildMobPartFaceRects(16, 16, 8, 12, 4);
-            if (partName === 'rightArm') return buildMobPartFaceRects(40, 16, 4, 12, 4);
-            if (partName === 'leftArm') return buildMobPartFaceRects(32, 48, 4, 12, 4);
-            if (partName === 'rightLeg') return buildMobPartFaceRects(0, 16, 4, 12, 4);
-            if (partName === 'leftLeg') return buildMobPartFaceRects(16, 48, 4, 12, 4);
-            return null;
-        }
-
-        function createZombiePart(dim, rects) {
-            const mats = [];
-            for (let i = 0; i < 6; i++) {
-                const faceTex = createAtlasFaceTexture(zombieTexture, rects[i], 64, 64);
-                mats.push(new THREE.MeshStandardMaterial({ map: faceTex || null, color: faceTex ? 0xffffff : 0x72b86a, roughness: 0.88 }));
-            }
-            return new THREE.Mesh(new THREE.BoxGeometry(dim[0], dim[1], dim[2]), mats);
-        }
-
-        function createZombieMesh() {
-            const U = 1 / 16;
-            const root = new THREE.Group();
-
-            const body = createZombiePart([8 * U, 12 * U, 4 * U], getZombiePartRects('body'));
-            body.position.y = 18 * U;
-            root.add(body);
-
-            const head = createZombiePart([8 * U, 8 * U, 8 * U], getZombiePartRects('head'));
-            head.position.y = 28 * U;
-            root.add(head);
-
-            const rightArmPivot = new THREE.Group();
-            rightArmPivot.position.set(6 * U, 24 * U, 0);
-            const rightArm = createZombiePart([4 * U, 12 * U, 4 * U], getZombiePartRects('rightArm'));
-            rightArm.position.set(0, -6 * U, 0);
-            rightArmPivot.add(rightArm);
-
-            const leftArmPivot = new THREE.Group();
-            leftArmPivot.position.set(-6 * U, 24 * U, 0);
-            const leftArm = createZombiePart([4 * U, 12 * U, 4 * U], getZombiePartRects('leftArm'));
-            leftArm.position.set(0, -6 * U, 0);
-            leftArmPivot.add(leftArm);
-
-            const rightLegPivot = new THREE.Group();
-            rightLegPivot.position.set(2 * U, 12 * U, 0);
-            const rightLeg = createZombiePart([4 * U, 12 * U, 4 * U], getZombiePartRects('rightLeg'));
-            rightLeg.position.set(0, -6 * U, 0);
-            rightLegPivot.add(rightLeg);
-
-            const leftLegPivot = new THREE.Group();
-            leftLegPivot.position.set(-2 * U, 12 * U, 0);
-            const leftLeg = createZombiePart([4 * U, 12 * U, 4 * U], getZombiePartRects('leftLeg'));
-            leftLeg.position.set(0, -6 * U, 0);
-            leftLegPivot.add(leftLeg);
-
-            root.add(leftArmPivot, rightArmPivot, leftLegPivot, rightLegPivot);
-
-            const hitbox = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.8, 0.8), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
-            hitbox.position.set(0, 0.9, 0);
-            hitbox.userData.zombieHitbox = true;
-            root.add(hitbox);
-            root.userData.zombieHitbox = hitbox;
-            root.userData.zombieParts = { head, leftArmPivot, rightArmPivot, leftLegPivot, rightLegPivot };
-            return root;
-        }
 
         function getColumnTopFromData(data, lx, lz) {
             for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
@@ -1841,1201 +1436,40 @@ window.perlin = perlinInstance;
             return -1;
         }
 
-        function spawnPigAt(wx, wz, heightBlocks = null) {
-            const y = getSurfaceYForEntity(wx, wz);
-            if (y < SEA_LEVEL || y > SEA_LEVEL + 24) return false;
-            const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
-            if (under !== 1 && under !== 2) return false;
-            const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(Math.floor(wx), y, Math.floor(wz)) : 15;
-            if (lightLevel < 7) return false;
-            return spawnPigAtExact(wx, y, wz, heightBlocks);
-        }
-
-        function spawnPigAtExact(wx, y, wz, heightBlocks = null) {
-            const pigRoot = createPigMesh();
-            applyMobCommandHeight(pigRoot, heightBlocks, 0.9);
-            pigRoot.position.set(Math.floor(wx) + 0.5, y, Math.floor(wz) + 0.5);
-            scene.add(pigRoot);
-            pigEntities.push({
-                root: pigRoot,
-                hp: 8,
-                panicUntilMs: 0,
-                dir: new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize(),
-                changeDirMs: 900 + Math.random() * 1800,
-                groundProbeMs: 0,
-                targetY: y,
-                bobPhase: Math.random() * Math.PI * 2,
-                lookYaw: 0,
-                lookPitch: 0,
-                lookTargetYaw: 0,
-                lookTargetPitch: 0,
-                nextLookChangeMs: 0,
-                knockbackVX: 0,
-                knockbackVZ: 0,
-                hitFlashMs: 0,
-            });
-            return true;
-        }
-
-        function spawnInitialPigs() {
-            let spawned = 0;
-            for (let i = 0; i < 120 && spawned < 10; i++) {
-                const wx = (Math.random() * 2 - 1) * (WORLD_RADIUS * CHUNK_SIZE * 0.72);
-                const wz = (Math.random() * 2 - 1) * (WORLD_RADIUS * CHUNK_SIZE * 0.72);
-                if (spawnPigAt(wx, wz)) spawned++;
-            }
-        }
-
-        function spawnInitialWolves() {
-            let spawned = 0;
-            for (let i = 0; i < 180 && spawned < 8; i++) {
-                const wx = (Math.random() * 2 - 1) * (WORLD_RADIUS * CHUNK_SIZE * 0.68);
-                const wz = (Math.random() * 2 - 1) * (WORLD_RADIUS * CHUNK_SIZE * 0.68);
-                if (spawnWolfAt(wx, wz)) spawned++;
-            }
-        }
-
-        function spawnInitialPandas() {
-            let spawned = 0;
-            for (let i = 0; i < 220 && spawned < 8; i++) {
-                const wx = (Math.random() * 2 - 1) * (WORLD_RADIUS * CHUNK_SIZE * 0.7);
-                const wz = (Math.random() * 2 - 1) * (WORLD_RADIUS * CHUNK_SIZE * 0.7);
-                if (spawnPandaAt(wx, wz)) spawned++;
-            }
-        }
-
         function applyMobCommandHeight(root, heightBlocks, defaultHeight) {
-            const requestedHeight = Number(heightBlocks);
-            if (!root || !Number.isFinite(requestedHeight) || requestedHeight <= 0 || !Number.isFinite(defaultHeight) || defaultHeight <= 0) {
-                return 1;
-            }
-            const scale = requestedHeight / defaultHeight;
-            root.scale.set(scale, scale, scale);
-            return scale;
+            const parsed = Number(heightBlocks);
+            if (!Number.isFinite(parsed) || parsed <= 0) return;
+            const scale = parsed / (defaultHeight || parsed);
+            root.scale.setScalar(scale);
         }
 
         function spawnMobById(mobId, amount = 1, heightBlocks = null) {
             const id = Number.parseInt(mobId, 10);
+            const count = Math.max(1, Math.min(64, Number.parseInt(amount, 10) || 1));
             if (!Number.isFinite(id)) return 0;
-            const qty = Math.max(1, Math.min(64, Number.parseInt(amount, 10) || 1));
+            if (!yawObject) return 0;
             let spawned = 0;
-
-            for (let i = 0; i < qty; i++) {
-                const angle = Math.random() * Math.PI * 2;
-                const dist = 3 + Math.random() * 6;
-                const wx = yawObject.position.x + Math.cos(angle) * dist;
-                const wz = yawObject.position.z + Math.sin(angle) * dist;
-                const ok = id === 1 ? spawnPigAt(wx, wz, heightBlocks) : (id === 2 ? spawnZombieAt(wx, wz, heightBlocks) : (id === 3 ? spawnWolfForCommand(wx, wz, heightBlocks) : (id === 4 ? spawnPandaForCommand(wx, wz, heightBlocks) : (id === 5 ? spawnVillagerForCommand(wx, wz, heightBlocks) : false))));
+            for (let i = 0; i < count; i++) {
+                const wx = yawObject.position.x + (Math.random() - 0.5) * 4;
+                const wz = yawObject.position.z + (Math.random() - 0.5) * 4;
+                const ok = id === 1
+                    ? pigMob?.spawnAt?.(wx, wz, heightBlocks)
+                    : (id === 2
+                        ? zombieMob?.spawnAt?.(wx, wz, heightBlocks)
+                        : (id === 3
+                            ? wolfMob?.spawnForCommand?.(wx, wz, heightBlocks)
+                            : (id === 4
+                                ? pandaMob?.spawnForCommand?.(wx, wz, heightBlocks)
+                                : (id === 5
+                                    ? villagerMob?.spawnForCommand?.(wx, wz, heightBlocks)
+                                    : false))));
                 if (ok) spawned++;
             }
             return spawned;
         }
 
-        function getHeldItemMobKey() {
-            const held = inventory[selectedHotbarIndex];
-            if (!held) return '';
-            const mat = blockMaterials[held.id] || {};
-            return String(mat.key || mat.name || '').toLowerCase().replace(/\s+/g, '_');
-        }
-
-        function findPigTemptDirection(pig) {
-            const temptItems = new Set((pigMobDef?.behavior?.temptItems || []).map((item) => String(item).toLowerCase()));
-            if (!temptItems.size) return null;
-            const heldKey = getHeldItemMobKey();
-            if (!heldKey || !temptItems.has(heldKey)) return null;
-            const toPlayer = new THREE.Vector3(yawObject.position.x - pig.root.position.x, 0, yawObject.position.z - pig.root.position.z);
-            const dist = toPlayer.length();
-            if (dist < 1.2 || dist > 14) return null;
-            return toPlayer.normalize();
-        }
-
-        function choosePigPriorityGoal(pig, nowMs, nx, nz) {
-            const inLiquid = isLiquid(getBlockType(Math.floor(pig.root.position.x), Math.floor(pig.root.position.y), Math.floor(pig.root.position.z)));
-            const panicActive = pig.panicUntilMs > nowMs;
-            const temptDir = findPigTemptDirection(pig);
-
-            for (const goal of pigGoalPriority) {
-                if (goal.key === 'float' && inLiquid) {
-                    return { key: goal.key, speed: 1.2, dir: pig.dir.clone(), forceRaise: true, avoidWater: false };
-                }
-                if (goal.key === 'panic' && panicActive) {
-                    return { key: goal.key, speed: 1.35, dir: pig.dir.clone(), forceRaise: false, avoidWater: true };
-                }
-                if (goal.key === 'tempt' && temptDir) {
-                    return { key: goal.key, speed: 0.95, dir: temptDir, forceRaise: false, avoidWater: true };
-                }
-                if (goal.key === 'stroll') {
-                    const nextBlock = getBlockType(Math.floor(nx), Math.floor(pig.root.position.y), Math.floor(nz));
-                    if (isLiquid(nextBlock)) {
-                        const turnDir = new THREE.Vector3(-pig.dir.z, 0, pig.dir.x);
-                        if (turnDir.lengthSq() > 0.000001) turnDir.normalize();
-                        return { key: goal.key, speed: 0.75, dir: turnDir, forceRaise: false, avoidWater: true };
-                    }
-                    return { key: goal.key, speed: 0.75, dir: pig.dir.clone(), forceRaise: false, avoidWater: true };
-                }
-                if (goal.key === 'lookAtPlayer') {
-                    const toPlayer = new THREE.Vector3(yawObject.position.x - pig.root.position.x, 0, yawObject.position.z - pig.root.position.z);
-                    if (toPlayer.lengthSq() > 0.000001 && toPlayer.length() < 8) {
-                        return { key: goal.key, speed: 0.6, dir: toPlayer.normalize(), forceRaise: false, avoidWater: true, lookAtPlayer: true };
-                    }
-                }
-                if (goal.key === 'idleLook') {
-                    return { key: goal.key, speed: 0.55, dir: pig.dir.clone(), forceRaise: false, avoidWater: true, idleLook: true };
-                }
-            }
-            return { key: 'default', speed: 0.75, dir: pig.dir.clone(), forceRaise: false, avoidWater: true };
-        }
-
-        function updatePigs(time, deltaMs) {
-            if (!pigEntities.length) return;
-            const dt = Math.max(0.001, Math.min(0.05, deltaMs / 1000));
-            const nowMs = performance.now();
-            for (const pig of pigEntities) {
-                if (!isEntityActiveAt(pig.root.position)) continue;
-                tickMobHitFeedback(pig, deltaMs);
-
-                pig.changeDirMs -= deltaMs;
-                if (pig.changeDirMs <= 0) {
-                    pig.changeDirMs = 900 + Math.random() * 1800;
-                    pig.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
-                }
-
-                const probeNx = pig.root.position.x + pig.dir.x * 0.75 * dt;
-                const probeNz = pig.root.position.z + pig.dir.z * 0.75 * dt;
-                const activeGoal = choosePigPriorityGoal(pig, nowMs, probeNx, probeNz);
-                if (activeGoal?.dir?.lengthSq() > 0.000001) pig.dir.copy(activeGoal.dir.normalize());
-
-                const speed = activeGoal?.speed || 0.75;
-                const nx = pig.root.position.x + pig.dir.x * speed * dt;
-                const nz = pig.root.position.z + pig.dir.z * speed * dt;
-
-                pig.groundProbeMs -= deltaMs;
-                if (pig.groundProbeMs <= 0) {
-                    pig.groundProbeMs = 220 + Math.random() * 180;
-                    pig.targetY = getSurfaceYForEntity(nx, nz, pig.targetY);
-                }
-
-                if (activeGoal?.forceRaise) {
-                    pig.targetY = Math.max(pig.targetY, pig.root.position.y + 0.065);
-                }
-
-                if (pig.targetY > 0) {
-                    pig.root.position.x = nx;
-                    pig.root.position.z = nz;
-                    pig.root.position.y += (pig.targetY - pig.root.position.y) * Math.min(1, dt * (activeGoal?.forceRaise ? 14 : 10));
-                }
-                pig.root.rotation.y = Math.atan2(pig.dir.x, pig.dir.z);
-
-                if (activeGoal?.lookAtPlayer) {
-                    const toPlayer = new THREE.Vector3(yawObject.position.x - pig.root.position.x, yawObject.position.y + 1.4 - pig.root.position.y, yawObject.position.z - pig.root.position.z);
-                    const yaw = Math.atan2(toPlayer.x, toPlayer.z) - pig.root.rotation.y;
-                    const pitch = Math.atan2(toPlayer.y, Math.max(0.01, Math.hypot(toPlayer.x, toPlayer.z)));
-                    pig.lookTargetYaw = Math.max(-0.55, Math.min(0.55, yaw));
-                    pig.lookTargetPitch = Math.max(-0.3, Math.min(0.3, pitch));
-                    pig.nextLookChangeMs = 0;
-                } else {
-                    pig.nextLookChangeMs -= deltaMs;
-                    if (pig.nextLookChangeMs <= 0) {
-                        pig.nextLookChangeMs = 700 + Math.random() * 1400;
-                        pig.lookTargetYaw = (Math.random() - 0.5) * 0.8;
-                        pig.lookTargetPitch = (Math.random() - 0.5) * 0.26;
-                    }
-                }
-
-                pig.lookYaw += (pig.lookTargetYaw - pig.lookYaw) * Math.min(1, dt * 6);
-                pig.lookPitch += (pig.lookTargetPitch - pig.lookPitch) * Math.min(1, dt * 6);
-
-                const head = pig.root.userData.pigHead;
-                if (head) {
-                    head.rotation.y = pig.lookYaw;
-                    head.rotation.x = pig.lookPitch;
-                }
-
-                const moving = speed > 0.62 || activeGoal?.forceRaise;
-                const swing = moving ? Math.sin(time * 0.008 + pig.bobPhase) * 0.17 : 0;
-                const legs = pig.root.userData.pigLegs || [];
-                if (legs[0]) legs[0].rotation.x = swing;
-                if (legs[1]) legs[1].rotation.x = -swing;
-                if (legs[2]) legs[2].rotation.x = -swing;
-                if (legs[3]) legs[3].rotation.x = swing;
-            }
-        }
-
-        function getPigHitFromCrosshair() {
-            if (!pigEntities.length) return null;
-            if (!prepareCrosshairRaycast()) return null;
-            const hitboxes = pigEntities.map(p => p.root.userData.pigHitbox).filter(Boolean);
-            const hits = raycaster.intersectObjects(hitboxes, false);
-            if (!hits.length) return null;
-            const hitObj = hits[0].object;
-            return pigEntities.find((p) => p.root.userData.pigHitbox === hitObj) || null;
-        }
-
-        function hurtPig(pig, amount = 4, source = 'player', sourcePos = null, extraKnockback = 0) {
-            if (!pig) return;
-            applyHitFeedback(pig, sourcePos, amount, extraKnockback);
-            pig.hp -= amount;
-            if (pig.hp > 0) {
-                pig.changeDirMs = 0;
-                pig.panicUntilMs = performance.now() + 3800;
-                pig.dir.set((Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2).normalize();
-                if (source === 'player') showGameMessage('Pig: oink!');
-                return;
-            }
-            const idx = pigEntities.indexOf(pig);
-            if (idx >= 0) pigEntities.splice(idx, 1);
-            scene.remove(pig.root);
-            const drops = 1 + Math.floor(Math.random() * 3);
-            addToInventory(89, drops);
-            showGameMessage(`+${drops} Raw Porkchop`);
-            if (Math.random() < 0.22) {
-                addToInventory(95, 1);
-                addToInventory(2, 1);
-                showGameMessage('+1 Bone +1 Dirt');
-            }
-        }
-
-        function spawnWolfAt(wx, wz, heightBlocks = null) {
-            const y = getSurfaceYForEntity(wx, wz);
-            if (y < SEA_LEVEL || y > SEA_LEVEL + 24) return false;
-            const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
-            if (under !== 1 && under !== 2) return false;
-            const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(Math.floor(wx), y, Math.floor(wz)) : 15;
-            if (lightLevel < 7) return false;
-            const biome = getBiome(Math.floor(wx), Math.floor(wz));
-            if (biome !== 'Forest') return false;
-            return spawnWolfAtExact(wx, y, wz, heightBlocks);
-        }
-
-        function spawnWolfAtExact(wx, y, wz, heightBlocks = null) {
-            const root = createWolfMesh();
-            applyMobCommandHeight(root, heightBlocks, 0.95);
-            root.position.set(Math.floor(wx) + 0.5, y, Math.floor(wz) + 0.5);
-            scene.add(root);
-            wolfEntities.push({
-                root,
-                hp: 16,
-                tamed: false,
-                attackCooldownMs: 0,
-                dir: new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize(),
-                changeDirMs: 800 + Math.random() * 1400,
-                groundProbeMs: 0,
-                targetY: y,
-                bobPhase: Math.random() * Math.PI * 2,
-                retargetMs: 0,
-                combatTarget: null,
-                combatTargetType: null,
-                knockbackVX: 0,
-                knockbackVZ: 0,
-                hitFlashMs: 0,
-            });
-            return true;
-        }
-
-
-        function spawnPandaAt(wx, wz, heightBlocks = null) {
-            const y = getSurfaceYForEntity(wx, wz);
-            if (y < SEA_LEVEL || y > SEA_LEVEL + 26) return false;
-            const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
-            if (under !== 1 && under !== 2) return false;
-            const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(Math.floor(wx), y, Math.floor(wz)) : 15;
-            if (lightLevel < 7) return false;
-            const biome = getBiome(Math.floor(wx), Math.floor(wz));
-            if (biome !== 'Jungle Forest') return false;
-            return spawnPandaAtExact(wx, y, wz, heightBlocks);
-        }
-
-        function spawnPandaAtExact(wx, y, wz, heightBlocks = null) {
-            const root = createPandaMesh();
-            applyMobCommandHeight(root, heightBlocks, 1.15);
-            root.position.set(Math.floor(wx) + 0.5, y, Math.floor(wz) + 0.5);
-
-            const isXRealm = Math.random() < 0.001;
-            if (isXRealm) {
-                const nameTag = createNameTagSprite('XREALM');
-                nameTag.position.set(0, 1.95, 0);
-                root.add(nameTag);
-                root.userData.specialNameTag = nameTag;
-            }
-
-            scene.add(root);
-            pandaEntities.push({
-                root,
-                hp: isXRealm ? Number.POSITIVE_INFINITY : 20,
-                invulnerable: isXRealm,
-                specialName: isXRealm ? 'XREALM' : '',
-                angerUntilMs: 0,
-                attackCooldownMs: 0,
-                dir: new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize(),
-                changeDirMs: 900 + Math.random() * 1500,
-                groundProbeMs: 0,
-                targetY: y,
-                bobPhase: Math.random() * Math.PI * 2,
-                knockbackVX: 0,
-                knockbackVZ: 0,
-                hitFlashMs: 0,
-            });
-            return true;
-        }
-
-        function spawnPandaForCommand(wx, wz, heightBlocks = null) {
-            if (spawnPandaAt(wx, wz, heightBlocks)) return true;
-            const y = getSurfaceYForEntity(wx, wz);
-            if (y < SEA_LEVEL || y > SEA_LEVEL + 36) return false;
-            const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
-            if (under !== 1 && under !== 2 && under !== 3 && under !== 7 && under !== 15) return false;
-            return spawnPandaAtExact(wx, y, wz, heightBlocks);
-        }
-
-        function spawnWolfForCommand(wx, wz, heightBlocks = null) {
-            if (spawnWolfAt(wx, wz, heightBlocks)) return true;
-            const y = getSurfaceYForEntity(wx, wz);
-            if (y < SEA_LEVEL || y > SEA_LEVEL + 36) return false;
-            const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
-            if (under !== 1 && under !== 2 && under !== 3 && under !== 7 && under !== 15) return false;
-            const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(Math.floor(wx), y, Math.floor(wz)) : 15;
-            if (lightLevel < 7) return false;
-            return spawnWolfAtExact(wx, y, wz, heightBlocks);
-        }
-
-
-        function spawnVillagerAtExact(wx, y, wz, homeCenter = null, villageCenter = null, poiTargets = null, heightBlocks = null) {
-            const root = createVillagerMesh();
-            applyMobCommandHeight(root, heightBlocks, 1.78);
-            root.position.set(Math.floor(wx) + 0.5, y, Math.floor(wz) + 0.5);
-            scene.add(root);
-            villagerEntities.push({
-                root,
-                hp: 20,
-                dir: new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize(),
-                changeDirMs: 1000 + Math.random() * 1600,
-                groundProbeMs: 0,
-                targetY: y,
-                bobPhase: Math.random() * Math.PI * 2,
-                homeCenter: homeCenter ? { x: homeCenter.x, z: homeCenter.z } : null,
-                villageCenter: villageCenter ? { x: villageCenter.x, z: villageCenter.z } : (homeCenter ? { x: homeCenter.x, z: homeCenter.z } : null),
-                poiTargets: Array.isArray(poiTargets) ? poiTargets.map((poi) => ({ x: Number(poi.x) || 0, z: Number(poi.z) || 0, key: String(poi.key || 'poi') })) : [],
-                roamRadius: 1.4 + Math.random() * 1.8,
-                currentMoveTarget: null,
-                currentPoiIndex: -1,
-                nextVillagePathSwitchMs: 0,
-                villagePathPhase: 0,
-                lookYaw: 0,
-                lookPitch: 0,
-                lookTargetYaw: 0,
-                lookTargetPitch: 0,
-                nextLookChangeMs: 0,
-                panicUntilMs: 0,
-                knockbackVX: 0,
-                knockbackVZ: 0,
-                hitFlashMs: 0,
-            });
-            return true;
-        }
-
-        function spawnVillagerForCommand(wx, wz, heightBlocks = null) {
-            const y = getSurfaceYForEntity(wx, wz);
-            if (y < SEA_LEVEL || y > SEA_LEVEL + 36) return false;
-            const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
-            if (under !== 1 && under !== 2 && under !== 3 && under !== 7 && under !== 15 && under !== 17 && under !== 13 && under !== 8) return false;
-            const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(Math.floor(wx), y, Math.floor(wz)) : 15;
-            if (lightLevel < 7) return false;
-            return spawnVillagerAtExact(wx, y, wz, { x: Math.floor(wx) + 0.5, z: Math.floor(wz) + 0.5 }, { x: Math.floor(wx) + 0.5, z: Math.floor(wz) + 0.5 }, [{ key: 'well', x: Math.floor(wx) + 0.5, z: Math.floor(wz) + 0.5 }], heightBlocks);
-        }
-
-
-        function findClosestZombieThreat(position, maxDist = 10) {
-            if (!zombieEntities.length) return null;
-            const maxSq = maxDist * maxDist;
-            let nearest = null;
-            let bestSq = maxSq;
-            for (const z of zombieEntities) {
-                const p = z?.root?.position;
-                if (!p) continue;
-                const dx = position.x - p.x;
-                const dz = position.z - p.z;
-                const d2 = dx * dx + dz * dz;
-                if (d2 < bestSq) {
-                    bestSq = d2;
-                    nearest = z;
-                }
-            }
-            return nearest;
-        }
-
-
-        function isVillagerRainActive() {
-            return Boolean(window.SingleplayerWeather?.isRaining || window.SingleplayerWeather?.rainActive || window.WorldWeather?.isRaining);
-        }
-
-        function getVillagerPoiTargets(villager) {
-            if (Array.isArray(villager?.poiTargets) && villager.poiTargets.length) return villager.poiTargets;
-            if (villager?.villageCenter) {
-                return [{ key: 'well', x: villager.villageCenter.x, z: villager.villageCenter.z }];
-            }
-            if (villager?.homeCenter) {
-                return [{ key: 'home', x: villager.homeCenter.x, z: villager.homeCenter.z }];
-            }
-            return [];
-        }
-
-        function applyVillagerTargetSteer(desiredDir, villager, target, weight = 1) {
-            if (!target) return false;
-            const tx = Number(target.x);
-            const tz = Number(target.z);
-            if (!Number.isFinite(tx) || !Number.isFinite(tz)) return false;
-            const toTarget = new THREE.Vector3(tx - villager.root.position.x, 0, tz - villager.root.position.z);
-            if (toTarget.lengthSq() < 0.0001) return false;
-            desiredDir.add(toTarget.normalize().multiplyScalar(weight));
-            return true;
-        }
-
-        function ensureVillagerVillagePathTarget(villager, nowMs) {
-            if ((villager.nextVillagePathSwitchMs || 0) > nowMs && villager.currentMoveTarget?.source === 'villagePath') return;
-            villager.nextVillagePathSwitchMs = nowMs + 1600 + Math.random() * 2200;
-
-            const home = villager.homeCenter;
-            const center = villager.villageCenter || home;
-            if (!home && !center) return;
-
-            villager.villagePathPhase = ((villager.villagePathPhase || 0) + 1) % 3;
-            if (villager.villagePathPhase === 0 && home) {
-                villager.currentMoveTarget = { x: home.x, z: home.z, source: 'villagePath-home' };
-                return;
-            }
-            if (villager.villagePathPhase === 1 && center) {
-                villager.currentMoveTarget = { x: center.x, z: center.z, source: 'villagePath-center' };
-                return;
-            }
-
-            if (home && center) {
-                const midX = (home.x + center.x) * 0.5;
-                const midZ = (home.z + center.z) * 0.5;
-                const offX = (Math.random() - 0.5) * 5.5;
-                const offZ = (Math.random() - 0.5) * 5.5;
-                villager.currentMoveTarget = { x: midX + offX, z: midZ + offZ, source: 'villagePath-mid' };
-            } else if (center) {
-                villager.currentMoveTarget = { x: center.x + (Math.random() - 0.5) * 6, z: center.z + (Math.random() - 0.5) * 6, source: 'villagePath-center-roam' };
-            }
-        }
-
-        function updateVillagers(time, deltaMs) {
-            if (!villagerEntities.length) return;
-            const dt = Math.max(0.001, Math.min(0.05, deltaMs / 1000));
-            const nowMs = performance.now();
-            const raining = isVillagerRainActive();
-            for (const villager of villagerEntities) {
-                if (!isEntityActiveAt(villager.root.position)) continue;
-                tickMobHitFeedback(villager, deltaMs);
-
-                villager.changeDirMs -= deltaMs;
-                const home = villager.homeCenter;
-                const center = villager.villageCenter || home;
-                const homeDx = home ? (home.x - villager.root.position.x) : 0;
-                const homeDz = home ? (home.z - villager.root.position.z) : 0;
-                const homeDist = home ? Math.hypot(homeDx, homeDz) : 0;
-                const centerDx = center ? (center.x - villager.root.position.x) : 0;
-                const centerDz = center ? (center.z - villager.root.position.z) : 0;
-                const centerDist = center ? Math.hypot(centerDx, centerDz) : 0;
-                const inLiquid = isLiquid(getBlockType(Math.floor(villager.root.position.x), Math.floor(villager.root.position.y), Math.floor(villager.root.position.z)));
-
-                const threat = findClosestZombieThreat(villager.root.position, 10);
-                const threatPos = threat?.root?.position || null;
-                const threatDist = threatPos
-                    ? Math.hypot(villager.root.position.x - threatPos.x, villager.root.position.z - threatPos.z)
-                    : Number.POSITIVE_INFINITY;
-                const panicActive = (villager.panicUntilMs || 0) > nowMs;
-                const dangerActive = panicActive || threatDist < 8.5;
-
-                if (villager.changeDirMs <= 0) {
-                    villager.changeDirMs = 700 + Math.random() * 1300;
-                    if (panicActive) {
-                        villager.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
-                    } else if (home && homeDist > villager.roamRadius + 0.75) {
-                        villager.dir.set(homeDx, 0, homeDz).normalize();
-                    } else {
-                        villager.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
-                    }
-                }
-
-                let speed = 0.54;
-                const desiredDir = villager.dir.clone();
-                const poiTargets = getVillagerPoiTargets(villager);
-                let movementChosen = false;
-                let lookChosen = false;
-
-                for (const goal of villagerGoalPriority) {
-                    if (goal.key === 'float' && inLiquid) {
-                        speed = Math.max(speed, 0.74);
-                        villager.targetY = Math.max(villager.targetY, villager.root.position.y + 0.1);
-                        continue;
-                    }
-
-                    if (!movementChosen && goal.key === 'panic' && panicActive) {
-                        speed = Math.max(speed, 1.0);
-                        villager.nextPanicTurnMs = (villager.nextPanicTurnMs || 0) - deltaMs;
-                        if (villager.nextPanicTurnMs <= 0 || !villager.panicDir || villager.panicDir.lengthSq() < 0.0001) {
-                            villager.nextPanicTurnMs = 260 + Math.random() * 360;
-                            villager.panicDir = new THREE.Vector3((Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2);
-                            if (villager.panicDir.lengthSq() > 0.0001) villager.panicDir.normalize();
-                        }
-                        if (villager.panicDir && villager.panicDir.lengthSq() > 0.0001) {
-                            desiredDir.add(villager.panicDir.clone().multiplyScalar(1.15));
-                        }
-                        movementChosen = true;
-                        continue;
-                    }
-
-                    if (!movementChosen && goal.key === 'avoidHostile' && threatPos && threatDist < 9) {
-                        const away = new THREE.Vector3(
-                            villager.root.position.x - threatPos.x,
-                            0,
-                            villager.root.position.z - threatPos.z
-                        );
-                        const danger = Math.max(0, (9 - threatDist) / 9);
-                        if (away.lengthSq() > 0.0001) {
-                            desiredDir.add(away.normalize().multiplyScalar(1.75 + danger * 1.5));
-                            speed = Math.max(speed, 0.8 + danger * 0.32);
-                            villager.panicUntilMs = Math.max(villager.panicUntilMs || 0, nowMs + 900);
-                            movementChosen = true;
-                        }
-                        continue;
-                    }
-
-                    if (!movementChosen && goal.key === 'moveIndoors' && (raining || dangerActive) && home) {
-                        villager.currentMoveTarget = { x: home.x, z: home.z, source: 'indoors' };
-                        applyVillagerTargetSteer(desiredDir, villager, home, 1.2);
-                        speed = Math.max(speed, 0.74);
-                        movementChosen = true;
-                        continue;
-                    }
-
-                    if (!movementChosen && goal.key === 'walkToVillageCenter' && center && centerDist > 5.5) {
-                        applyVillagerTargetSteer(desiredDir, villager, center, 1.06);
-                        villager.currentMoveTarget = { x: center.x, z: center.z, source: 'center' };
-                        speed = Math.max(speed, 0.68);
-                        movementChosen = true;
-                        continue;
-                    }
-
-                    if (!movementChosen && (goal.key === 'wanderHome' || goal.key === 'moveToHome') && home && homeDist > villager.roamRadius + 0.4) {
-                        speed = Math.max(speed, 0.66);
-                        const toHome = new THREE.Vector3(homeDx, 0, homeDz);
-                        if (toHome.lengthSq() > 0.0001) {
-                            desiredDir.add(toHome.normalize().multiplyScalar(0.88));
-                            movementChosen = true;
-                        }
-                        continue;
-                    }
-
-                    if (!movementChosen && goal.key === 'walkToPoi' && poiTargets.length) {
-                        if (!Number.isFinite(villager.currentPoiIndex) || villager.currentPoiIndex < 0) {
-                            villager.currentPoiIndex = Math.floor(Math.random() * poiTargets.length);
-                        }
-                        const poi = poiTargets[(villager.currentPoiIndex % poiTargets.length + poiTargets.length) % poiTargets.length];
-                        const poiDist = poi ? Math.hypot(villager.root.position.x - poi.x, villager.root.position.z - poi.z) : Number.POSITIVE_INFINITY;
-                        if (poi && poiDist < 1.4) {
-                            villager.currentPoiIndex = (villager.currentPoiIndex + 1) % poiTargets.length;
-                        }
-                        const nextPoi = poiTargets[(villager.currentPoiIndex % poiTargets.length + poiTargets.length) % poiTargets.length];
-                        if (nextPoi) {
-                            applyVillagerTargetSteer(desiredDir, villager, nextPoi, 0.72);
-                            speed = Math.max(speed, 0.62);
-                            movementChosen = true;
-                        }
-                        continue;
-                    }
-
-                    if (!movementChosen && goal.key === 'moveThroughVillage') {
-                        ensureVillagerVillagePathTarget(villager, nowMs);
-                        if (villager.currentMoveTarget?.source?.startsWith('villagePath')) {
-                            applyVillagerTargetSteer(desiredDir, villager, villager.currentMoveTarget, 0.84);
-                            speed = Math.max(speed, 0.61);
-                            movementChosen = true;
-                        }
-                        continue;
-                    }
-
-                    if (!movementChosen && goal.key === 'moveToTargetPosition' && villager.currentMoveTarget) {
-                        const targetDist = Math.hypot(villager.root.position.x - villager.currentMoveTarget.x, villager.root.position.z - villager.currentMoveTarget.z);
-                        if (targetDist < 1.2) {
-                            villager.currentMoveTarget = null;
-                        } else {
-                            applyVillagerTargetSteer(desiredDir, villager, villager.currentMoveTarget, 0.92);
-                            speed = Math.max(speed, 0.63);
-                            movementChosen = true;
-                        }
-                        continue;
-                    }
-
-                    if (!movementChosen && goal.key === 'villageInteractionStroll' && center) {
-                        villager.nextMeetingStrollMs = (villager.nextMeetingStrollMs || 0) - deltaMs;
-                        if (villager.nextMeetingStrollMs <= 0 || !villager.meetingStrollTarget) {
-                            villager.nextMeetingStrollMs = 1600 + Math.random() * 2200;
-                            const angle = Math.random() * Math.PI * 2;
-                            const radius = 1.2 + Math.random() * 2.4;
-                            villager.meetingStrollTarget = {
-                                x: center.x + Math.cos(angle) * radius,
-                                z: center.z + Math.sin(angle) * radius,
-                            };
-                        }
-                        applyVillagerTargetSteer(desiredDir, villager, villager.meetingStrollTarget, 0.4);
-                        speed = Math.max(speed, 0.58);
-                        movementChosen = true;
-                        continue;
-                    }
-
-                    if (!movementChosen && (goal.key === 'randomStroll' || goal.key === 'randomStrollFar') && center) {
-                        const far = goal.key === 'randomStrollFar';
-                        villager.nextStrollPickMs = (villager.nextStrollPickMs || 0) - deltaMs;
-                        if (villager.nextStrollPickMs <= 0 || !villager.randomStrollTarget || villager.randomStrollTarget.far !== far) {
-                            villager.nextStrollPickMs = (far ? 2600 : 1400) + Math.random() * (far ? 2800 : 1700);
-                            const angle = Math.random() * Math.PI * 2;
-                            const radius = (far ? 3.3 : 1.3) + Math.random() * (far ? 4.2 : 2.6);
-                            villager.randomStrollTarget = {
-                                x: center.x + Math.cos(angle) * radius,
-                                z: center.z + Math.sin(angle) * radius,
-                                far,
-                            };
-                        }
-                        applyVillagerTargetSteer(desiredDir, villager, villager.randomStrollTarget, far ? 0.3 : 0.44);
-                        speed = Math.max(speed, far ? 0.62 : 0.6);
-                        movementChosen = true;
-                        continue;
-                    }
-
-                    if (!lookChosen && goal.key === 'lookAtTradingPlayer') {
-                        lookChosen = true;
-                        continue;
-                    }
-
-                    if (!lookChosen && goal.key === 'tradeWithPlayer') {
-                        continue;
-                    }
-
-                    if (!lookChosen && goal.key === 'lookAtPlayer') {
-                        const toPlayer = new THREE.Vector3(yawObject.position.x - villager.root.position.x, 0, yawObject.position.z - villager.root.position.z);
-                        if (toPlayer.length() < 6.5) {
-                            const yaw = Math.atan2(toPlayer.x, toPlayer.z) - villager.root.rotation.y;
-                            villager.lookTargetYaw = THREE.MathUtils.clamp(yaw, -0.85, 0.85);
-                            villager.lookTargetPitch = 0;
-                            lookChosen = true;
-                        }
-                        continue;
-                    }
-
-                    if (!lookChosen && goal.key === 'lookAtEntity' && threatPos && threatDist < 6.8) {
-                        const toThreat = new THREE.Vector3(threatPos.x - villager.root.position.x, 0, threatPos.z - villager.root.position.z);
-                        const yaw = Math.atan2(toThreat.x, toThreat.z) - villager.root.rotation.y;
-                        villager.lookTargetYaw = THREE.MathUtils.clamp(yaw, -0.9, 0.9);
-                        lookChosen = true;
-                        continue;
-                    }
-
-                    if (!lookChosen && (goal.key === 'observe' || goal.key === 'lookAround')) {
-                        villager.nextLookChangeMs -= deltaMs;
-                        if (villager.nextLookChangeMs <= 0) {
-                            villager.nextLookChangeMs = 900 + Math.random() * 1700;
-                            villager.lookTargetYaw = (Math.random() - 0.5) * 0.75;
-                            villager.lookTargetPitch = (Math.random() - 0.5) * 0.28;
-                        }
-                        lookChosen = true;
-                        continue;
-                    }
-                }
-
-                if (desiredDir.lengthSq() > 0.00001) {
-                    const nextDir = desiredDir.normalize();
-                    villager.dir.lerp(nextDir, Math.min(1, dt * 4.2));
-                    if (villager.dir.lengthSq() > 0.00001) villager.dir.normalize();
-                }
-
-                const nx = villager.root.position.x + villager.dir.x * speed * dt;
-                const nz = villager.root.position.z + villager.dir.z * speed * dt;
-                villager.groundProbeMs -= deltaMs;
-                if (villager.groundProbeMs <= 0) {
-                    villager.groundProbeMs = 180 + Math.random() * 120;
-                    villager.targetY = getSurfaceYForEntity(nx, nz, villager.targetY);
-                }
-                if (villager.targetY > 0) {
-                    villager.root.position.x = nx;
-                    villager.root.position.z = nz;
-                    villager.root.position.y += (villager.targetY - villager.root.position.y) * Math.min(1, dt * 10);
-                }
-
-                villager.root.rotation.y = Math.atan2(villager.dir.x, villager.dir.z);
-                villager.lookYaw += (villager.lookTargetYaw - villager.lookYaw) * Math.min(1, dt * 6);
-                villager.lookPitch += (villager.lookTargetPitch - villager.lookPitch) * Math.min(1, dt * 6);
-                const parts = villager.root.userData.villagerParts || {};
-                if (parts.head) {
-                    parts.head.rotation.y = villager.lookYaw;
-                    parts.head.rotation.x = villager.lookPitch;
-                }
-                const walk = Math.sin(time * 0.012 + villager.bobPhase) * 0.32;
-                if (parts.leftLegPivot) parts.leftLegPivot.rotation.x = walk;
-                if (parts.rightLegPivot) parts.rightLegPivot.rotation.x = -walk;
-                if (parts.leftArmPivot) parts.leftArmPivot.rotation.x = -walk * 0.85;
-                if (parts.rightArmPivot) parts.rightArmPivot.rotation.x = walk * 0.85;
-            }
-        }
-
-
-        function getVillagerHitFromCrosshair() {
-            if (!villagerEntities.length) return null;
-            if (!prepareCrosshairRaycast()) return null;
-            const hitboxes = villagerEntities.map(v => v.root.userData.villagerHitbox).filter(Boolean);
-            const hits = raycaster.intersectObjects(hitboxes, false);
-            if (!hits.length) return null;
-            const hitObj = hits[0].object;
-            return villagerEntities.find((v) => v.root.userData.villagerHitbox === hitObj) || null;
-        }
-
-        function hurtVillager(villager, amount = 4, source = 'player', sourcePos = null, extraKnockback = 0) {
-            if (!villager) return;
-            applyHitFeedback(villager, sourcePos, amount, extraKnockback);
-            villager.hp -= amount;
-            villager.changeDirMs = 0;
-            villager.panicUntilMs = performance.now() + 3600;
-            if (source === 'player') showGameMessage('Villager: hrmm...');
-            if (villager.hp > 0) return;
-            const idx = villagerEntities.indexOf(villager);
-            if (idx >= 0) villagerEntities.splice(idx, 1);
-            scene.remove(villager.root);
-        }
-
-        function getWolfHitFromCrosshair() {
-            if (!wolfEntities.length) return null;
-            if (!prepareCrosshairRaycast()) return null;
-            const hitboxes = wolfEntities.map(w => w.root.userData.wolfHitbox).filter(Boolean);
-            const hits = raycaster.intersectObjects(hitboxes, false);
-            if (!hits.length) return null;
-            const hitObj = hits[0].object;
-            return wolfEntities.find((w) => w.root.userData.wolfHitbox === hitObj) || null;
-        }
-
-        function hurtWolf(wolf, amount = 4, sourcePos = null, extraKnockback = 0) {
-            if (!wolf) return;
-            applyHitFeedback(wolf, sourcePos, amount, extraKnockback);
-            wolf.hp -= amount;
-            if (wolf.hp > 0) {
-                wolf.changeDirMs = 0;
-                wolf.dir.set((Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2).normalize();
-                showGameMessage(wolf.tamed ? 'Dog: whine!' : 'Wolf: growl!');
-                return;
-            }
-            const idx = wolfEntities.indexOf(wolf);
-            if (idx >= 0) wolfEntities.splice(idx, 1);
-            scene.remove(wolf.root);
-            showGameMessage(wolf.tamed ? 'Your dog died.' : 'Wolf defeated.');
-        }
-
-        function commandTamedWolvesAttack(target, targetType) {
-            if (!target) return;
-            for (const wolf of wolfEntities) {
-                if (!isEntityActiveAt(wolf.root.position)) continue;
-                if (!wolf.tamed) continue;
-                wolf.combatTarget = target;
-                wolf.combatTargetType = targetType;
-                wolf.changeDirMs = 0;
-            }
-        }
-
-        function updateWolves(time, deltaMs) {
-            if (!wolfEntities.length) return;
-            const dt = Math.max(0.001, Math.min(0.05, deltaMs / 1000));
-            const playerPos = yawObject.position;
-
-            for (let i = wolfEntities.length - 1; i >= 0; i--) {
-                const wolf = wolfEntities[i];
-                wolf.attackCooldownMs = Math.max(0, wolf.attackCooldownMs - deltaMs);
-                wolf.changeDirMs -= deltaMs;
-                wolf.retargetMs -= deltaMs;
-
-                let targetPos = null;
-                let targetDist = Infinity;
-
-                if (wolf.combatTargetType === 'pig' && (!wolf.combatTarget || pigEntities.indexOf(wolf.combatTarget) < 0)) {
-                    wolf.combatTarget = null;
-                    wolf.combatTargetType = null;
-                }
-                if (wolf.combatTargetType === 'zombie' && (!wolf.combatTarget || zombieEntities.indexOf(wolf.combatTarget) < 0)) {
-                    wolf.combatTarget = null;
-                    wolf.combatTargetType = null;
-                }
-
-                if (!wolf.combatTarget && !wolf.tamed && wolf.retargetMs <= 0) {
-                    wolf.retargetMs = 500 + Math.random() * 420;
-                    let bestPig = null;
-                    let bestDist = 11;
-                    for (const pig of pigEntities) {
-                if (!isEntityActiveAt(pig.root.position)) continue;
-                        const d = pig.root.position.distanceTo(wolf.root.position);
-                        if (d < bestDist) {
-                            bestDist = d;
-                            bestPig = pig;
-                        }
-                    }
-                    if (bestPig) {
-                        wolf.combatTarget = bestPig;
-                        wolf.combatTargetType = 'pig';
-                    }
-                }
-
-                if (wolf.combatTarget) {
-                    targetPos = wolf.combatTarget.root.position;
-                    targetDist = targetPos.distanceTo(wolf.root.position);
-                    const toTarget = new THREE.Vector3(targetPos.x - wolf.root.position.x, 0, targetPos.z - wolf.root.position.z);
-                    if (toTarget.lengthSq() > 0.00001) {
-                        toTarget.normalize();
-                        wolf.dir.copy(toTarget);
-                    }
-                } else if (wolf.tamed) {
-                    const toPlayer = new THREE.Vector3(playerPos.x - wolf.root.position.x, 0, playerPos.z - wolf.root.position.z);
-                    targetDist = toPlayer.length();
-                    if (targetDist > 3.25) {
-                        toPlayer.normalize();
-                        wolf.dir.copy(toPlayer);
-                    } else if (wolf.changeDirMs <= 0) {
-                        wolf.changeDirMs = 1200 + Math.random() * 800;
-                        wolf.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
-                    }
-                } else if (wolf.changeDirMs <= 0) {
-                    wolf.changeDirMs = 1000 + Math.random() * 1800;
-                    wolf.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
-                }
-
-                const speed = wolf.combatTarget ? 1.15 : (wolf.tamed ? 1.0 : 0.82);
-                const nx = wolf.root.position.x + wolf.dir.x * speed * dt;
-                const nz = wolf.root.position.z + wolf.dir.z * speed * dt;
-
-                wolf.groundProbeMs -= deltaMs;
-                if (wolf.groundProbeMs <= 0) {
-                    wolf.groundProbeMs = 180 + Math.random() * 120;
-                    wolf.targetY = getSurfaceYForEntity(nx, nz, wolf.targetY);
-                }
-                if (wolf.targetY > 0) {
-                    wolf.root.position.x = nx;
-                    wolf.root.position.z = nz;
-                    wolf.root.position.y += (wolf.targetY - wolf.root.position.y) * Math.min(1, dt * 11);
-                }
-                wolf.root.rotation.y = Math.atan2(wolf.dir.x, wolf.dir.z);
-
-                if (wolf.combatTarget && targetDist < 1.35 && wolf.attackCooldownMs <= 0) {
-                    wolf.attackCooldownMs = 650;
-                    if (wolf.combatTargetType === 'pig') hurtPig(wolf.combatTarget, 4, 'wolf', wolf.root.position);
-                    else if (wolf.combatTargetType === 'zombie') hurtZombie(wolf.combatTarget, 3, wolf.root.position);
-                }
-
-                const parts = wolf.root.userData.wolfParts || {};
-                const walk = Math.sin(time * 0.011 + wolf.bobPhase) * (wolf.combatTarget ? 0.4 : 0.24);
-                const legs = parts.legs || [];
-                if (legs[0]) legs[0].rotation.x = walk;
-                if (legs[1]) legs[1].rotation.x = -walk;
-                if (legs[2]) legs[2].rotation.x = -walk;
-                if (legs[3]) legs[3].rotation.x = walk;
-                if (parts.tailPivot) {
-                    const wag = wolf.tamed ? Math.sin(time * 0.03 + wolf.bobPhase) * 0.5 : 0.12;
-                    parts.tailPivot.rotation.x = -0.55 + wag;
-                }
-            }
-        }
-
-
-        function getPandaHitFromCrosshair() {
-            if (!pandaEntities.length) return null;
-            if (!prepareCrosshairRaycast()) return null;
-            const hitboxes = pandaEntities.map(p => p.root.userData.pandaHitbox).filter(Boolean);
-            const hits = raycaster.intersectObjects(hitboxes, false);
-            if (!hits.length) return null;
-            const hitObj = hits[0].object;
-            return pandaEntities.find((p) => p.root.userData.pandaHitbox === hitObj) || null;
-        }
-
-        function hurtPanda(panda, amount = 4, source = 'player', sourcePos = null, extraKnockback = 0) {
-            if (!panda) return;
-            if (panda.invulnerable) {
-                if (source === 'player') showGameMessage('XREALM is unkillable.');
-                panda.changeDirMs = 0;
-                panda.angerUntilMs = performance.now() + (window.JungleDecorationConfig?.panda?.angerMsOnHit || 6000);
-                return;
-            }
-            applyHitFeedback(panda, sourcePos, amount, extraKnockback);
-            panda.hp -= amount;
-            if (panda.hp > 0) {
-                panda.changeDirMs = 0;
-                panda.angerUntilMs = performance.now() + (window.JungleDecorationConfig?.panda?.angerMsOnHit || 6000);
-                if (source === 'player') showGameMessage('Panda: huff!');
-                return;
-            }
-            const idx = pandaEntities.indexOf(panda);
-            if (idx >= 0) pandaEntities.splice(idx, 1);
-            scene.remove(panda.root);
-            const drops = 1 + Math.floor(Math.random() * 2);
-            addToInventory(101, drops);
-            showGameMessage(`+${drops} Bamboo Stalk`);
-        }
-
-        function updatePandas(time, deltaMs) {
-            if (!pandaEntities.length) return;
-            const dt = Math.max(0.001, Math.min(0.05, deltaMs / 1000));
-            const playerPos = yawObject.position;
-            for (let i = pandaEntities.length - 1; i >= 0; i--) {
-                const panda = pandaEntities[i];
-                if (!isEntityActiveAt(panda.root.position)) continue;
-                tickMobHitFeedback(panda, deltaMs);
-                panda.changeDirMs -= deltaMs;
-                panda.attackCooldownMs = Math.max(0, panda.attackCooldownMs - deltaMs);
-                const angry = performance.now() < panda.angerUntilMs;
-                if (angry) {
-                    const toPlayer = new THREE.Vector3(playerPos.x - panda.root.position.x, 0, playerPos.z - panda.root.position.z);
-                    const d = toPlayer.length();
-                    if (d > 0.001) {
-                        toPlayer.normalize();
-                        panda.dir.copy(toPlayer);
-                    }
-                    if (d < 1.45 && panda.attackCooldownMs <= 0) {
-                        panda.attackCooldownMs = 850;
-                        takeDamage(2);
-                    }
-                } else if (panda.changeDirMs <= 0) {
-                    panda.changeDirMs = 1000 + Math.random() * 1800;
-                    panda.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
-                }
-
-                const speed = angry ? 1.0 : 0.72;
-                const nx = panda.root.position.x + panda.dir.x * speed * dt;
-                const nz = panda.root.position.z + panda.dir.z * speed * dt;
-
-                panda.groundProbeMs -= deltaMs;
-                if (panda.groundProbeMs <= 0) {
-                    panda.groundProbeMs = 180;
-                    panda.targetY = getSurfaceYForEntity(nx, nz, panda.targetY);
-                }
-                if (panda.targetY > 0) {
-                    panda.root.position.x = nx;
-                    panda.root.position.z = nz;
-                    panda.root.position.y += (panda.targetY - panda.root.position.y) * Math.min(1, dt * 10);
-                }
-                panda.root.rotation.y = Math.atan2(panda.dir.x, panda.dir.z);
-
-                const legs = panda.root.userData.pandaLegs || [];
-                const walk = Math.sin(time * 0.01 + panda.bobPhase) * (angry ? 0.32 : 0.2);
-                if (legs[0]) legs[0].rotation.x = walk;
-                if (legs[1]) legs[1].rotation.x = -walk;
-                if (legs[2]) legs[2].rotation.x = -walk;
-                if (legs[3]) legs[3].rotation.x = walk;
-            }
-        }
-
-        function getZombieHitFromCrosshair() {
-
-            if (!zombieEntities.length) return null;
-            if (!prepareCrosshairRaycast()) return null;
-            const hitboxes = zombieEntities.map(z => z.root.userData.zombieHitbox).filter(Boolean);
-            const hits = raycaster.intersectObjects(hitboxes, false);
-            if (!hits.length) return null;
-            const hitObj = hits[0].object;
-            return zombieEntities.find((z) => z.root.userData.zombieHitbox === hitObj) || null;
-        }
-
-        function hurtZombie(zombie, amount = 4, sourcePos = null, extraKnockback = 0) {
-            if (!zombie) return;
-            applyHitFeedback(zombie, sourcePos, amount, extraKnockback);
-            zombie.hp -= amount;
-            if (zombie.hp > 0) return;
-            const idx = zombieEntities.indexOf(zombie);
-            if (idx >= 0) zombieEntities.splice(idx, 1);
-            scene.remove(zombie.root);
-            const drops = 1 + Math.floor(Math.random() * 2);
-            addToInventory(92, drops);
-            showGameMessage(`+${drops} Rotten Flesh`);
-        }
-
-        function canZombieSeeSky(wx, wy, wz) {
-            for (let y = wy + 1; y < CHUNK_HEIGHT; y++) {
-                const b = getBlockType(wx, y, wz);
-                if (b !== 0 && !isLiquid(b)) return false;
-            }
-            return true;
-        }
-
-        function findHostileSpawnY(wx, wz) {
-            const x = Math.floor(wx);
-            const z = Math.floor(wz);
-            for (let y = CHUNK_HEIGHT - 3; y >= 2; y--) {
-                const under = getBlockType(x, y - 1, z);
-                const feet = getBlockType(x, y, z);
-                const head = getBlockType(x, y + 1, z);
-                if (!isSolid(under) || isLiquid(under) || under === 6) continue;
-                if (feet !== 0 || head !== 0) continue;
-                const skyLightLevel = lightingSystem ? lightingSystem.getSkyLightLevel(x, y, z) : 0;
-                if (skyLightLevel > 7) continue;
-                const blockLightLevel = lightingSystem ? lightingSystem.getBlockLightLevel(x, y, z) : 0;
-                if (blockLightLevel > 7) continue;
-                if (lightingSystem && lightingSystem.hasNearbyBlockLightSource(x, y, z, 7)) continue;
-                return y;
-            }
-            return -1;
-        }
-
-        function spawnZombieAt(wx, wz, heightBlocks = null) {
-            const y = findHostileSpawnY(wx, wz);
-            if (y <= 0) return false;
-            const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
-            if (under === 0 || isLiquid(under)) return false;
-
-            const root = createZombieMesh();
-            applyMobCommandHeight(root, heightBlocks, 1.8);
-            root.position.set(Math.floor(wx) + 0.5, y, Math.floor(wz) + 0.5);
-            scene.add(root);
-            zombieEntities.push({
-                root,
-                hp: 20,
-                attackCooldownMs: 0,
-                attackReach: 1.2 + Math.random() * 0.5,
-                burnTickMs: 0,
-                inDirectSunlight: false,
-                sunProbeMs: 0,
-                targetY: y,
-                groundProbeMs: 0,
-                knockbackVX: 0,
-                knockbackVZ: 0,
-                hitFlashMs: 0,
-            });
-            return true;
-        }
-
-        function trySpawnNightZombie(deltaMs) {
-            const phase = getTimePhaseInfo().phase;
-            if (phase !== 'Night') return;
-            zombieSpawnTimerMs -= deltaMs;
-            if (zombieSpawnTimerMs > 0) return;
-            zombieSpawnTimerMs = 2200 + Math.random() * 3200;
-            if (zombieEntities.length >= 8) return;
-
-            const angle = Math.random() * Math.PI * 2;
-            const dist = 14 + Math.random() * 20;
-            const wx = yawObject.position.x + Math.cos(angle) * dist;
-            const wz = yawObject.position.z + Math.sin(angle) * dist;
-            spawnZombieAt(wx, wz);
-        }
-
-
-        function isZombieInDirectSunlight(wx, wy, wz) {
-            if (!lightingSystem) return canZombieSeeSky(wx, wy, wz);
-            if (!lightingSystem.isOpenToSky(wx, wy, wz)) return false;
-            const skyLight = lightingSystem.getSkyLightLevel(wx, wy, wz);
-            return skyLight >= 12;
-        }
-
-        function updateZombies(time, deltaMs) {
-            if (!zombieEntities.length) return;
-            const dt = Math.max(0.001, Math.min(0.05, deltaMs / 1000));
-            const phase = getTimePhaseInfo().phase;
-            const burningTime = phase === 'Day' || phase === 'Sunrise';
-            const playerPos = yawObject.position;
-
-            for (let i = zombieEntities.length - 1; i >= 0; i--) {
-                const z = zombieEntities[i];
-                if (!isEntityActiveAt(z.root.position)) continue;
-                tickMobHitFeedback(z, deltaMs);
-                const toPlayerFlat = new THREE.Vector3(playerPos.x - z.root.position.x, 0, playerPos.z - z.root.position.z);
-                const distFlat = toPlayerFlat.length();
-                if (distFlat > 0.001) toPlayerFlat.normalize();
-                const dy = (playerPos.y + 0.9) - (z.root.position.y + 0.9);
-                const dist3D = Math.hypot(distFlat, dy);
-
-                const speed = 1.18;
-                const nx = z.root.position.x + toPlayerFlat.x * speed * dt;
-                const nz = z.root.position.z + toPlayerFlat.z * speed * dt;
-
-                z.groundProbeMs -= deltaMs;
-                if (z.groundProbeMs <= 0) {
-                    z.groundProbeMs = 180;
-                    z.targetY = getSurfaceYForEntity(nx, nz, z.targetY);
-                }
-
-                if (z.targetY > 0) {
-                    z.root.position.x = nx;
-                    z.root.position.z = nz;
-                    z.root.position.y += (z.targetY - z.root.position.y) * Math.min(1, dt * 12);
-                }
-
-                if (distFlat > 0.1) z.root.rotation.y = Math.atan2(toPlayerFlat.x, toPlayerFlat.z);
-
-                const parts = z.root.userData.zombieParts;
-                if (parts) {
-                    const walk = Math.sin(time * 0.01 + i) * 0.52;
-                    parts.leftLegPivot.rotation.x = walk;
-                    parts.rightLegPivot.rotation.x = -walk;
-
-                    // Minecraft-like zombie gait: both arms held forward, swaying while walking.
-                    const armSwing = Math.sin(time * 0.01 + i + Math.PI * 0.2) * 0.20;
-                    parts.leftArmPivot.rotation.x = -1.35 + armSwing;
-                    parts.rightArmPivot.rotation.x = -1.35 - armSwing;
-                }
-
-                z.attackCooldownMs = Math.max(0, z.attackCooldownMs - deltaMs);
-                if (dist3D < (z.attackReach || 1.35) && z.attackCooldownMs <= 0) {
-                    z.attackCooldownMs = 900;
-                    takeDamage(3);
-                }
-
-                const zx = Math.floor(z.root.position.x);
-                const zy = Math.floor(z.root.position.y + 1.6);
-                const zz = Math.floor(z.root.position.z);
-                const inLiquid = isLiquid(getBlockType(zx, zy, zz));
-
-                z.sunProbeMs = (z.sunProbeMs ?? 0) - deltaMs;
-                if (z.sunProbeMs <= 0) {
-                    z.sunProbeMs = 220;
-                    z.inDirectSunlight = isZombieInDirectSunlight(zx, zy, zz);
-                }
-
-                if (burningTime && !inLiquid && z.inDirectSunlight) {
-                    z.burnTickMs += deltaMs;
-                    if (z.burnTickMs >= 900) {
-                        z.burnTickMs = 0;
-                        hurtZombie(z, 2, null);
-                    }
-                } else {
-                    z.burnTickMs = 0;
-                }
-            }
-        }
-
-        function setupEatingOverlay() {
-            if (eatOverlayEl) return;
-            const root = document.createElement('div');
-            root.id = 'eat-overlay';
-            root.className = 'hidden';
-            const item = document.createElement('div');
-            item.id = 'eat-item';
-            root.appendChild(item);
-            document.body.appendChild(root);
-            eatOverlayEl = root;
-            eatItemEl = item;
-        }
-
-        function startEatingAnimation(itemId) {
-            if (!eatOverlayEl || !eatItemEl) setupEatingOverlay();
-            const texKey = blockMaterials[itemId]?.textureKey;
-            const img = texKey ? ASSET_FILEPATHS[texKey] : null;
-            if (img) {
-                eatItemEl.style.backgroundImage = `url('${img}')`;
-                eatItemEl.style.backgroundSize = 'contain';
-                eatItemEl.style.backgroundRepeat = 'no-repeat';
-                eatItemEl.style.backgroundPosition = 'center';
-                eatItemEl.style.backgroundColor = 'transparent';
-            } else {
-                eatItemEl.style.backgroundImage = 'none';
-                eatItemEl.style.backgroundColor = '#cda173';
-            }
-            eatOverlayEl.classList.remove('hidden');
-            eatingAnimState = { active: true, timeMs: 0, durationMs: 900, itemId, particleMs: 0 };
-        }
-
         function spawnEatingParticle() {
+
             if (!eatOverlayEl) return;
             const p = document.createElement('div');
             p.className = 'eat-particle';
@@ -4305,48 +2739,46 @@ window.perlin = perlinInstance;
 
             if (event.button === 0) {
                 const attackKnockback = getHeldKnockbackEnchantLevel();
-                const wolfHit = getWolfHitFromCrosshair();
+                const wolfHit = wolfMob?.getHitFromCrosshair?.();
                 if (wolfHit) {
                     const held = inventory[selectedHotbarIndex];
                     if (!wolfHit.tamed && held && held.id === 95) {
                         consumeSelectedItem();
                         if (Math.random() < 0.68) {
-                            wolfHit.tamed = true;
-                            const neck = wolfHit.root.userData?.wolfParts?.neck;
-                            if (neck?.material) neck.material.color.setHex(0xc64444);
+                            wolfMob?.tame?.(wolfHit);
                             showGameMessage('Wolf tamed! It is now your dog.');
                         } else {
                             showGameMessage('The wolf refused the bone.');
                         }
                     } else {
-                        hurtWolf(wolfHit, 4, yawObject.position, attackKnockback);
+                        wolfMob?.hurt?.(wolfHit, 4, yawObject.position, attackKnockback);
                     }
                     return;
                 }
 
-                const pandaHit = getPandaHitFromCrosshair();
+                const pandaHit = pandaMob?.getHitFromCrosshair?.();
                 if (pandaHit) {
-                    hurtPanda(pandaHit, 4, 'player', yawObject.position, attackKnockback);
+                    pandaMob?.hurt?.(pandaHit, 4, 'player', yawObject.position, attackKnockback);
                     return;
                 }
 
-                const zombieHit = getZombieHitFromCrosshair();
+                const zombieHit = zombieMob?.getHitFromCrosshair?.();
                 if (zombieHit) {
-                    hurtZombie(zombieHit, 4, yawObject.position, attackKnockback);
-                    commandTamedWolvesAttack(zombieHit, 'zombie');
+                    zombieMob?.hurt?.(zombieHit, 4, yawObject.position, attackKnockback);
+                    wolfMob?.commandTamedAttack?.(zombieHit, 'zombie');
                     return;
                 }
 
-                const villagerHit = getVillagerHitFromCrosshair();
+                const villagerHit = villagerMob?.getHitFromCrosshair?.();
                 if (villagerHit) {
-                    hurtVillager(villagerHit, 4, 'player', yawObject.position, attackKnockback);
+                    villagerMob?.hurt?.(villagerHit, 4, 'player', yawObject.position, attackKnockback);
                     return;
                 }
 
-                const pigHit = getPigHitFromCrosshair();
+                const pigHit = pigMob?.getHitFromCrosshair?.();
                 if (pigHit) {
-                    hurtPig(pigHit, 4, 'player', yawObject.position, attackKnockback);
-                    commandTamedWolvesAttack(pigHit, 'pig');
+                    pigMob?.hurt?.(pigHit, 4, 'player', yawObject.position, attackKnockback);
+                    wolfMob?.commandTamedAttack?.(pigHit, 'pig');
                     return;
                 }
                 isLeftMouseDown = true;
@@ -5023,10 +3455,12 @@ window.perlin = perlinInstance;
         }
 
         function getRavineMask(wx, wz) {
-            if (worldGenerator) return worldGenerator.sampleRavineMask(wx, wz);
-            const warp = perlin.noise2D(wx * 0.001 + 250, wz * 0.001 + 250) * 30;
-            const line = Math.abs(perlin.noise2D(wx * 0.0018 + warp, wz * 0.0018));
-            return 1.0 - Math.min(1.0, line / 0.043);
+            return window.UndergroundRavinesWorldgen?.getRavineMask?.({
+                wx,
+                wz,
+                worldGenerator,
+                perlin,
+            });
         }
 
         function octaveNoise2D(x, z, octaves, persistence, lacunarity, scale, offsetX = 0, offsetZ = 0) {
@@ -5067,14 +3501,15 @@ window.perlin = perlinInstance;
         }
 
         function sampleCaveShape(wx, y, wz) {
-            if (USE_WASM_CAVE_SAMPLING && wasmRuntime?.has && wasmRuntime.has('caveShape')) {
-                const out = wasmRuntime.call('caveShape', wx, y, wz, CAVE_SCALE);
-                if (typeof out === 'number' && Number.isFinite(out)) return out;
-            }
-
-            const n1 = perlin.noise3D(wx * CAVE_SCALE, y * CAVE_SCALE * 1.7, wz * CAVE_SCALE);
-            const n2 = perlin.noise3D(wx * CAVE_SCALE * 2.2 + 100, y * CAVE_SCALE * 1.1, wz * CAVE_SCALE * 2.2 + 100);
-            return n1 * 0.7 + n2 * 0.3;
+            return window.UndergroundCavesWorldgen?.sampleCaveShape?.({
+                wx,
+                y,
+                wz,
+                USE_WASM_CAVE_SAMPLING,
+                wasmRuntime,
+                CAVE_SCALE,
+                perlin,
+            });
         }
 
         function sampleTerrainVector(wx, wz) {
@@ -5447,443 +3882,75 @@ window.perlin = perlinInstance;
         }
 
         function ensureSteveSkinTextureLoaded() {
-            if (steveSkinReady && steveSkinTexture) return Promise.resolve(true);
-            if (steveSkinFailed) return Promise.resolve(false);
-            if (steveSkinLoadPromise) return steveSkinLoadPromise;
-
-            const skinPaths = getPlayerAssetCandidates('character.png');
-            steveSkinLoadPromise = new Promise((resolve) => {
-                const loader = new THREE.TextureLoader();
-                const tryLoad = (index) => {
-                    if (index >= skinPaths.length) {
-                        steveSkinFailed = true;
-                        steveSkinTexture = null;
-                        resolve(false);
-                        return;
-                    }
-                    loader.load(
-                        skinPaths[index],
-                        (tex) => {
-                            tex.magFilter = THREE.NearestFilter;
-                            tex.minFilter = THREE.NearestFilter;
-                            tex.flipY = false;
-                            steveSkinTexture = tex;
-                            steveSkinReady = true;
-                            resolve(true);
-                        },
-                        undefined,
-                        () => tryLoad(index + 1)
-                    );
-                };
-                tryLoad(0);
-            });
-            return steveSkinLoadPromise;
+            return defaultPlayerSkin?.ensureSteveSkinTextureLoaded?.() || Promise.resolve(false);
         }
 
         function getSteveSkinTexture() {
-            if (!steveSkinTexture || !steveSkinReady) return null;
-            return steveSkinTexture;
+            return defaultPlayerSkin?.getSteveSkinTexture?.() || null;
         }
 
         function getPlayerAssetCandidates(fileName) {
-            const repoPrefix = window.SingleplayerConfig?.REPO_BASE_PREFIX || '';
-            const fromRepo = `${repoPrefix}/game/singleplayer/assets/player/${fileName}`;
-            return [fromRepo, `./assets/player/${fileName}`].filter((v, i, arr) => v && arr.indexOf(v) === i);
+            return defaultPlayerSkin?.getPlayerAssetCandidates?.(fileName) || [];
         }
 
         function getPreferredPlayerAssetPath(fileName) {
-            return getPlayerAssetCandidates(fileName)[0];
+            return defaultPlayerSkin?.getPreferredPlayerAssetPath?.(fileName) || '';
         }
 
         function createSkinFaceTexture(rect) {
-            const [x, y, w, h] = rect;
-            const src = getSteveSkinTexture();
-            if (!src) return null;
-            if (!src.image) return null;
-            const atlasW = src.image.naturalWidth || src.image.width || 64;
-            const atlasH = src.image.naturalHeight || src.image.height || 64;
-            const tex = src.clone();
-            tex.magFilter = THREE.NearestFilter;
-            tex.minFilter = THREE.NearestFilter;
-            tex.flipY = false;
-            tex.wrapS = THREE.ClampToEdgeWrapping;
-            tex.wrapT = THREE.ClampToEdgeWrapping;
-            tex.repeat.set(w / atlasW, h / atlasH);
-            tex.offset.set(x / atlasW, 1 - ((y + h) / atlasH));
-            tex.needsUpdate = true;
-            return tex;
+            return defaultPlayerSkin?.createSkinFaceTexture?.(rect) || null;
         }
-
 
         function isModernSkinLayout() {
-            const tex = getSteveSkinTexture();
-            const img = tex && tex.image ? tex.image : null;
-            const h = img ? (img.naturalHeight || img.height || 0) : 0;
-            return h >= 64;
+            return defaultPlayerSkin?.isModernSkinLayout?.() || false;
         }
-function buildPartFaceRects(x, y, w, h, d) {
-    return {
-        // Three.js BoxGeometry material order:
-        // 0:+X, 1:-X, 2:+Y, 3:-Y, 4:+Z, 5:-Z
 
-        0: [x + d + w, y + d, d, h],          // +X right
-        1: [x, y + d, d, h],                  // -X left
-        2: [x + d, y, w, d],                  // +Y top
-        3: [x + d + w, y, w, d],              // -Y bottom
-        4: [x + d, y + d, w, h],              // +Z front
-        5: [x + d + w + d, y + d, w, h],      // -Z back
-    };
-}
+        function buildPartFaceRects(x, y, w, h, d) {
+            return defaultPlayerSkin?.buildPartFaceRects?.(x, y, w, h, d) || null;
+        }
 
         function getSkinPartRects(partName, overlay = false) {
-            const modern = isModernSkinLayout();
-            if (partName === 'head') return buildPartFaceRects(overlay ? 32 : 0, 0, 8, 8, 8);
-
-            if (partName === 'body') {
-                if (overlay && !modern) return null;
-                return buildPartFaceRects(16, overlay ? 32 : 16, 8, 12, 4);
-            }
-
-            if (partName === 'rightArm') {
-                if (overlay && !modern) return null;
-                return buildPartFaceRects(40, overlay ? 32 : 16, 4, 12, 4);
-            }
-
-            if (partName === 'leftArm') {
-                if (modern) return buildPartFaceRects(overlay ? 48 : 32, 48, 4, 12, 4);
-                if (overlay) return null;
-                return buildPartFaceRects(40, 16, 4, 12, 4);
-            }
-
-            if (partName === 'rightLeg') {
-                if (overlay && !modern) return null;
-                return buildPartFaceRects(0, overlay ? 32 : 16, 4, 12, 4);
-            }
-
-            if (partName === 'leftLeg') {
-                if (modern) return buildPartFaceRects(overlay ? 0 : 16, 48, 4, 12, 4);
-                if (overlay) return null;
-                return buildPartFaceRects(0, 16, 4, 12, 4);
-            }
-
-            return null;
+            return defaultPlayerSkin?.getSkinPartRects?.(partName, overlay) || null;
         }
 
         function createStevePartMesh(dim, faceRects, overlayFaceRects = null) {
-            const createMaterials = (rects, isOverlay) => {
-                const mats = [];
-                for (let i = 0; i < 6; i++) {
-                    const faceTex = rects ? createSkinFaceTexture(rects[i]) : null;
-                    mats.push(new THREE.MeshStandardMaterial({
-                        map: faceTex || null,
-                        color: faceTex ? 0xffffff : 0x000000,
-                        transparent: !!isOverlay,
-                        alphaTest: isOverlay ? 0.1 : 0,
-                        opacity: faceTex ? 1 : 0,
-                        roughness: 1,
-                        metalness: 0,
-                        depthWrite: !isOverlay,
-                    }));
-                }
-                return mats;
-            };
-
-            if (!overlayFaceRects) {
-                return new THREE.Mesh(new THREE.BoxGeometry(dim[0], dim[1], dim[2]), createMaterials(faceRects, false));
-            }
-
-            const group = new THREE.Group();
-            const baseMesh = new THREE.Mesh(new THREE.BoxGeometry(dim[0], dim[1], dim[2]), createMaterials(faceRects, false));
-            group.add(baseMesh);
-
-            const inflate = (0.5 / 16);
-            const overlayMesh = new THREE.Mesh(
-                new THREE.BoxGeometry(dim[0] + inflate, dim[1] + inflate, dim[2] + inflate),
-                createMaterials(overlayFaceRects, true)
-            );
-            group.add(overlayMesh);
-            return group;
+            return defaultPlayerSkin?.createStevePartMesh?.(dim, faceRects, overlayFaceRects) || null;
         }
 
         function setupFirstPersonHandOverlay() {
-            if (firstPersonHandEl) return;
-            const hand = document.createElement('div');
-            hand.id = 'firstperson-hand';
-
-            const held = document.createElement('div');
-            held.id = 'firstperson-held-item';
-
-            const wieldPath = getPreferredPlayerAssetPath('wieldhand.png');
-            const skinPath = getPreferredPlayerAssetPath('character.png');
-
-            const probe = new Image();
-            probe.onload = () => {
-                hand.style.backgroundImage = `url('${wieldPath}')`;
-                hand.style.backgroundSize = '100% 100%';
-                hand.style.backgroundPosition = 'center';
-            };
-            probe.onerror = () => {
-                // Minetest-like fallback: use right-arm section from skin atlas as wield hand.
-                hand.style.backgroundImage = `url('${skinPath}')`;
-                hand.style.backgroundSize = '64px 64px';
-                hand.style.backgroundPosition = '-44px -20px';
-                hand.classList.add('fallback');
-            };
-            probe.src = wieldPath;
-
-            document.body.appendChild(held);
-            document.body.appendChild(hand);
-            firstPersonHandEl = hand;
-            firstPersonHeldItemEl = held;
+            defaultPlayerSkin?.setupFirstPersonHandOverlay?.();
         }
 
         function setupInventorySkinRig() {
-            const preview = document.getElementById('inventory-skin-preview');
-            if (!preview || inventorySkinRigEl) return;
-            const skinPath = getPreferredPlayerAssetPath('character.png');
-
-            const rig = document.createElement('div');
-            rig.id = 'inventory-skin-rig';
-            rig.innerHTML = `
-                <div id="inv-skin-head" class="inv-skin-part"></div>
-                <div id="inv-skin-body" class="inv-skin-part"></div>
-                <div id="inv-skin-arm-left" class="inv-skin-part"></div>
-                <div id="inv-skin-arm-right" class="inv-skin-part"></div>
-                <div id="inv-skin-leg-left" class="inv-skin-part"></div>
-                <div id="inv-skin-leg-right" class="inv-skin-part"></div>
-            `;
-            preview.innerHTML = '';
-            preview.appendChild(rig);
-            inventorySkinRigEl = rig;
-
-            const setPart = (id, x, y, w, h) => {
-                const el = document.getElementById(id);
-                if (!el) return;
-                el.style.backgroundImage = `url('${skinPath}')`;
-                el.style.backgroundPosition = `-${x}px -${y}px`;
-                el.style.width = `${w}px`;
-                el.style.height = `${h}px`;
-            };
-
-            const modern = isModernSkinLayout();
-            setPart('inv-skin-head', 8, 8, 8, 8);
-            setPart('inv-skin-body', 20, 20, 8, 12);
-            setPart('inv-skin-arm-left', ...(modern ? [36, 52, 4, 12] : [44, 20, 4, 12]));
-            setPart('inv-skin-arm-right', 44, 20, 4, 12);
-            setPart('inv-skin-leg-left', ...(modern ? [20, 52, 4, 12] : [4, 20, 4, 12]));
-            setPart('inv-skin-leg-right', 4, 20, 4, 12);
+            defaultPlayerSkin?.setupInventorySkinRig?.();
         }
 
         function updateFirstPersonHand(time) {
-            if (!firstPersonHandEl || !firstPersonHeldItemEl) return;
-            const firstPerson = cameraViewMode === 0 && !isInventoryOpen;
-            firstPersonHandEl.style.display = firstPerson ? 'block' : 'none';
-            firstPersonHeldItemEl.style.display = firstPerson ? 'block' : 'none';
-            if (!firstPerson) return;
-
-            const moveSwing = player.isMoving ? Math.sin(time * 0.013) * 10 : 0;
-            const minePunch = miningSwingTimerMs > 0 ? (Math.sin((Math.max(0, 180 - miningSwingTimerMs) / 180) * Math.PI) * 20 - 9) : 0;
-            const totalSwing = moveSwing + minePunch;
-            firstPersonHandEl.style.transform = `translateY(${Math.max(-10, totalSwing)}px) rotate(${totalSwing * 0.36}deg)`;
-            firstPersonHeldItemEl.style.transform = `translateY(${Math.max(-10, totalSwing)}px)`;
-
-            const held = inventory[selectedHotbarIndex];
-            if (!held) {
-                firstPersonHeldItemEl.innerHTML = '';
-                return;
-            }
-            const mat = blockMaterials[held.id];
-            if (!mat) {
-                firstPersonHeldItemEl.innerHTML = '';
-                return;
-            }
-            if (mat.textured && mat.textureKey && ASSET_FILEPATHS[mat.textureKey]) {
-                const src = ASSET_FILEPATHS[mat.textureKey];
-                firstPersonHeldItemEl.innerHTML = `<img src="${src}" class="fp-held-icon" alt="held item" />`;
-            } else {
-                const colorHex = (mat.color ? mat.color.toString(16).padStart(6, '0') : '7f8c8d');
-                firstPersonHeldItemEl.innerHTML = `<div class="fp-held-color" style="background:#${colorHex}"></div>`;
-            }
+            defaultPlayerSkin?.updateFirstPersonHand?.(time);
         }
 
         function createPlayerAvatar() {
-            const avatar = new THREE.Group();
-            const U = 1 / 16; // Minecraft unit scale
-
-            const head = createStevePartMesh(
-                [8 * U, 8 * U, 8 * U],
-                getSkinPartRects('head', false),
-                getSkinPartRects('head', true)
-            );
-            head.position.y = 28 * U;
-
-            const body = createStevePartMesh(
-                [8 * U, 12 * U, 4 * U],
-                getSkinPartRects('body', false),
-                getSkinPartRects('body', true)
-            );
-            body.position.y = 18 * U;
-
-            const rightArmPivot = new THREE.Group();
-            rightArmPivot.position.set(6 * U, 24 * U, 0);
-            const rightArm = createStevePartMesh(
-                [4 * U, 12 * U, 4 * U],
-                getSkinPartRects('rightArm', false),
-                getSkinPartRects('rightArm', true)
-            );
-            rightArm.position.set(0, -6 * U, 0);
-            rightArmPivot.add(rightArm);
-
-            const leftArmPivot = new THREE.Group();
-            leftArmPivot.position.set(-6 * U, 24 * U, 0);
-            const leftArm = createStevePartMesh(
-                [4 * U, 12 * U, 4 * U],
-                getSkinPartRects('leftArm', false),
-                getSkinPartRects('leftArm', true)
-            );
-            leftArm.position.set(0, -6 * U, 0);
-            leftArmPivot.add(leftArm);
-
-            const rightLegPivot = new THREE.Group();
-            rightLegPivot.position.set(2 * U, 12 * U, 0);
-            const rightLeg = createStevePartMesh(
-                [4 * U, 12 * U, 4 * U],
-                getSkinPartRects('rightLeg', false),
-                getSkinPartRects('rightLeg', true)
-            );
-            rightLeg.position.set(0, -6 * U, 0);
-            rightLegPivot.add(rightLeg);
-
-            const leftLegPivot = new THREE.Group();
-            leftLegPivot.position.set(-2 * U, 12 * U, 0);
-            const leftLeg = createStevePartMesh(
-                [4 * U, 12 * U, 4 * U],
-                getSkinPartRects('leftLeg', false),
-                getSkinPartRects('leftLeg', true)
-            );
-            leftLeg.position.set(0, -6 * U, 0);
-            leftLegPivot.add(leftLeg);
-
-            avatar.add(body, head, leftArmPivot, rightArmPivot, leftLegPivot, rightLegPivot);
-            playerAvatarParts = {
-                body,
-                head,
-                leftArm,
-                rightArm,
-                leftLeg,
-                rightLeg,
-                leftArmPivot,
-                rightArmPivot,
-                leftLegPivot,
-                rightLegPivot,
-            };
-            return avatar;
+            return defaultPlayerSkin?.createPlayerAvatar?.() || new THREE.Group();
         }
 
         function applyCameraMode() {
-            // camera is parented to pitchObject; use local transforms for mode.
-            if (cameraViewMode === 0) {
-                camera.position.set(0, 0, 0);
-                camera.rotation.y = 0;
-                if (playerAvatar) playerAvatar.visible = false;
-                if (firstPersonHandEl) firstPersonHandEl.style.display = 'block';
-                if (firstPersonHeldItemEl) firstPersonHeldItemEl.style.display = 'block';
-                showGameMessage('First-person view enabled');
-            } else if (cameraViewMode === 1) {
-                camera.position.set(0, 1.2, -2.6);
-                camera.rotation.y = Math.PI;
-                if (playerAvatar) playerAvatar.visible = true;
-                if (firstPersonHandEl) firstPersonHandEl.style.display = 'none';
-                if (firstPersonHeldItemEl) firstPersonHeldItemEl.style.display = 'none';
-                showGameMessage('Second-person view enabled');
-            } else {
-                camera.position.set(0, 0.1, 3.6);
-                camera.rotation.y = 0;
-                if (playerAvatar) playerAvatar.visible = true;
-                if (firstPersonHandEl) firstPersonHandEl.style.display = 'none';
-                if (firstPersonHeldItemEl) firstPersonHeldItemEl.style.display = 'none';
-                showGameMessage('Third-person view enabled');
-            }
+            defaultPlayerSkin?.applyCameraMode?.();
         }
 
         function toggleCameraViewMode() {
-            cameraViewMode = (cameraViewMode + 1) % 3;
-            applyCameraMode();
+            defaultPlayerSkin?.toggleCameraViewMode?.();
         }
 
         function updatePlayerAvatarVisuals(time) {
-            if (!playerAvatarParts) return;
-
-            const isFlyingPose = playerPrivileges.fly && isFlyActive;
-
-            if (playerAvatar) {
-                playerAvatar.rotation.x = (player.isSwimming || isFlyingPose) ? -Math.PI / 2 : 0;
-                playerAvatar.rotation.z = 0;
-            }
-
-            if (isFlyingPose) {
-                playerAvatarParts.leftLegPivot.rotation.x = 0;
-                playerAvatarParts.rightLegPivot.rotation.x = 0;
-                playerAvatarParts.leftArmPivot.rotation.x = 1.25;
-                playerAvatarParts.rightArmPivot.rotation.x = -1.45;
-            } else if (player.isSwimming) {
-                const stroke = time * 0.02;
-                const legKick = Math.sin(time * 0.028) * 0.25;
-                playerAvatarParts.leftLegPivot.rotation.x = legKick;
-                playerAvatarParts.rightLegPivot.rotation.x = -legKick;
-                playerAvatarParts.leftArmPivot.rotation.x = stroke;
-                playerAvatarParts.rightArmPivot.rotation.x = stroke + Math.PI;
-            } else {
-                const swing = player.isMoving ? Math.sin(time * 0.015) * 0.7 : 0;
-                const mineStroke = miningSwingTimerMs > 0 ? (Math.sin((Math.max(0, 180 - miningSwingTimerMs) / 180) * Math.PI) * 1.45 - 0.7) : 0;
-                playerAvatarParts.leftLegPivot.rotation.x = swing;
-                playerAvatarParts.rightLegPivot.rotation.x = -swing;
-                playerAvatarParts.leftArmPivot.rotation.x = -swing * 0.75;
-                playerAvatarParts.rightArmPivot.rotation.x = swing * 0.6 + mineStroke;
-            }
-
-            if (inventorySkinRigEl) {
-                const swing = player.isMoving ? Math.sin(time * 0.015) * 0.7 : 0;
-                const mineStroke = miningSwingTimerMs > 0 ? (Math.sin((Math.max(0, 180 - miningSwingTimerMs) / 180) * Math.PI) * 1.45 - 0.7) : 0;
-                const sdeg = swing * 40;
-                const mineDeg = mineStroke * 50;
-                const lLeg = document.getElementById('inv-skin-leg-left');
-                const rLeg = document.getElementById('inv-skin-leg-right');
-                const lArm = document.getElementById('inv-skin-arm-left');
-                const rArm = document.getElementById('inv-skin-arm-right');
-                if (lLeg) lLeg.style.transform = `rotate(${sdeg}deg)`;
-                if (rLeg) rLeg.style.transform = `rotate(${-sdeg}deg)`;
-                if (lArm) lArm.style.transform = `rotate(${-sdeg * 0.75}deg)`;
-                if (rArm) rArm.style.transform = `rotate(${sdeg * 0.6 + mineDeg}deg)`;
-            }
+            defaultPlayerSkin?.updatePlayerAvatarVisuals?.(time);
         }
 
         function toggleInventorySkinPreview() {
-            if (skinSystem) {
-                skinSystem.toggleInventorySkinPreview();
-                return;
-            }
-            showGameMessage('Skin editor opened in preview mode');
-            const preview = document.getElementById('inventory-skin-preview');
-            if (!preview) return;
-            preview.classList.toggle('active');
+            defaultPlayerSkin?.toggleInventorySkinPreview?.();
         }
 
         function updateSkinPreviewLook(clientX, clientY) {
-            if (skinSystem) {
-                skinSystem.updateSkinPreviewLook(clientX, clientY, isInventoryOpen);
-                return;
-            }
-            const head = document.getElementById('inventory-skin-head');
-            const wrap = document.getElementById('inventory-skin-preview');
-            if (!head || !wrap || !isInventoryOpen) return;
-            const rect = wrap.getBoundingClientRect();
-            const cx = rect.left + rect.width / 2;
-            const cy = rect.top + rect.height / 2;
-            const dx = Math.max(-1, Math.min(1, (clientX - cx) / (rect.width / 2)));
-            const dy = Math.max(-1, Math.min(1, (clientY - cy) / (rect.height / 2)));
-            head.style.setProperty('--skin-look-x', `${dx * 28}deg`);
-            head.style.setProperty('--skin-look-y', `${-dy * 20}deg`);
+            defaultPlayerSkin?.updateSkinPreviewLook?.(clientX, clientY);
         }
 
         function setupKeyboardControls() {
@@ -6139,15 +4206,15 @@ function buildPartFaceRects(x, y, w, h, d) {
                      const isWarmOcean = biome === 'Warm Ocean';
                      const isColdOcean = biome === 'Cold Ocean';
                      const isCoastOcean = biome === 'Coast Ocean';
-                     const ravineMask = getRavineMask(wx, wz);
-                     const ravineTopCap = Math.max(3, h - RAVINE_SURFACE_SAFETY_DEPTH);
-                     const canCarveRavine = ravineMask > RAVINE_ACTIVATION_THRESHOLD && ravineTopCap > 3;
-                     const ravineStrength = canCarveRavine
-                        ? ((ravineMask - RAVINE_ACTIVATION_THRESHOLD) / (1 - RAVINE_ACTIVATION_THRESHOLD))
-                        : 0;
-                     const ravineTop = canCarveRavine ? Math.min(ravineTopCap, CHUNK_HEIGHT - 1) : 0;
-                     const ravineMaxDepth = canCarveRavine ? (12 + Math.floor(ravineStrength * 8)) : 0;
-                     const ravineBottom = canCarveRavine ? Math.max(3, ravineTop - ravineMaxDepth) : 0;
+                     const ravineProfile = window.UndergroundRavinesWorldgen?.createRavineColumnProfile?.({
+                        wx,
+                        wz,
+                        surfaceHeight: h,
+                        getRavineMask,
+                        RAVINE_SURFACE_SAFETY_DEPTH,
+                        RAVINE_ACTIVATION_THRESHOLD,
+                        CHUNK_HEIGHT,
+                     }) || { canCarveRavine: false, ravineStrength: 0, ravineTop: 0, ravineBottom: 0, ravineMask: 0, ravineMaxDepth: 0 };
                      for (let y = 0; y < CHUNK_HEIGHT; y++) {
                          let t = 0; // Block type
 
@@ -6222,120 +4289,42 @@ function buildPartFaceRects(x, y, w, h, d) {
                              // Otherwise (on dry land, above h, below sea level, not river) it remains air (t=0)
                          }
                          
-                        // --- Cave Generation Pass (layered Perlin for bigger cave systems) ---
-                        if (y > CAVE_MIN_Y && y < h - CAVE_MAX_Y_OFFSET && (h - y) >= (CAVE_SURFACE_SAFETY_DEPTH + 2)) {
-                            if (t === 3 || t === 2 || t === 7 || t === 13 || t === 28 || t === 59) {
-                                const caveShape = sampleCaveShape(wx, y, wz);
-
-                                const depth = Math.max(0, (h - y) / Math.max(1, h));
-                                const nearSurfaceGuard = depth < 0.2 ? 0.1 : (depth < 0.35 ? 0.05 : 0);
-                                const dynamicThreshold = CAVE_THRESHOLD + nearSurfaceGuard - Math.min(0.1, depth * 0.14);
-                                const tunnelNoise = Math.abs(perlin.noise3D(wx * CAVE_SCALE * 0.7, y * CAVE_SCALE * 0.45, wz * CAVE_SCALE * 0.7));
-
-                                if (caveShape > dynamicThreshold || (depth > 0.55 && tunnelNoise < 0.05)) {
-                                    t = 0;
-                                }
-                            }
-                        }
+                        t = window.UndergroundCavesWorldgen?.carveBlock?.({
+                            blockId: t,
+                            wx,
+                            y,
+                            wz,
+                            surfaceHeight: h,
+                            perlin,
+                            CAVE_SCALE,
+                            CAVE_THRESHOLD,
+                            CAVE_MIN_Y,
+                            CAVE_MAX_Y_OFFSET,
+                            CAVE_SURFACE_SAFETY_DEPTH,
+                            sampleCaveShape,
+                        }) ?? t;
                          
                          
-// 🔹 Optimized Ravine Generation
-if (canCarveRavine) {
-    const strength = ravineStrength;
-    if (y <= ravineTop && y >= ravineBottom) {
-        const mid = (ravineTop + ravineBottom) / 2;
-        const halfHeight = (ravineTop - ravineBottom) / 2;
-        const verticalFactor = 1 - Math.abs(y - mid) / halfHeight;
+                        t = window.UndergroundRavinesWorldgen?.applyRavineBlock?.({
+                            blockId: t,
+                            y,
+                            ravineProfile,
+                            wx,
+                            wz,
+                            octaveNoise2D,
+                            SEA_LEVEL,
+                        }) ?? t;
 
-        // Reduce noise impact
-        const widthNoise = octaveNoise2D(wx, wz, 2, 0.5, 2.0, 0.04, 812, -245);
-        const widthFactor = strength * verticalFactor + widthNoise * 0.06;
-
-        if (widthFactor > 0.42) {
-            // 🔥 Lava very deep underground (only really deep)
-            if (y < 6) {
-                t = 33;
-            }
-            // 🌊 Water below sea level
-            else if (y < SEA_LEVEL - 1) {
-                t = 4;
-            }
-            // 🌫 Air above sea level
-            else {
-                t = 0;
-            }
-        }
-    }
-}
-                             
-                             
-                             
-    // Coal ore pass: mineable by hand, faster with pickaxe.
-if ((t === 3 || t === 13) && y > 6 && y < Math.min(CHUNK_HEIGHT - 6, h - 2)) {
-    const veinNoise = octaveNoise2D(wx, wz, 3, 0.5, 2.0, 0.09, 1450, -870);
-    const depthBias = 1 - (y / CHUNK_HEIGHT);
-    const oreRoll = hashRand2D(wx + y * 13, wz - y * 7, 301);
-    if (veinNoise > 0.12 && oreRoll < (0.06 + depthBias * 0.08)) {
-        t = 18;
-    }
-}
-
-// Copper ore pass
-if ((t === 3 || t === 13) && y > 6 && y < Math.min(CHUNK_HEIGHT - 6, h - 2)) {
-    const veinNoise = octaveNoise2D(wx, wz, 3, 0.5, 2.0, 0.07, 5555, -666);
-    const depthBias = 1 - (y / CHUNK_HEIGHT);
-    const oreRoll = hashRand2D(wx + y * 13, wz - y * 7, 302);
-
-    if (veinNoise > 0.20 && oreRoll < (0.06 + depthBias * 0.08)) {
-        t = 35; // copper ore
-    }
-}
-
-// Iron ore pass
-if ((t === 3 || t === 13) && y > 4 && y < CHUNK_HEIGHT * 0.6) {
-    const veinNoise = octaveNoise2D(wx, wz, 3, 0.5, 2.0, 0.07, 2222, -333);
-    const depthBias = 1 - (y / CHUNK_HEIGHT);
-    const oreRoll = hashRand2D(wx + y * 17, wz - y * 11, 777);
-
-    if (veinNoise > 0.18 && oreRoll < (0.04 + depthBias * 0.06)) {
-        t = 30; // iron ore
-    }
-}
-
-// Gold ore pass
-if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.4) {
-    const veinNoise = octaveNoise2D(wx, wz, 3, 0.5, 2.0, 0.08, 9999, -1234);
-    const depthBias = 1 - (y / CHUNK_HEIGHT);
-    const oreRoll = hashRand2D(wx + y * 19, wz - y * 13, 303);
-
-    if (veinNoise > 0.25 && oreRoll < (0.03 + depthBias * 0.05)) {
-        t = 40; // gold ore
-    }
-}
-
-// Diamond ore pass
-if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
-    const veinNoise = octaveNoise2D(wx, wz, 3, 0.5, 2.0, 0.08, 11111, -8930);
-    const depthBias = 1 - (y / CHUNK_HEIGHT);
-    const oreRoll = hashRand2D(wx + y * 21, wz - y * 15, 303);
-
-    if (veinNoise > 0.30 && oreRoll < (0.02 + depthBias * 0.03)) {
-        t = 43; // diamond ore
-    }
-}
-
-// Emerald ore pass
-if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
-    const veinNoise = octaveNoise2D(wx, wz, 3, 0.5, 2.0, 0.08, 23498, -19840);
-    const depthBias = 1 - (y / CHUNK_HEIGHT);
-    const oreRoll = hashRand2D(wx + y * 26, wz - y * 17, 303);
-
-    if (veinNoise > 0.34 && oreRoll < (0.025 + depthBias * 0.02)) {
-        t = 54; // emerald ore
-    }
-}
-
-
+                        t = window.UndergroundOresWorldgen?.applyOrePasses?.({
+                            blockId: t,
+                            wx,
+                            y,
+                            wz,
+                            surfaceHeight: h,
+                            CHUNK_HEIGHT,
+                            hashRand2D,
+                            octaveNoise2D,
+                        }) ?? t;
 
                          data[x + y*CHUNK_SIZE + z*CHUNK_SIZE*CHUNK_HEIGHT] = t;
                      }
@@ -6380,95 +4369,82 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
              const spawnedWolves = [];
              const spawnedPandas = [];
              const spawnedVillagers = [];
-             placeIglooInChunk(data, cx, cz, spawnedGnomes);
+             window.SnowyPlainsWorldgen?.placeIglooInChunk?.({
+                 data,
+                 cx,
+                 cz,
+                 spawnedGnomes,
+                 hashRand2D,
+                 getBiome,
+                 iglooStructureDef,
+                 CHUNK_SIZE,
+                 CHUNK_HEIGHT,
+                 SEA_LEVEL
+             });
              const placedVillage = placeVillageInChunk(data, cx, cz, spawnedVillagers);
-             if (!placedVillage) placeDesertWellInChunk(data, cx, cz, spawnedPigs);
-             placeWolfPackInChunk(data, heightmap, cx, cz, spawnedWolves);
-             placePandaPackInChunk(data, heightmap, cx, cz, spawnedPandas);
-             placeBambooInChunk(data, cx, cz);
+             if (!placedVillage) {
+                 window.DesertWorldgen?.placeDesertWellInChunk?.({
+                     data,
+                     cx,
+                     cz,
+                     spawnedPigs,
+                     hashRand2D,
+                     getBiome,
+                     CHUNK_SIZE,
+                     CHUNK_HEIGHT,
+                     SEA_LEVEL
+                 });
+             }
+             window.OakForestWorldgen?.placeWolfPackInChunk?.({
+                 data,
+                 heightmap,
+                 cx,
+                 cz,
+                 spawnedWolves,
+                 hashRand2D,
+                 getBiome,
+                 CHUNK_SIZE,
+                 CHUNK_HEIGHT,
+                 SEA_LEVEL
+             });
+             window.JungleForestWorldgen?.placePandaPackInChunk?.({
+                 data,
+                 heightmap,
+                 cx,
+                 cz,
+                 spawnedPandas,
+                 hashRand2D,
+                 getBiome,
+                 CHUNK_SIZE,
+                 CHUNK_HEIGHT,
+                 SEA_LEVEL
+             });
+             window.JungleForestWorldgen?.placeBambooInChunk?.({
+                 data,
+                 cx,
+                 cz,
+                 hashRand2D,
+                 getBiome,
+                 hasNearbyTreeTrunk,
+                 CHUNK_SIZE,
+                 CHUNK_HEIGHT,
+                 SEA_LEVEL
+             });
              placePumpkinPatchInChunk(data, cx, cz);
-             placeMelonsInChunk(data, cx, cz);
+             window.JungleForestWorldgen?.placeMelonsInChunk?.({
+                 data,
+                 cx,
+                 cz,
+                 hashRand2D,
+                 getBiome,
+                 worldGenSettings,
+                 CHUNK_SIZE,
+                 CHUNK_HEIGHT,
+                 SEA_LEVEL
+             });
              return { data, heightmap, spawnedGnomes, spawnedPigs, spawnedWolves, spawnedPandas, spawnedVillagers };
         }
 
-        function placeIglooInChunk(data, cx, cz, spawnedGnomes) {
-            const snowyTerrain = window.SnowyPlainsTerrain || {};
-            const iglooRules = snowyTerrain.structures?.igloo;
-            if (!iglooRules || !iglooStructureDef) return;
-            const canSpawn = snowyTerrain.shouldSpawnIgloo
-                ? snowyTerrain.shouldSpawnIgloo({ cx, cz, hashRand2D, spawnChance: iglooRules.spawnChancePerChunk })
-                : false;
-            if (!canSpawn) return;
-
-            const radius = Math.max(2, Math.min(6, Number(iglooStructureDef.radius) || 4));
-            const centerX = Math.floor(CHUNK_SIZE / 2);
-            const centerZ = Math.floor(CHUNK_SIZE / 2);
-            if (centerX - radius < 1 || centerX + radius >= CHUNK_SIZE - 1 || centerZ - radius < 1 || centerZ + radius >= CHUNK_SIZE - 1) return;
-
-            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
-            const getColumnTop = (lx, lz) => {
-                for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
-                    const t = data[idx(lx, y, lz)];
-                    if (t !== 0 && t !== 4) return y;
-                }
-                return -1;
-            };
-
-            const centerTopY = getColumnTop(centerX, centerZ);
-            if (centerTopY < SEA_LEVEL) return;
-            const requiredGround = iglooRules.validSurfaceBlockId ?? 15;
-            if (data[idx(centerX, centerTopY, centerZ)] !== requiredGround) return;
-
-            const maxSlope = Number(iglooStructureDef.maxSurfaceSlope) || 2;
-            for (let dx = -radius; dx <= radius; dx++) {
-                for (let dz = -radius; dz <= radius; dz++) {
-                    const lx = centerX + dx;
-                    const lz = centerZ + dz;
-                    const topY = getColumnTop(lx, lz);
-                    if (topY < 1 || Math.abs(topY - centerTopY) > maxSlope) return;
-                }
-            }
-
-            const floorBlock = Number(iglooStructureDef.floorBlockId) || 59;
-            const wallBlock = Number(iglooStructureDef.wallBlockId) || 15;
-            const windowBlock = Number(iglooStructureDef.windowBlockId) || wallBlock;
-            const domeHeight = Number(iglooStructureDef.interiorHeadroom) || 3;
-            const doorHeight = Math.max(2, Number(iglooStructureDef.doorHeight) || 2);
-
-            const centerY = centerTopY + 1;
-            for (let dx = -radius; dx <= radius; dx++) {
-                for (let dz = -radius; dz <= radius; dz++) {
-                    const dist = Math.sqrt(dx * dx + dz * dz);
-                    const lx = centerX + dx;
-                    const lz = centerZ + dz;
-                    if (dist <= radius - 0.35) data[idx(lx, centerTopY, lz)] = floorBlock;
-
-                    for (let dy = 0; dy <= domeHeight; dy++) {
-                        const ly = centerY + dy;
-                        if (ly < 1 || ly >= CHUNK_HEIGHT - 1) continue;
-                        const shellDist = Math.sqrt(dx * dx + dz * dz + (dy * 1.22) * (dy * 1.22));
-                        if (shellDist <= radius + 0.18 && shellDist >= radius - 1.05) {
-                            data[idx(lx, ly, lz)] = wallBlock;
-                        } else if (shellDist < radius - 1.05) {
-                            data[idx(lx, ly, lz)] = 0;
-                        }
-                    }
-                }
-            }
-
-            for (let dy = 0; dy < doorHeight; dy++) {
-                const ly = centerY + dy;
-                data[idx(centerX, ly, centerZ + radius)] = 0;
-                data[idx(centerX, ly, centerZ + radius - 1)] = 0;
-            }
-            data[idx(centerX - radius + 1, centerY + 1, centerZ)] = windowBlock;
-            data[idx(centerX + radius - 1, centerY + 1, centerZ)] = windowBlock;
-
-            const worldX = cx * CHUNK_SIZE + centerX;
-            const worldZ = cz * CHUNK_SIZE + centerZ;
-            const gnomeY = centerTopY + (Number(iglooStructureDef.gnomeSpawnOffsetY) || 1);
-            spawnedGnomes.push({ wx: worldX, wy: gnomeY, wz: worldZ });
-        }
 
         function placeVillageInChunk(data, cx, cz, spawnedVillagers = []) {
             const vg = window.VillageGeneration || {};
@@ -6967,186 +4943,12 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             return placedAny;
         }
 
-        function placeDesertWellInChunk(data, cx, cz, spawnedPigs) {
-            const centerX = Math.floor(CHUNK_SIZE / 2);
-            const centerZ = Math.floor(CHUNK_SIZE / 2);
-            const worldX = cx * CHUNK_SIZE + centerX;
-            const worldZ = cz * CHUNK_SIZE + centerZ;
-
-            if (getBiome(worldX, worldZ) !== 'Desert') return;
-            if (hashRand2D(cx, cz, 9127) > 0.08) return;
-
-            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
-            const getColumnTop = (lx, lz) => {
-                for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
-                    const t = data[idx(lx, y, lz)];
-                    if (t !== 0 && t !== 4) return y;
-                }
-                return -1;
-            };
-
-            const radius = 2;
-            if (centerX - radius < 2 || centerX + radius >= CHUNK_SIZE - 2 || centerZ - radius < 2 || centerZ + radius >= CHUNK_SIZE - 2) return;
-
-            const topY = getColumnTop(centerX, centerZ);
-            if (topY < SEA_LEVEL - 1) return;
-            if (data[idx(centerX, topY, centerZ)] !== 7) return;
-
-            for (let dx = -radius; dx <= radius; dx++) {
-                for (let dz = -radius; dz <= radius; dz++) {
-                    const lx = centerX + dx;
-                    const lz = centerZ + dz;
-                    const y = getColumnTop(lx, lz);
-                    if (y < 1 || Math.abs(y - topY) > 1) return;
-                    const ground = data[idx(lx, y, lz)];
-                    if (ground !== 7 && ground !== 13) return;
-                }
-            }
-
-            const sandstone = 13;
-            const water = 4;
-            const copperBlock = 34;
-            const wellY = topY + 1;
-
-            // 5x5 sandstone base
-            for (let dx = -2; dx <= 2; dx++) {
-                for (let dz = -2; dz <= 2; dz++) {
-                    data[idx(centerX + dx, wellY, centerZ + dz)] = sandstone;
-                }
-            }
-
-            // water basin cross
-            data[idx(centerX, wellY, centerZ)] = water;
-            data[idx(centerX + 1, wellY, centerZ)] = water;
-            data[idx(centerX - 1, wellY, centerZ)] = water;
-            data[idx(centerX, wellY, centerZ + 1)] = water;
-            data[idx(centerX, wellY, centerZ - 1)] = water;
-
-            // copper block under center
-            if (wellY - 1 >= 1) data[idx(centerX, wellY - 1, centerZ)] = copperBlock;
-
-            // pillars
-            for (let py = wellY + 1; py <= wellY + 3; py++) {
-                data[idx(centerX - 1, py, centerZ - 1)] = sandstone;
-                data[idx(centerX - 1, py, centerZ + 1)] = sandstone;
-                data[idx(centerX + 1, py, centerZ - 1)] = sandstone;
-                data[idx(centerX + 1, py, centerZ + 1)] = sandstone;
-            }
-
-            // roof
-            const roofY = wellY + 4;
-            for (let dx = -1; dx <= 1; dx++) {
-                for (let dz = -1; dz <= 1; dz++) {
-                    data[idx(centerX + dx, roofY, centerZ + dz)] = sandstone;
-                }
-            }
-
-            spawnedPigs.push({ wx: worldX + 0.5, wy: wellY + 1, wz: worldZ + 0.5 });
-        }
-
-        function placeWolfPackInChunk(data, heightmap, cx, cz, spawnedWolves) {
-            const centerX = Math.floor(CHUNK_SIZE / 2);
-            const centerZ = Math.floor(CHUNK_SIZE / 2);
-            const worldX = cx * CHUNK_SIZE + centerX;
-            const worldZ = cz * CHUNK_SIZE + centerZ;
-            if (getBiome(worldX, worldZ) !== 'Forest') return;
-            if (hashRand2D(cx, cz, 7701) > 0.12) return;
-
-            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
-            const getColumnTop = (lx, lz) => {
-                for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
-                    const t = data[idx(lx, y, lz)];
-                    if (t !== 0 && t !== 4) return y;
-                }
-                return -1;
-            };
-
-            const packSize = 1 + Math.floor(hashRand2D(cx, cz, 7702) * 5);
-            for (let i = 0; i < packSize; i++) {
-                const rx = Math.floor(hashRand2D(cx * 37 + i * 7, cz * 53 + i * 11, 7703) * CHUNK_SIZE);
-                const rz = Math.floor(hashRand2D(cx * 41 + i * 13, cz * 29 + i * 17, 7704) * CHUNK_SIZE);
-                if (rx < 1 || rz < 1 || rx >= CHUNK_SIZE - 1 || rz >= CHUNK_SIZE - 1) continue;
-                const topY = getColumnTop(rx, rz);
-                if (topY < SEA_LEVEL || topY > SEA_LEVEL + 24) continue;
-                const under = data[idx(rx, topY, rz)];
-                if (under !== 1 && under !== 2) continue;
-                spawnedWolves.push({ wx: cx * CHUNK_SIZE + rx + 0.5, wy: topY + 1, wz: cz * CHUNK_SIZE + rz + 0.5 });
-            }
-        }
 
 
-        function placePandaPackInChunk(data, heightmap, cx, cz, spawnedPandas) {
-            const centerX = Math.floor(CHUNK_SIZE / 2);
-            const centerZ = Math.floor(CHUNK_SIZE / 2);
-            const worldX = cx * CHUNK_SIZE + centerX;
-            const worldZ = cz * CHUNK_SIZE + centerZ;
-            if (getBiome(worldX, worldZ) !== 'Jungle Forest') return;
 
-            const cfg = window.JungleDecorationConfig?.panda || {};
-            const chance = Number(cfg.packSpawnChancePerChunk) || 0.14;
-            if (hashRand2D(cx, cz, 9901) > chance) return;
 
-            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
-            const getColumnTop = (lx, lz) => {
-                for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
-                    const t = data[idx(lx, y, lz)];
-                    if (t !== 0 && t !== 4) return y;
-                }
-                return -1;
-            };
 
-            const minPack = Math.max(1, Number(cfg.minPack) || 1);
-            const maxPack = Math.max(minPack, Number(cfg.maxPack) || 3);
-            const packSize = minPack + Math.floor(hashRand2D(cx, cz, 9902) * (maxPack - minPack + 1));
-            for (let i = 0; i < packSize; i++) {
-                const rx = Math.floor(hashRand2D(cx * 17 + i * 5, cz * 23 + i * 3, 9903) * CHUNK_SIZE);
-                const rz = Math.floor(hashRand2D(cx * 13 + i * 7, cz * 31 + i * 11, 9904) * CHUNK_SIZE);
-                if (rx < 1 || rz < 1 || rx >= CHUNK_SIZE - 1 || rz >= CHUNK_SIZE - 1) continue;
-                const topY = getColumnTop(rx, rz);
-                if (topY < SEA_LEVEL || topY > SEA_LEVEL + 28) continue;
-                const under = data[idx(rx, topY, rz)];
-                if (under !== 1 && under !== 2) continue;
-                spawnedPandas.push({ wx: cx * CHUNK_SIZE + rx + 0.5, wy: topY + 1, wz: cz * CHUNK_SIZE + rz + 0.5 });
-            }
-        }
 
-        function placeBambooInChunk(data, cx, cz) {
-            const centerX = Math.floor(CHUNK_SIZE / 2);
-            const centerZ = Math.floor(CHUNK_SIZE / 2);
-            const worldX = cx * CHUNK_SIZE + centerX;
-            const worldZ = cz * CHUNK_SIZE + centerZ;
-            if (getBiome(worldX, worldZ) !== 'Jungle Forest') return;
-
-            const cfg = window.JungleDecorationConfig?.bamboo || {};
-            const baseChance = Number(cfg.baseSpawnChancePerColumn) || 0.055;
-            const nearTreeBoost = Number(cfg.nearTreeBoost) || 0.03;
-
-            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
-            const getColumnTop = (lx, lz) => {
-                for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
-                    const t = data[idx(lx, y, lz)];
-                    if (t !== 0 && t !== 4 && t !== 6 && t !== 97) return y;
-                }
-                return -1;
-            };
-
-            for (let x = 1; x < CHUNK_SIZE - 1; x++) {
-                for (let z = 1; z < CHUNK_SIZE - 1; z++) {
-                    const wx = cx * CHUNK_SIZE + x;
-                    const wz = cz * CHUNK_SIZE + z;
-                    const topY = getColumnTop(x, z);
-                    if (topY < SEA_LEVEL - 1 || topY >= CHUNK_HEIGHT - 2) continue;
-                    const ground = data[idx(x, topY, z)];
-                    if (ground !== 1 && ground !== 2) continue;
-                    if (data[idx(x, topY + 1, z)] !== 0) continue;
-
-                    const nearbyTree = hasNearbyTreeTrunk(data, x, z, 2);
-                    const chance = baseChance + (nearbyTree ? nearTreeBoost : 0);
-                    if (hashRand2D(wx, wz, 9910) > chance) continue;
-                    data[idx(x, topY + 1, z)] = 99;
-                }
-            }
-        }
 
 
 
@@ -7182,114 +4984,26 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             }
         }
 
-        function placeMelonsInChunk(data, cx, cz) {
-            const melonCfg = worldGenSettings.decorations?.melons || {};
-            if (melonCfg.enabled === false) return;
-            const centerX = Math.floor(CHUNK_SIZE / 2);
-            const centerZ = Math.floor(CHUNK_SIZE / 2);
-            const worldX = cx * CHUNK_SIZE + centerX;
-            const worldZ = cz * CHUNK_SIZE + centerZ;
-            if (getBiome(worldX, worldZ) !== 'Jungle Forest') return;
-            const chancePerJungleChunk = Number(melonCfg.chancePerJungleChunk);
-            const spawnChance = Number.isFinite(chancePerJungleChunk) ? chancePerJungleChunk : 0.25;
-            if (hashRand2D(cx, cz, 12201) > spawnChance) return;
 
-            const MELON_BLOCK_ID = 108;
-            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
-            const getColumnTop = (lx, lz) => {
-                for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
-                    const t = data[idx(lx, y, lz)];
-                    if (t !== 0 && t !== 4 && t !== 6 && t !== 97) return y;
-                }
-                return -1;
-            };
-
-            const minPatch = Math.max(1, Math.floor(Number(melonCfg.minPatch) || 4));
-            const maxPatch = Math.max(minPatch, Math.floor(Number(melonCfg.maxPatch) || 9));
-            const count = minPatch + Math.floor(hashRand2D(cx * 13, cz * 17, 12202) * (maxPatch - minPatch + 1));
-            for (let i = 0; i < count; i++) {
-                const lx = 1 + Math.floor(hashRand2D(cx * 37 + i * 13, cz * 41 - i * 9, 12203) * (CHUNK_SIZE - 2));
-                const lz = 1 + Math.floor(hashRand2D(cx * 43 - i * 7, cz * 47 + i * 5, 12204) * (CHUNK_SIZE - 2));
-                const topY = getColumnTop(lx, lz);
-                if (topY < SEA_LEVEL - 1 || topY >= CHUNK_HEIGHT - 2) continue;
-                const ground = data[idx(lx, topY, lz)];
-                if (ground !== 1 && ground !== 2) continue;
-                if (data[idx(lx, topY + 1, lz)] !== 0) continue;
-                data[idx(lx, topY + 1, lz)] = MELON_BLOCK_ID;
-            }
-        }
 
         function placeAmethystGeodesInChunk(data, cx, cz) {
-            const geodeCfg = worldGenSettings.decorations?.amethystGeodes || {};
-            if (geodeCfg.enabled === false) return;
-            // Block palette for geodes:
-            // - 106 Basalt: outer shell
-            // - 105 Chalk: middle shell
-            // - 104 Amethyst Block: inner core
-            const BASALT_ID = 106;
-            const CHALK_ID = 105;
-            const AMETHYST_ID = 104;
+            window.UndergroundGeodesWorldgen?.placeAmethystGeodesInChunk?.({
+                data,
+                cx,
+                cz,
+                hashRand2D,
+                worldGenSettings,
+                CHUNK_SIZE,
+                CHUNK_HEIGHT,
+            });
+        }
 
-            const geodeChancePerChunk = Number(geodeCfg.chancePerChunk);
-            const spawnChance = Number.isFinite(geodeChancePerChunk) ? geodeChancePerChunk : 0.075;
-            if (hashRand2D(cx, cz, 12001) > spawnChance) return;
+        function computeChunkHash(data) {
+            return remeshOptimizations?.computeChunkHash?.(data) || 0;
+        }
 
-            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
-            const maxPerChunk = Math.max(1, Math.floor(Number(geodeCfg.maxPerChunk) || 2));
-            const geodeCount = maxPerChunk <= 1 ? 1 : (hashRand2D(cx * 7, cz * 11, 12002) > 0.84 ? maxPerChunk : 1);
-
-            for (let g = 0; g < geodeCount; g++) {
-                const lx = 2 + Math.floor(hashRand2D(cx * 37 + g * 13, cz * 29 - g * 7, 12003) * (CHUNK_SIZE - 4));
-                const lz = 2 + Math.floor(hashRand2D(cx * 19 - g * 5, cz * 41 + g * 17, 12004) * (CHUNK_SIZE - 4));
-                const wx = cx * CHUNK_SIZE + lx;
-                const wz = cz * CHUNK_SIZE + lz;
-
-                const centerY = 10 + Math.floor(hashRand2D(wx, wz, 12005 + g) * Math.max(18, CHUNK_HEIGHT * 0.45));
-                if (centerY < 8 || centerY > CHUNK_HEIGHT - 8) continue;
-
-                const radiusX = 3.2 + hashRand2D(wx + 17, wz - 9, 12006 + g) * 2.4;
-                const radiusY = 2.7 + hashRand2D(wx - 31, wz + 21, 12007 + g) * 2.0;
-                const radiusZ = 3.0 + hashRand2D(wx + 47, wz + 13, 12008 + g) * 2.6;
-                const outerRim = 1.05;
-                const middleRim = 0.78;
-
-                const minX = Math.max(1, Math.floor(lx - radiusX - 2));
-                const maxX = Math.min(CHUNK_SIZE - 2, Math.ceil(lx + radiusX + 2));
-                const minY = Math.max(2, Math.floor(centerY - radiusY - 2));
-                const maxY = Math.min(CHUNK_HEIGHT - 2, Math.ceil(centerY + radiusY + 2));
-                const minZ = Math.max(1, Math.floor(lz - radiusZ - 2));
-                const maxZ = Math.min(CHUNK_SIZE - 2, Math.ceil(lz + radiusZ + 2));
-
-                const eggNoiseByXZ = [];
-                for (let x = minX; x <= maxX; x++) {
-                    eggNoiseByXZ[x] = [];
-                    for (let z = minZ; z <= maxZ; z++) {
-                        eggNoiseByXZ[x][z] = (hashRand2D(wx + x * 5, wz + z * 3, 12009) - 0.5) * 0.12;
-                    }
-                }
-
-                for (let x = minX; x <= maxX; x++) {
-                    const dx = (x - lx) / radiusX;
-                    const dx2 = dx * dx;
-                    for (let y = minY; y <= maxY; y++) {
-                        const dy = (y - centerY) / radiusY;
-                        const dy2 = dy * dy;
-                        for (let z = minZ; z <= maxZ; z++) {
-                            const dz = (z - lz) / radiusZ;
-                            const norm = Math.sqrt(dx2 + dy2 + dz * dz) + eggNoiseByXZ[x][z];
-                            if (norm > outerRim) continue;
-
-                            const at = idx(x, y, z);
-                            const current = data[at];
-                            if (current === 14 || current === 33 || current === 4) continue;
-
-                            if (norm > middleRim) data[at] = BASALT_ID;
-                            else if (norm > 0.48) data[at] = CHALK_ID;
-                            else data[at] = AMETHYST_ID;
-                        }
-                    }
-                }
-            }
+        function isChunkAllAir(data) {
+            return chunkStreamOptimizations?.isChunkAllAir?.(data) || false;
         }
 
         function createChunk(cx, cz) {
@@ -7314,45 +5028,26 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 for (const g of generated.spawnedGnomes) spawnGnomeAt(g.wx, g.wy, g.wz);
             }
             if (generated.spawnedPigs && generated.spawnedPigs.length) {
-                for (const pig of generated.spawnedPigs) spawnPigAtExact(pig.wx, pig.wy, pig.wz);
+                for (const pig of generated.spawnedPigs) pigMob?.spawnAtExact?.(pig.wx, pig.wy, pig.wz);
             }
             if (generated.spawnedWolves && generated.spawnedWolves.length) {
-                for (const wolf of generated.spawnedWolves) spawnWolfAtExact(wolf.wx, wolf.wy, wolf.wz);
+                for (const wolf of generated.spawnedWolves) wolfMob?.spawnAtExact?.(wolf.wx, wolf.wy, wolf.wz);
             }
             if (generated.spawnedPandas && generated.spawnedPandas.length) {
-                for (const panda of generated.spawnedPandas) spawnPandaAtExact(panda.wx, panda.wy, panda.wz);
+                for (const panda of generated.spawnedPandas) pandaMob?.spawnAtExact?.(panda.wx, panda.wy, panda.wz);
             }
             if (generated.spawnedVillagers && generated.spawnedVillagers.length) {
                 for (const villager of generated.spawnedVillagers) {
-                    spawnVillagerAtExact(villager.wx, villager.wy, villager.wz, { x: villager.homeX, z: villager.homeZ }, { x: villager.centerX ?? villager.homeX, z: villager.centerZ ?? villager.homeZ }, villager.poiTargets || null);
+                    villagerMob?.spawnAtExact?.(villager.wx, villager.wy, villager.wz, { x: villager.homeX, z: villager.homeZ }, { x: villager.centerX ?? villager.homeX, z: villager.centerZ ?? villager.homeZ }, villager.poiTargets || null);
                 }
             }
             return group;
         }
 
 
-        function computeChunkHash(data) {
-            let h = 2166136261 >>> 0;
-            for (let i = 0; i < data.length; i++) {
-                h ^= data[i] & 0xff;
-                h = Math.imul(h, 16777619) >>> 0;
-            }
-            return h >>> 0;
-        }
-
-        function isChunkAllAir(data) {
-            for (let i = 0; i < data.length; i++) {
-                if (data[i] !== 0) return false;
-            }
-            return true;
-        }
-
-        function convertChunkToSparseAir(chunkGroup) {
+        function disposeLoadedChunkByKey(chunkKey) {
+            const chunkGroup = chunks.get(chunkKey);
             if (!chunkGroup || !chunkGroup.userData) return;
-            const cx = chunkGroup.userData.cx;
-            const cz = chunkGroup.userData.cz;
-            const chunkKey = `${cx},${cz}`;
-
             removeTorchLightsForChunk(chunkKey);
             worldGroup.remove(chunkGroup);
             if (chunkGroup.children) {
@@ -7363,28 +5058,19 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             if (chunkGroup.userData?.meshesByKey) {
                 chunkGroup.userData.meshesByKey.clear();
             }
-
             chunks.delete(chunkKey);
+        }
+
+        function convertChunkToSparseAir(chunkGroup) {
+            if (!chunkGroup || !chunkGroup.userData) return;
+            const chunkKey = `${chunkGroup.userData.cx},${chunkGroup.userData.cz}`;
+            disposeLoadedChunkByKey(chunkKey);
             sparseAirChunkKeys.add(chunkKey);
-            dirtyChunkRemeshReasons.delete(chunkKey);
+            remeshOptimizations?.deleteChunk?.(chunkKey);
         }
 
         function updateChunkFrustumCulling() {
-            camera.updateMatrixWorld();
-            cameraViewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-            frustum.setFromProjectionMatrix(cameraViewProj);
-
-            // Conservative chunk-level culling only: rely on frustum test to avoid directional popping.
-            for (const group of chunks.values()) {
-                frustumTempCenter.set(
-                    group.userData.cx * CHUNK_SIZE + CHUNK_SIZE * 0.5,
-                    CHUNK_HEIGHT * 0.5,
-                    group.userData.cz * CHUNK_SIZE + CHUNK_SIZE * 0.5
-                );
-                frustumTempSphere.center.copy(frustumTempCenter);
-                frustumTempSphere.radius = group.userData.frustumRadius || 40;
-                group.visible = frustum.intersectsSphere(frustumTempSphere);
-            }
+            frustumOptimizations?.updateChunkFrustumCulling?.();
         }
 
         function updateChunkAndNeighbors(centerGroup, lx, lz) {
@@ -7392,7 +5078,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             const cz = centerGroup.userData.cz;
             const needsNeighbors = (lx === 0 || lx === CHUNK_SIZE - 1 || lz === 0 || lz === CHUNK_SIZE - 1);
 
-            if (blockUpdateBatchDepth > 0) {
+            if (remeshOptimizations?.isBatchActive?.()) {
                 markBatchedChunkRemeshNeed(cx, cz, needsNeighbors);
                 return;
             }
@@ -7403,6 +5089,30 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             }
             rebuildDirtyChunkMeshes();
         }
+
+        frustumOptimizations = window.SingleplayerFrustumOptimizations?.create?.({
+            THREE,
+            getCamera: () => camera,
+            chunks,
+            CHUNK_SIZE,
+            CHUNK_HEIGHT,
+            intervalMs: FRUSTUM_CULL_INTERVAL_MS,
+        }) || null;
+
+        chunkStreamOptimizations = window.SingleplayerChunkStreamOptimizations?.create?.({
+            getYawObject: () => yawObject,
+            getCurrentChunkLoadRadius: () => currentChunkLoadRadius,
+            getChunkCreationBudgetPerTick: () => CHUNK_CREATION_BUDGET_PER_TICK,
+            getChunkCreationBudgetForce: () => CHUNK_CREATION_BUDGET_FORCE,
+            getChunkKey: chunkKeyFromCoords,
+            getChunkEntries: () => chunks.entries(),
+            hasChunk: (key) => chunks.has(key),
+            hasSparseAirChunk: (key) => sparseAirChunkKeys.has(key),
+            createChunk,
+            removeChunk: disposeLoadedChunkByKey,
+            CHUNK_SIZE,
+            chunkUpdateIntervalMs: CHUNK_UPDATE_INTERVAL_MS,
+        }) || null;
         
         // Maps block ID to the THREE.js material key/fallback key
         function getMaterialKey(id, faceDir) {
@@ -8259,67 +5969,11 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
 
         function getChunkRetentionRadius() {
-            // Small hysteresis band prevents rapid load/unload thrashing when crossing chunk borders.
-            return currentChunkLoadRadius + 1;
+            return chunkStreamOptimizations?.getChunkRetentionRadius?.() || (currentChunkLoadRadius + 1);
         }
 
         function ensureChunksAroundPlayer(forceUpdate = false, nowMs = performance.now()) {
-            if (!yawObject) return;
-            const playerChunkX = Math.floor(yawObject.position.x / CHUNK_SIZE);
-            const playerChunkZ = Math.floor(yawObject.position.z / CHUNK_SIZE);
-            const sameChunk = playerChunkX === lastChunkCoordX && playerChunkZ === lastChunkCoordZ;
-            if (!forceUpdate && sameChunk && (nowMs - lastChunkUpdateMs) < CHUNK_UPDATE_INTERVAL_MS) return;
-
-            lastChunkCoordX = playerChunkX;
-            lastChunkCoordZ = playerChunkZ;
-            lastChunkUpdateMs = nowMs;
-
-            const loadRadius = currentChunkLoadRadius;
-            const keepRadius = getChunkRetentionRadius();
-
-            const budget = forceUpdate ? CHUNK_CREATION_BUDGET_FORCE : CHUNK_CREATION_BUDGET_PER_TICK;
-            if (budget > 0) {
-                const offsets = getChunkOffsetsForRadius(loadRadius);
-                const loadRadiusSq = loadRadius * loadRadius;
-                let created = 0;
-                for (let i = 0; i < offsets.length && created < budget; i++) {
-                    const off = offsets[i];
-                    if (off.dist2 > loadRadiusSq) continue;
-                    const cx = playerChunkX + off.dx;
-                    const cz = playerChunkZ + off.dz;
-                    const chunkKey = `${cx},${cz}`;
-                    if (chunks.has(chunkKey) || sparseAirChunkKeys.has(chunkKey)) continue;
-                    createChunk(cx, cz);
-                    created++;
-                }
-            }
-
-            const chunkKeysToRemove = [];
-            const keepRadiusSq = keepRadius * keepRadius;
-            for (const [chunkKey, chunkGroup] of chunks.entries()) {
-                const dx = chunkGroup.userData.cx - playerChunkX;
-                const dz = chunkGroup.userData.cz - playerChunkZ;
-                const dist2 = dx * dx + dz * dz;
-                if (dist2 > keepRadiusSq) {
-                    chunkKeysToRemove.push(chunkKey);
-                }
-            }
-
-            for (const chunkKey of chunkKeysToRemove) {
-                const chunkGroup = chunks.get(chunkKey);
-                if (!chunkGroup) continue;
-                removeTorchLightsForChunk(chunkKey);
-                worldGroup.remove(chunkGroup);
-                if (chunkGroup.children) {
-                    for (const child of chunkGroup.children) {
-                        if (child.geometry) child.geometry.dispose();
-                    }
-                }
-                if (chunkGroup.userData?.meshesByKey) {
-                    chunkGroup.userData.meshesByKey.clear();
-                }
-                chunks.delete(chunkKey);
-            }
+            chunkStreamOptimizations?.ensureChunksAroundPlayer?.(forceUpdate, nowMs);
         }
 
         function generateWorld() {
@@ -8327,24 +5981,11 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
         }
 
         function processMeshUpdateQueue() {
-            // Spread chunk mesh rebuilds across frames to avoid spikes.
             rebuildDirtyChunkMeshes(false);
         }
 
         function maybeUpdateChunkFrustumCulling(nowMs) {
-            const intervalElapsed = (nowMs - lastFrustumCullMs) >= FRUSTUM_CULL_INTERVAL_MS;
-
-            const movedSq = hasFrustumCameraState ? camera.position.distanceToSquared(lastFrustumCameraPos) : Infinity;
-            const rotatedDelta = hasFrustumCameraState ? (1 - Math.abs(camera.quaternion.dot(lastFrustumCameraQuat))) : Infinity;
-            const cameraChanged = movedSq > 0.04 || rotatedDelta > 0.00008;
-
-            if (!intervalElapsed && !cameraChanged) return;
-
-            lastFrustumCullMs = nowMs;
-            lastFrustumCameraPos.copy(camera.position);
-            lastFrustumCameraQuat.copy(camera.quaternion);
-            hasFrustumCameraState = true;
-            updateChunkFrustumCulling();
+            frustumOptimizations?.maybeUpdateChunkFrustumCulling?.(nowMs);
         }
 
         function updateMining(deltaMs) {
@@ -8442,61 +6083,11 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
         }
 
         function canDirtSpreadToGrass(wx, wy, wz) {
-            if (wy <= 0 || wy >= CHUNK_HEIGHT - 1) return false;
-            if (getBlockType(wx, wy, wz) !== 2) return false;
-            if (getBlockType(wx, wy + 1, wz) !== 0) return false;
-            return (
-                getBlockType(wx + 1, wy, wz) === 1
-                || getBlockType(wx - 1, wy, wz) === 1
-                || getBlockType(wx, wy, wz + 1) === 1
-                || getBlockType(wx, wy, wz - 1) === 1
-            );
+            return dirtToGrassLoop?.canDirtSpreadToGrass?.(wx, wy, wz) || false;
         }
 
         function updateGrassSpread(deltaMs) {
-            grassSpreadTimerMs += deltaMs;
-            const tickMs = 350;
-            if (grassSpreadTimerMs < tickMs) return;
-            grassSpreadTimerMs = 0;
-
-            const centerCx = Math.floor(yawObject.position.x / CHUNK_SIZE);
-            const centerCz = Math.floor(yawObject.position.z / CHUNK_SIZE);
-            const activeRadius = 3;
-            const candidateChunks = [];
-
-            for (let cx = centerCx - activeRadius; cx <= centerCx + activeRadius; cx++) {
-                for (let cz = centerCz - activeRadius; cz <= centerCz + activeRadius; cz++) {
-                    const group = chunks.get(`${cx},${cz}`);
-                    if (group?.userData?.chunkData) candidateChunks.push(group);
-                }
-            }
-
-            if (!candidateChunks.length) return;
-
-            const sampleCount = Math.min(3, candidateChunks.length);
-            for (let sampleIdx = 0; sampleIdx < sampleCount; sampleIdx++) {
-                const group = candidateChunks[Math.floor(Math.random() * candidateChunks.length)];
-                const data = group?.userData?.chunkData;
-                const cx = group?.userData?.cx;
-                const cz = group?.userData?.cz;
-                if (!data || !Number.isFinite(cx) || !Number.isFinite(cz)) continue;
-
-                for (let tries = 0; tries < 24; tries++) {
-                    const lx = Math.floor(Math.random() * CHUNK_SIZE);
-                    const lz = Math.floor(Math.random() * CHUNK_SIZE);
-                    const y = getColumnTopFromData(data, lx, lz);
-                    if (y <= 0 || y >= CHUNK_HEIGHT - 1) continue;
-
-                    const idx = lx + y * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
-                    if (data[idx] !== 2) continue;
-
-                    const wx = cx * CHUNK_SIZE + lx;
-                    const wz = cz * CHUNK_SIZE + lz;
-                    if (!canDirtSpreadToGrass(wx, y, wz)) continue;
-
-                    if (setBlockTypeRaw(wx, y, wz, 1, true)) break;
-                }
-            }
+            dirtToGrassLoop?.updateGrassSpread?.(deltaMs);
         }
 
         function animate(time) {
@@ -8505,8 +6096,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             const delta = lastTime ? (time - lastTime) : 0;
             lastTime = time;
 
-            cycleTimeMs = (cycleTimeMs + delta) % DAY_CYCLE_DURATION;
-            updateSkyAndSun();
+            dayNightCycle?.tick?.(delta);
 
             const liquidState = getPlayerLiquidState();
             updateBreathing(delta / 1000, liquidState.isUnderLiquid);
@@ -8520,14 +6110,14 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 ensureChunksAroundPlayer(false, time);
                 maybeUpdateChunkFrustumCulling(time);
                 updateGnomes(time);
-                updatePigs(time, delta);
-                updateWolves(time, delta);
-                updatePandas(time, delta);
-                updateVillagers(time, delta);
+                pigMob?.update?.(time, delta);
+                wolfMob?.update?.(time, delta);
+                pandaMob?.update?.(time, delta);
+                villagerMob?.update?.(time, delta);
                 updateBambooGrowth(delta);
                 updateGrassSpread(delta);
-                trySpawnNightZombie(delta);
-                updateZombies(time, delta);
+                zombieMob?.trySpawnNight?.(delta);
+                zombieMob?.update?.(time, delta);
                 resolveMobEntityPushing();
                 updateEatingAnimation(delta, time);
                 updatePlayerAvatarVisuals(time);
@@ -8545,11 +6135,11 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
                 if (inventoryEntityUpdateAccumulatorMs >= INVENTORY_ENTITY_UPDATE_INTERVAL_MS) {
                     const simDelta = Math.min(250, inventoryEntityUpdateAccumulatorMs);
                     inventoryEntityUpdateAccumulatorMs = 0;
-                    updatePigs(time, simDelta);
-                    updateWolves(time, simDelta);
-                    updatePandas(time, simDelta);
-                    updateVillagers(time, simDelta);
-                    updateZombies(time, simDelta);
+                    pigMob?.update?.(time, simDelta);
+                    wolfMob?.update?.(time, simDelta);
+                    pandaMob?.update?.(time, simDelta);
+                    villagerMob?.update?.(time, simDelta);
+                    zombieMob?.update?.(time, simDelta);
                     resolveMobEntityPushing();
                 }
                 updateEatingAnimation(delta, time);
