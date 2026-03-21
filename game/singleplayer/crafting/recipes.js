@@ -1,4 +1,6 @@
 (function () {
+  const VINE_ID = window.SingleplayerSideConfig?.VINE_ID || 126;
+
   const CRAFTING_RECIPES = [
     { name: 'Oak Planks', output: { id: 8, count: 4 }, shape: [[5]] },
     { name: 'Crafting Table', output: { id: 9, count: 1 }, shape: [[8, 8], [8, 8]] },
@@ -11,6 +13,8 @@
     { name: 'Snow Block', output: { id: 15, count: 1 }, shape: [[16, 16], [16, 16]] },
     { name: 'Coal Block', output: { id: 20, count: 1 }, shape: [[19, 19, 19], [19, 19, 19], [19, 19, 19]] },
     { name: 'Stone Brick', output: { id: 21, count: 4 }, shape: [[3, 3], [3, 3]] },
+    { name: 'Mossy Cobblestone', output: { id: 113, count: 1 }, shape: [[VINE_ID, 17]] },
+    { name: 'Mossy Cobblestone', output: { id: 113, count: 1 }, shape: [[17, VINE_ID]] },
     { name: 'Sand Stone', output: { id: 7, count: 4 }, shape: [[13]] },
     { name: 'Coal Block', output: { id: 19, count: 9 }, shape: [[20]] },
     { name: 'Snow Block', output: { id: 16, count: 4 }, shape: [[15]] },
