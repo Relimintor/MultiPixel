@@ -1,0 +1,19 @@
+[node_view]
+
+[Entities]
+
+# Shows the entity you are looking at, with it's current health and max health.
+node_view.show_entities (Show Entities) bool true
+
+[Liquids]
+
+# Shows the liquid you are looking at, but prevents you from seeing other nodes, when you are in a liquid.
+node_view.show_liquids (Show Liquids) bool false
+
+[Advanced ]
+
+# Always shows the "Hand" as the tool in creative mode.
+node_view.always_show_hand_in_creative (Always Show "Hand" in Creative Mode) bool true
+
+# The will force the image size to be your selected value (even if the texture is smaller or bigger). When mod security is false, this will be automated (every image will have it's correct size).
+node_view.texture_pack_size (Texture Pack Size) enum None None,1x1px,2x2px,4x4px,8x8px,16x16px,32x32px,64x64px,128x128px,256x256px,512x512px,1024x1024px
