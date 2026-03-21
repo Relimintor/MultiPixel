@@ -21,8 +21,8 @@
       ravineActivationThreshold: 0.9,
     },
     // Limit new chunk generation per update to avoid frame spikes while moving/jumping.
-    chunkCreationBudgetPerTick: 2,
-    chunkCreationBudgetOnForceUpdate: 10,
+    chunkCreationBudgetPerTick: 1,
+    chunkCreationBudgetOnForceUpdate: 5,
     // Max chunk mesh rebuilds processed per frame from the remesh queue.
     meshRebuildBudgetPerFrame: 1,
     // Tick-limiting caps to prevent chain-reaction lag spikes.
@@ -31,7 +31,7 @@
     redstoneUpdatesPerTickMax: 40,
     // Chunk render distance in chunk units (radius). Lower default keeps performance stable.
     // Players can still raise it in-game with the render-distance command.
-    chunkRenderDistance: 3,
+    chunkRenderDistance: 2,
     // Entities farther than this many blocks are frozen (AI/pathfinding/physics skipped).
     entityActivationRange: 48,
     biomeMap: {
@@ -44,20 +44,20 @@
       regionHillChance: 0.08,
     },
     treeDensityByBiome: {
-      Forest: 0.40,
-      'Jungle Forest': 0.75,
-      Plains: 0.065,
+      Forest: 0.6,
+      'Jungle Forest': 1.0,
+      Plains: 0.15,
       Mountains: 0.02,
-      'Snowy Plains': 0.01,
+      'Snowy Plains': 0.04,
       Desert: 0,
       Ocean: 0,
     },
-    treeClusterBonus: 0.4,
-    treeMinSpacingChance: 0.25,
+    treeClusterBonus: 0.8,
+    treeMinSpacingChance: 0.1,
     decorations: {
       amethystGeodes: {
         enabled: true,
-        chancePerChunk: 0.075,
+        chancePerChunk: 0.04,
         maxPerChunk: 1,
       },
       pumpkins: {
@@ -68,7 +68,7 @@
       },
       melons: {
         enabled: true,
-        chancePerJungleChunk: 0.25,
+        chancePerJungleChunk: 0.15,
         minPatch: 4,
         maxPatch: 9,
       },
