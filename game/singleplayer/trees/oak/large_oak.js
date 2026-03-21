@@ -2,6 +2,9 @@
   const LargeOakTree = {
     style: 'large_oak',
     trunkOffsets: [{ x: 0, z: 0 }],
+    trunkBlockId: 5,
+    leafBlockId: 6,
+    crownRadius: 0,
     trunkHeight({ hashRand2D, wx, wz }) {
       return 5 + Math.floor(hashRand2D(wx, wz, 307) * 3);
     },
