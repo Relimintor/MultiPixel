@@ -53,6 +53,9 @@
     renderAs: 'plane',
   };
 
+  const GLOWSTONE_PORTAL_Z_ID = VINE_ID + 1;
+  const GLOWSTONE_PORTAL_X_ID = VINE_ID + 2;
+
   const sideBlockMaterials = {
     ...flowerBlockMaterials,
     [VINE_ID]: {
@@ -67,6 +70,30 @@
       placeable: true,
       color: vineDefinition.color,
       spawnBiomes: vineDefinition.spawnBiomes.slice(),
+    },
+    [GLOWSTONE_PORTAL_Z_ID]: {
+      name: 'Glowstone Portal',
+      id: GLOWSTONE_PORTAL_Z_ID,
+      textured: true,
+      textureKey: vineDefinition.textureKey,
+      transparent: true,
+      opacity: 1,
+      alphaCutout: true,
+      renderAs: 'plane',
+      color: vineDefinition.color,
+      notInCreative: true,
+    },
+    [GLOWSTONE_PORTAL_X_ID]: {
+      name: 'Glowstone Portal',
+      id: GLOWSTONE_PORTAL_X_ID,
+      textured: true,
+      textureKey: vineDefinition.textureKey,
+      transparent: true,
+      opacity: 1,
+      alphaCutout: true,
+      renderAs: 'plane_x',
+      color: vineDefinition.color,
+      notInCreative: true,
     },
   };
 
@@ -122,8 +149,10 @@
       ...vineDefinition,
       spawnBiomes: vineDefinition.spawnBiomes.slice(),
     },
+    GLOWSTONE_PORTAL_Z_ID,
+    GLOWSTONE_PORTAL_X_ID,
     SIDE_BLOCK_MATERIALS: sideBlockMaterials,
     SIDE_ASSET_FILEPATHS: sideAssetFilepaths,
-    SIDE_RENDER_BLOCK_IDS: [...flowerIds, vineDefinition.id],
+    SIDE_RENDER_BLOCK_IDS: [...flowerIds, vineDefinition.id, GLOWSTONE_PORTAL_Z_ID, GLOWSTONE_PORTAL_X_ID],
   };
 })();

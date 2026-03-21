@@ -876,7 +876,7 @@ window.perlin = perlinInstance;
                 const promise = new Promise((resolve) => {
                     const matId = getMaterialIdByTextureKey(key);
                     const matCfg = matId >= 0 ? blockMaterials[matId] : {};
-                    const isDoubleSidedCutout = key === 'LEAVES' || matCfg.renderAs === 'cross' || matCfg.renderAs === 'plane';
+                    const isDoubleSidedCutout = key === 'LEAVES' || matCfg.renderAs === 'cross' || matCfg.renderAs === 'plane' || matCfg.renderAs === 'plane_x';
                     loader.load(
                         path, // <-- DIRECTLY using the calculated path
                         (texture) => {
@@ -2054,7 +2054,7 @@ window.perlin = perlinInstance;
             creativeCatalog.length = 0;
             const seen = new Set();
             const entries = Object.values(blockMaterials || {})
-                .filter((mat) => mat && Number.isFinite(mat.id) && mat.id !== 0)
+                .filter((mat) => mat && Number.isFinite(mat.id) && mat.id !== 0 && !mat.notInCreative)
                 .sort((a, b) => a.id - b.id);
             entries.forEach((mat) => {
                 if (seen.has(mat.id)) return;
@@ -5660,6 +5660,9 @@ window.perlin = perlinInstance;
             const singlePlaneFaces = [
                 { name: 'posZ', dir: [0, 0, 1], corners: [[0.15,1,0.5],[0.15,0,0.5],[0.85,0,0.5],[0.85,1,0.5]], uv: [0,1,0,0,1,0,1,1] },
             ];
+            const singlePlaneFacesX = [
+                { name: 'posX', dir: [1, 0, 0], corners: [[0.5,1,0.15],[0.5,0,0.15],[0.5,0,0.85],[0.5,1,0.85]], uv: [0,1,0,0,1,0,1,1] },
+            ];
 
 
             const CH = CHUNK_HEIGHT;
@@ -5979,7 +5982,9 @@ window.perlin = perlinInstance;
                         const isTrans = mat.transparent || (mat.textured && mat.textureKey === 'LEAVES');
                         if (!isTorch && !isBambooStage && !isBambooStalk && !isSlab && !isSideRenderBlock && !isTrans) continue;
                         const activeFaces = isSideRenderBlock
-                            ? (sideRenderMode === 'plane' ? singlePlaneFaces : crossPlantFaces)
+                            ? (sideRenderMode === 'plane'
+                                ? singlePlaneFaces
+                                : (sideRenderMode === 'plane_x' ? singlePlaneFacesX : crossPlantFaces))
                             : (isTorch ? torchFaces : (isBambooStalk ? bambooStalkFaces : (isBambooStage ? bambooStageFaces : (isSlab ? slabFaces : faces))));
 
                         for (let i = 0; i < activeFaces.length; i++) {

@@ -1,4 +1,6 @@
 (function () {
+  const GLOWSTONE_PORTAL_Z_ID = window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_Z_ID || 147;
+  const GLOWSTONE_PORTAL_X_ID = window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_X_ID || 148;
   const PICKAXE_BY_ITEM_ID = {
     11: { name: 'Wooden Pickaxe', tier: 1, hardBlockSpeed: 0.56, utilityBlockSpeed: 1.08, softBlockPenalty: 1.18 },
     12: { name: 'Stone Pickaxe', tier: 2, hardBlockSpeed: 0.38, utilityBlockSpeed: 0.94, softBlockPenalty: 1.08 },
@@ -100,6 +102,7 @@
     if (blockId === 107) return { id: 110, count: 1 };
     if (blockId === 108) return { id: 109, count: 9 };
     if (blockId === 119) return { id: 118, count: 4 };
+    if (blockId === GLOWSTONE_PORTAL_Z_ID || blockId === GLOWSTONE_PORTAL_X_ID) return { id: 0, count: 0 };
     return { id: blockId, count: 1 };
   }
 
