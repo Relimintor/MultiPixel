@@ -1,5 +1,15 @@
 (function () {
   const JungleForestTerrain = {
+    meta: {
+      terrainKey: 'jungle_forest',
+      name: 'Jungle Forest',
+      aliases: ['jungle', 'jungle forest', 'jungle_forest'],
+      villageKey: 'jungle_forest',
+      treeEligible: true,
+      treeSpawnChance: 0.19,
+      treeDensityKey: 'Forest',
+      climateTarget: { temp: 0.95, humidity: 0.9, continentalness: 0.2, erosion: 0.03, weirdness: 0.0 },
+    },
     isBiome({ tempNoise, humidityNoise, mountainNoise }) {
       return tempNoise > 0.45 && humidityNoise > 0.35 && mountainNoise < 0.78;
     },

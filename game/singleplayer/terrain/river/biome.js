@@ -1,5 +1,14 @@
 (function () {
   const RiverTerrain = {
+    meta: {
+      terrainKey: 'river',
+      name: 'River',
+      aliases: ['river'],
+      villageKey: '',
+      treeEligible: true,
+      treeSpawnChance: 0.06,
+      treeDensityKey: 'Plains',
+    },
     getMask({ perlin, wx, wz }) {
       const scale = 0.001;
       const bendScale = 0.002;

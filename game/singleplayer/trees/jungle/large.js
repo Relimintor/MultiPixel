@@ -7,6 +7,12 @@
       { x: 0, z: 1 },
       { x: 1, z: 1 },
     ],
+    trunkBlockId: 96,
+    leafBlockId: 97,
+    crownRadius: 0,
+    trunkHeight({ hashRand2D, wx, wz }) {
+      return 8 + Math.floor(hashRand2D(wx, wz, 913) * 4);
+    },
     canopyRadius(relYToTop) {
       if (relYToTop >= 2) return 2;
       if (relYToTop >= 1) return 3;

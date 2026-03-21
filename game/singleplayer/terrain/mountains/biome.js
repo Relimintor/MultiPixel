@@ -19,6 +19,15 @@
   }
 
   const MountainsTerrain = {
+    meta: {
+      terrainKey: 'mountains',
+      name: 'Mountains',
+      aliases: ['mountains', 'mountain'],
+      villageKey: '',
+      treeEligible: false,
+      treeSpawnChance: 0,
+      treeDensityKey: 'Plains',
+    },
     isBiome({ mountainNoise, continentalNoise, climateNoise }) {
       return mountainNoise > 0.55 && continentalNoise > 0.35 && climateNoise > -0.5;
     },
