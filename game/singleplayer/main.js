@@ -4960,10 +4960,12 @@ window.perlin = perlinInstance;
         }
 
         function getRavineMask(wx, wz) {
-            if (worldGenerator) return worldGenerator.sampleRavineMask(wx, wz);
-            const warp = perlin.noise2D(wx * 0.001 + 250, wz * 0.001 + 250) * 30;
-            const line = Math.abs(perlin.noise2D(wx * 0.0018 + warp, wz * 0.0018));
-            return 1.0 - Math.min(1.0, line / 0.043);
+            return window.UndergroundRavinesWorldgen?.getRavineMask?.({
+                wx,
+                wz,
+                worldGenerator,
+                perlin,
+            });
         }
 
         function octaveNoise2D(x, z, octaves, persistence, lacunarity, scale, offsetX = 0, offsetZ = 0) {
@@ -5004,14 +5006,15 @@ window.perlin = perlinInstance;
         }
 
         function sampleCaveShape(wx, y, wz) {
-            if (USE_WASM_CAVE_SAMPLING && wasmRuntime?.has && wasmRuntime.has('caveShape')) {
-                const out = wasmRuntime.call('caveShape', wx, y, wz, CAVE_SCALE);
-                if (typeof out === 'number' && Number.isFinite(out)) return out;
-            }
-
-            const n1 = perlin.noise3D(wx * CAVE_SCALE, y * CAVE_SCALE * 1.7, wz * CAVE_SCALE);
-            const n2 = perlin.noise3D(wx * CAVE_SCALE * 2.2 + 100, y * CAVE_SCALE * 1.1, wz * CAVE_SCALE * 2.2 + 100);
-            return n1 * 0.7 + n2 * 0.3;
+            return window.UndergroundCavesWorldgen?.sampleCaveShape?.({
+                wx,
+                y,
+                wz,
+                USE_WASM_CAVE_SAMPLING,
+                wasmRuntime,
+                CAVE_SCALE,
+                perlin,
+            });
         }
 
         function sampleTerrainVector(wx, wz) {
@@ -6076,15 +6079,15 @@ function buildPartFaceRects(x, y, w, h, d) {
                      const isWarmOcean = biome === 'Warm Ocean';
                      const isColdOcean = biome === 'Cold Ocean';
                      const isCoastOcean = biome === 'Coast Ocean';
-                     const ravineMask = getRavineMask(wx, wz);
-                     const ravineTopCap = Math.max(3, h - RAVINE_SURFACE_SAFETY_DEPTH);
-                     const canCarveRavine = ravineMask > RAVINE_ACTIVATION_THRESHOLD && ravineTopCap > 3;
-                     const ravineStrength = canCarveRavine
-                        ? ((ravineMask - RAVINE_ACTIVATION_THRESHOLD) / (1 - RAVINE_ACTIVATION_THRESHOLD))
-                        : 0;
-                     const ravineTop = canCarveRavine ? Math.min(ravineTopCap, CHUNK_HEIGHT - 1) : 0;
-                     const ravineMaxDepth = canCarveRavine ? (12 + Math.floor(ravineStrength * 8)) : 0;
-                     const ravineBottom = canCarveRavine ? Math.max(3, ravineTop - ravineMaxDepth) : 0;
+                     const ravineProfile = window.UndergroundRavinesWorldgen?.createRavineColumnProfile?.({
+                        wx,
+                        wz,
+                        surfaceHeight: h,
+                        getRavineMask,
+                        RAVINE_SURFACE_SAFETY_DEPTH,
+                        RAVINE_ACTIVATION_THRESHOLD,
+                        CHUNK_HEIGHT,
+                     }) || { canCarveRavine: false, ravineStrength: 0, ravineTop: 0, ravineBottom: 0, ravineMask: 0, ravineMaxDepth: 0 };
                      for (let y = 0; y < CHUNK_HEIGHT; y++) {
                          let t = 0; // Block type
 
@@ -6159,120 +6162,42 @@ function buildPartFaceRects(x, y, w, h, d) {
                              // Otherwise (on dry land, above h, below sea level, not river) it remains air (t=0)
                          }
                          
-                        // --- Cave Generation Pass (layered Perlin for bigger cave systems) ---
-                        if (y > CAVE_MIN_Y && y < h - CAVE_MAX_Y_OFFSET && (h - y) >= (CAVE_SURFACE_SAFETY_DEPTH + 2)) {
-                            if (t === 3 || t === 2 || t === 7 || t === 13 || t === 28 || t === 59) {
-                                const caveShape = sampleCaveShape(wx, y, wz);
-
-                                const depth = Math.max(0, (h - y) / Math.max(1, h));
-                                const nearSurfaceGuard = depth < 0.2 ? 0.1 : (depth < 0.35 ? 0.05 : 0);
-                                const dynamicThreshold = CAVE_THRESHOLD + nearSurfaceGuard - Math.min(0.1, depth * 0.14);
-                                const tunnelNoise = Math.abs(perlin.noise3D(wx * CAVE_SCALE * 0.7, y * CAVE_SCALE * 0.45, wz * CAVE_SCALE * 0.7));
-
-                                if (caveShape > dynamicThreshold || (depth > 0.55 && tunnelNoise < 0.05)) {
-                                    t = 0;
-                                }
-                            }
-                        }
+                        t = window.UndergroundCavesWorldgen?.carveBlock?.({
+                            blockId: t,
+                            wx,
+                            y,
+                            wz,
+                            surfaceHeight: h,
+                            perlin,
+                            CAVE_SCALE,
+                            CAVE_THRESHOLD,
+                            CAVE_MIN_Y,
+                            CAVE_MAX_Y_OFFSET,
+                            CAVE_SURFACE_SAFETY_DEPTH,
+                            sampleCaveShape,
+                        }) ?? t;
                          
                          
-// 🔹 Optimized Ravine Generation
-if (canCarveRavine) {
-    const strength = ravineStrength;
-    if (y <= ravineTop && y >= ravineBottom) {
-        const mid = (ravineTop + ravineBottom) / 2;
-        const halfHeight = (ravineTop - ravineBottom) / 2;
-        const verticalFactor = 1 - Math.abs(y - mid) / halfHeight;
+                        t = window.UndergroundRavinesWorldgen?.applyRavineBlock?.({
+                            blockId: t,
+                            y,
+                            ravineProfile,
+                            wx,
+                            wz,
+                            octaveNoise2D,
+                            SEA_LEVEL,
+                        }) ?? t;
 
-        // Reduce noise impact
-        const widthNoise = octaveNoise2D(wx, wz, 2, 0.5, 2.0, 0.04, 812, -245);
-        const widthFactor = strength * verticalFactor + widthNoise * 0.06;
-
-        if (widthFactor > 0.42) {
-            // 🔥 Lava very deep underground (only really deep)
-            if (y < 6) {
-                t = 33;
-            }
-            // 🌊 Water below sea level
-            else if (y < SEA_LEVEL - 1) {
-                t = 4;
-            }
-            // 🌫 Air above sea level
-            else {
-                t = 0;
-            }
-        }
-    }
-}
-                             
-                             
-                             
-    // Coal ore pass: mineable by hand, faster with pickaxe.
-if ((t === 3 || t === 13) && y > 6 && y < Math.min(CHUNK_HEIGHT - 6, h - 2)) {
-    const veinNoise = octaveNoise2D(wx, wz, 3, 0.5, 2.0, 0.09, 1450, -870);
-    const depthBias = 1 - (y / CHUNK_HEIGHT);
-    const oreRoll = hashRand2D(wx + y * 13, wz - y * 7, 301);
-    if (veinNoise > 0.12 && oreRoll < (0.06 + depthBias * 0.08)) {
-        t = 18;
-    }
-}
-
-// Copper ore pass
-if ((t === 3 || t === 13) && y > 6 && y < Math.min(CHUNK_HEIGHT - 6, h - 2)) {
-    const veinNoise = octaveNoise2D(wx, wz, 3, 0.5, 2.0, 0.07, 5555, -666);
-    const depthBias = 1 - (y / CHUNK_HEIGHT);
-    const oreRoll = hashRand2D(wx + y * 13, wz - y * 7, 302);
-
-    if (veinNoise > 0.20 && oreRoll < (0.06 + depthBias * 0.08)) {
-        t = 35; // copper ore
-    }
-}
-
-// Iron ore pass
-if ((t === 3 || t === 13) && y > 4 && y < CHUNK_HEIGHT * 0.6) {
-    const veinNoise = octaveNoise2D(wx, wz, 3, 0.5, 2.0, 0.07, 2222, -333);
-    const depthBias = 1 - (y / CHUNK_HEIGHT);
-    const oreRoll = hashRand2D(wx + y * 17, wz - y * 11, 777);
-
-    if (veinNoise > 0.18 && oreRoll < (0.04 + depthBias * 0.06)) {
-        t = 30; // iron ore
-    }
-}
-
-// Gold ore pass
-if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.4) {
-    const veinNoise = octaveNoise2D(wx, wz, 3, 0.5, 2.0, 0.08, 9999, -1234);
-    const depthBias = 1 - (y / CHUNK_HEIGHT);
-    const oreRoll = hashRand2D(wx + y * 19, wz - y * 13, 303);
-
-    if (veinNoise > 0.25 && oreRoll < (0.03 + depthBias * 0.05)) {
-        t = 40; // gold ore
-    }
-}
-
-// Diamond ore pass
-if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
-    const veinNoise = octaveNoise2D(wx, wz, 3, 0.5, 2.0, 0.08, 11111, -8930);
-    const depthBias = 1 - (y / CHUNK_HEIGHT);
-    const oreRoll = hashRand2D(wx + y * 21, wz - y * 15, 303);
-
-    if (veinNoise > 0.30 && oreRoll < (0.02 + depthBias * 0.03)) {
-        t = 43; // diamond ore
-    }
-}
-
-// Emerald ore pass
-if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
-    const veinNoise = octaveNoise2D(wx, wz, 3, 0.5, 2.0, 0.08, 23498, -19840);
-    const depthBias = 1 - (y / CHUNK_HEIGHT);
-    const oreRoll = hashRand2D(wx + y * 26, wz - y * 17, 303);
-
-    if (veinNoise > 0.34 && oreRoll < (0.025 + depthBias * 0.02)) {
-        t = 54; // emerald ore
-    }
-}
-
-
+                        t = window.UndergroundOresWorldgen?.applyOrePasses?.({
+                            blockId: t,
+                            wx,
+                            y,
+                            wz,
+                            surfaceHeight: h,
+                            CHUNK_HEIGHT,
+                            hashRand2D,
+                            octaveNoise2D,
+                        }) ?? t;
 
                          data[x + y*CHUNK_SIZE + z*CHUNK_SIZE*CHUNK_HEIGHT] = t;
                      }
@@ -6935,76 +6860,23 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
 
         function placeAmethystGeodesInChunk(data, cx, cz) {
-            const geodeCfg = worldGenSettings.decorations?.amethystGeodes || {};
-            if (geodeCfg.enabled === false) return;
-            // Block palette for geodes:
-            // - 106 Basalt: outer shell
-            // - 105 Chalk: middle shell
-            // - 104 Amethyst Block: inner core
-            const BASALT_ID = 106;
-            const CHALK_ID = 105;
-            const AMETHYST_ID = 104;
+            window.UndergroundGeodesWorldgen?.placeAmethystGeodesInChunk?.({
+                data,
+                cx,
+                cz,
+                hashRand2D,
+                worldGenSettings,
+                CHUNK_SIZE,
+                CHUNK_HEIGHT,
+            });
+        }
 
-            const geodeChancePerChunk = Number(geodeCfg.chancePerChunk);
-            const spawnChance = Number.isFinite(geodeChancePerChunk) ? geodeChancePerChunk : 0.075;
-            if (hashRand2D(cx, cz, 12001) > spawnChance) return;
+        function computeChunkHash(data) {
+            return remeshOptimizations?.computeChunkHash?.(data) || 0;
+        }
 
-            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
-            const maxPerChunk = Math.max(1, Math.floor(Number(geodeCfg.maxPerChunk) || 2));
-            const geodeCount = maxPerChunk <= 1 ? 1 : (hashRand2D(cx * 7, cz * 11, 12002) > 0.84 ? maxPerChunk : 1);
-
-            for (let g = 0; g < geodeCount; g++) {
-                const lx = 2 + Math.floor(hashRand2D(cx * 37 + g * 13, cz * 29 - g * 7, 12003) * (CHUNK_SIZE - 4));
-                const lz = 2 + Math.floor(hashRand2D(cx * 19 - g * 5, cz * 41 + g * 17, 12004) * (CHUNK_SIZE - 4));
-                const wx = cx * CHUNK_SIZE + lx;
-                const wz = cz * CHUNK_SIZE + lz;
-
-                const centerY = 10 + Math.floor(hashRand2D(wx, wz, 12005 + g) * Math.max(18, CHUNK_HEIGHT * 0.45));
-                if (centerY < 8 || centerY > CHUNK_HEIGHT - 8) continue;
-
-                const radiusX = 3.2 + hashRand2D(wx + 17, wz - 9, 12006 + g) * 2.4;
-                const radiusY = 2.7 + hashRand2D(wx - 31, wz + 21, 12007 + g) * 2.0;
-                const radiusZ = 3.0 + hashRand2D(wx + 47, wz + 13, 12008 + g) * 2.6;
-                const outerRim = 1.05;
-                const middleRim = 0.78;
-
-                const minX = Math.max(1, Math.floor(lx - radiusX - 2));
-                const maxX = Math.min(CHUNK_SIZE - 2, Math.ceil(lx + radiusX + 2));
-                const minY = Math.max(2, Math.floor(centerY - radiusY - 2));
-                const maxY = Math.min(CHUNK_HEIGHT - 2, Math.ceil(centerY + radiusY + 2));
-                const minZ = Math.max(1, Math.floor(lz - radiusZ - 2));
-                const maxZ = Math.min(CHUNK_SIZE - 2, Math.ceil(lz + radiusZ + 2));
-
-                const eggNoiseByXZ = [];
-                for (let x = minX; x <= maxX; x++) {
-                    eggNoiseByXZ[x] = [];
-                    for (let z = minZ; z <= maxZ; z++) {
-                        eggNoiseByXZ[x][z] = (hashRand2D(wx + x * 5, wz + z * 3, 12009) - 0.5) * 0.12;
-                    }
-                }
-
-                for (let x = minX; x <= maxX; x++) {
-                    const dx = (x - lx) / radiusX;
-                    const dx2 = dx * dx;
-                    for (let y = minY; y <= maxY; y++) {
-                        const dy = (y - centerY) / radiusY;
-                        const dy2 = dy * dy;
-                        for (let z = minZ; z <= maxZ; z++) {
-                            const dz = (z - lz) / radiusZ;
-                            const norm = Math.sqrt(dx2 + dy2 + dz * dz) + eggNoiseByXZ[x][z];
-                            if (norm > outerRim) continue;
-
-                            const at = idx(x, y, z);
-                            const current = data[at];
-                            if (current === 14 || current === 33 || current === 4) continue;
-
-                            if (norm > middleRim) data[at] = BASALT_ID;
-                            else if (norm > 0.48) data[at] = CHALK_ID;
-                            else data[at] = AMETHYST_ID;
-                        }
-                    }
-                }
-            }
+        function isChunkAllAir(data) {
+            return chunkStreamOptimizations?.isChunkAllAir?.(data) || false;
         }
 
         function computeChunkHash(data) {
