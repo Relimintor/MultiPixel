@@ -775,6 +775,61 @@ window.perlin = perlinInstance;
 
         // --- 4. INITIALIZATION ---
 
+        function setupEatingOverlay() {
+            if (eatOverlayEl && eatItemEl && document.body.contains(eatOverlayEl) && document.body.contains(eatItemEl)) return eatOverlayEl;
+
+            eatOverlayEl = document.getElementById('eat-overlay');
+            if (!eatOverlayEl) {
+                eatOverlayEl = document.createElement('div');
+                eatOverlayEl.id = 'eat-overlay';
+                eatOverlayEl.className = 'hidden';
+                document.body.appendChild(eatOverlayEl);
+            }
+
+            eatItemEl = document.getElementById('eat-item');
+            if (!eatItemEl) {
+                eatItemEl = document.createElement('img');
+                eatItemEl.id = 'eat-item';
+                eatItemEl.alt = 'Eating item';
+                eatItemEl.draggable = false;
+                eatOverlayEl.appendChild(eatItemEl);
+            } else if (eatItemEl.parentElement !== eatOverlayEl) {
+                eatOverlayEl.appendChild(eatItemEl);
+            }
+
+            playerRuntime.eatOverlayEl = eatOverlayEl;
+            playerRuntime.eatItemEl = eatItemEl;
+            return eatOverlayEl;
+        }
+
+        function startEatingAnimation(itemId) {
+            setupEatingOverlay();
+            if (!eatOverlayEl || !eatItemEl) return false;
+
+            const mat = blockMaterials?.[itemId] || null;
+            const imgPath = getMaterialIconPath(mat);
+            if (imgPath) {
+                eatItemEl.src = imgPath;
+                eatItemEl.style.display = '';
+                eatItemEl.style.backgroundColor = '';
+                eatItemEl.style.border = 'none';
+            } else {
+                eatItemEl.removeAttribute('src');
+                const colorHex = mat?.color ? mat.color.toString(16).padStart(6, '0') : '7F8C8D';
+                eatItemEl.style.display = 'block';
+                eatItemEl.style.backgroundColor = `#${colorHex}`;
+                eatItemEl.style.border = '8px solid rgba(255, 255, 255, 0.12)';
+            }
+            eatItemEl.style.transform = 'translate(-50%, -50%)';
+            eatOverlayEl.classList.remove('hidden');
+            eatingAnimState.active = true;
+            eatingAnimState.timeMs = 0;
+            eatingAnimState.particleMs = 0;
+            eatingAnimState.durationMs = 850;
+            eatingAnimState.itemId = itemId;
+            return true;
+        }
+
         async function init() {
             
             await applySelectedTexturePackOverrides();
