@@ -348,128 +348,73 @@ window.perlin = perlinInstance;
         const particleMaterials = { break: null, lava: null };
         let lavaParticleScanMs = 0;
         let lastPhysicsTickMs = 0;
-        const dirtyChunkRemeshReasons = new Map();
-        let blockUpdateBatchDepth = 0;
-        const batchedChunkRemeshNeeds = new Map();
-
         function chunkKeyFromCoords(cx, cz) {
             return `${cx},${cz}`;
         }
 
-        // Mesh caching policy:
-        // keep chunk meshes in GPU buffers and only remesh on explicit triggers.
+        let remeshOptimizations = null;
+
         function requestChunkRemesh(cx, cz, reason = 'block') {
-            const key = chunkKeyFromCoords(cx, cz);
-            const rank = { load: 0, neighbor: 1, block: 2, lighting: 3 };
-            const prev = dirtyChunkRemeshReasons.get(key);
-            if (!prev || (rank[reason] ?? 0) >= (rank[prev] ?? 0)) {
-                dirtyChunkRemeshReasons.set(key, reason);
-            }
+            remeshOptimizations?.requestChunkRemesh?.(cx, cz, reason);
         }
 
         function requestChunkAndNeighborsRemesh(cx, cz, reason = 'neighbor') {
-            requestChunkRemesh(cx, cz, reason);
-            requestChunkRemesh(cx - 1, cz, reason);
-            requestChunkRemesh(cx + 1, cz, reason);
-            requestChunkRemesh(cx, cz - 1, reason);
-            requestChunkRemesh(cx, cz + 1, reason);
+            remeshOptimizations?.requestChunkAndNeighborsRemesh?.(cx, cz, reason);
         }
 
         function rebuildDirtyChunkMeshes(forceAll = false) {
-            if (dirtyChunkRemeshReasons.size === 0) return 0;
-            const budget = forceAll ? MESH_REBUILD_BUDGET_FORCE : MESH_REBUILD_BUDGET_PER_FRAME;
-            let processed = 0;
-
-            const pending = Array.from(dirtyChunkRemeshReasons.entries());
-            for (const [key, reason] of pending) {
-                if (processed >= budget) break;
-                dirtyChunkRemeshReasons.delete(key);
-                const g = chunks.get(key);
-                if (!g) continue;
-                const forceRemesh = reason === 'lighting';
-                updateChunkGeometry(g, g.userData.chunkData, forceRemesh);
-                processed++;
-            }
-            return processed;
+            return remeshOptimizations?.rebuildDirtyChunkMeshes?.(forceAll) || 0;
         }
 
         function markBatchedChunkRemeshNeed(cx, cz, includeNeighbors = false) {
-            const key = chunkKeyFromCoords(cx, cz);
-            const prev = batchedChunkRemeshNeeds.get(key);
-            batchedChunkRemeshNeeds.set(key, Boolean(prev || includeNeighbors));
+            remeshOptimizations?.markBatchedChunkRemeshNeed?.(cx, cz, includeNeighbors);
         }
 
         function beginBlockUpdateBatch() {
-            blockUpdateBatchDepth++;
+            remeshOptimizations?.beginBlockUpdateBatch?.();
         }
 
         function endBlockUpdateBatch() {
-            if (blockUpdateBatchDepth <= 0) return;
-            blockUpdateBatchDepth--;
-            if (blockUpdateBatchDepth > 0) return;
-
-            for (const [key, includeNeighbors] of batchedChunkRemeshNeeds.entries()) {
-                const [cxs, czs] = key.split(',');
-                const cx = Number(cxs);
-                const cz = Number(czs);
-                if (!Number.isFinite(cx) || !Number.isFinite(cz)) continue;
-                requestChunkRemesh(cx, cz, 'block');
-                if (includeNeighbors) requestChunkAndNeighborsRemesh(cx, cz, 'neighbor');
-            }
-            batchedChunkRemeshNeeds.clear();
+            remeshOptimizations?.endBlockUpdateBatch?.();
         }
 
         function applyBlockUpdateBatch(cb) {
-            beginBlockUpdateBatch();
-            try {
-                return cb();
-            } finally {
-                endBlockUpdateBatch();
-            }
+            if (!remeshOptimizations?.applyBlockUpdateBatch) return cb();
+            return remeshOptimizations.applyBlockUpdateBatch(cb);
         }
         let physicsCursorY = 1;
 
         const MOBILE_ASSET_BASE = `${window.SingleplayerConfig?.REPO_BASE_PREFIX || ''}/game/singleplayer/assets/mobile`;
         const mobileControls = playerRuntime.mobileControls;
 
-        const deviceMemoryGb = typeof navigator.deviceMemory === 'number' ? navigator.deviceMemory : null;
-        const cpuThreads = typeof navigator.hardwareConcurrency === 'number' ? navigator.hardwareConcurrency : null;
-        const prefersReducedMotion = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)').matches : false;
-        const isLowEndDevice = Boolean(
-            prefersReducedMotion ||
-            (deviceMemoryGb !== null && deviceMemoryGb <= 4) ||
-            (cpuThreads !== null && cpuThreads <= 4)
-        );
+        const renderOptimizationSettings = window.SingleplayerRenderOptimizations?.create?.({
+            windowRef: window,
+            navigatorRef: navigator,
+            worldGenSettings,
+            WORLD_RADIUS,
+            CHUNK_SIZE,
+        }) || {};
+        const isLowEndDevice = Boolean(renderOptimizationSettings.isLowEndDevice);
         function computeRenderPixelRatio() {
-            const rawDeviceRatio = window.devicePixelRatio || 1;
-            const ratioCap = isLowEndDevice ? 1 : 1.5;
-            // Limit drawing-buffer pixel count to avoid huge VRAM/RAM spikes on large displays.
-            const maxRenderPixels = isLowEndDevice ? 2_000_000 : 3_000_000;
-            const viewportPixels = Math.max(1, window.innerWidth * window.innerHeight);
-            const budgetRatio = Math.sqrt(maxRenderPixels / viewportPixels);
-            const safeRatio = Math.max(0.75, Math.min(ratioCap, budgetRatio));
-            return Math.min(rawDeviceRatio, safeRatio);
+            if (renderOptimizationSettings.computeRenderPixelRatio) {
+                return renderOptimizationSettings.computeRenderPixelRatio();
+            }
+            return window.devicePixelRatio || 1;
         }
 
-        let targetRenderPixelRatio = computeRenderPixelRatio();
-        const configuredChunkRenderDistance = Math.floor(Number(worldGenSettings.chunkRenderDistance) || 4);
-        const baseChunkRenderDistance = Math.max(4, Math.min(WORLD_RADIUS, configuredChunkRenderDistance));
+        let targetRenderPixelRatio = Number(renderOptimizationSettings.initialRenderPixelRatio) || computeRenderPixelRatio();
+        const baseChunkRenderDistance = Math.max(4, Math.min(WORLD_RADIUS, Number(renderOptimizationSettings.baseChunkRenderDistance) || 4));
         let currentChunkLoadRadius = baseChunkRenderDistance;
         // Backward-compatible alias for code paths that still reference the old name.
         let effectiveChunkLoadRadius = currentChunkLoadRadius;
         const ENTITY_ACTIVATION_RANGE = Math.max(24, Number(worldGenSettings.entityActivationRange) || 72);
         const ENTITY_ACTIVATION_RANGE_SQ = ENTITY_ACTIVATION_RANGE * ENTITY_ACTIVATION_RANGE;
-        const CHUNK_UPDATE_INTERVAL_MS = isLowEndDevice ? 220 : 90;
-        const FRUSTUM_CULL_INTERVAL_MS = isLowEndDevice ? 120 : 60;
-        const FOG_BASE_NEAR = Math.max(12, effectiveChunkLoadRadius * CHUNK_SIZE * 0.18);
-        const FOG_DAY_NEAR_BOOST = Math.max(4, effectiveChunkLoadRadius * CHUNK_SIZE * 0.05);
-        const FOG_BASE_FAR = Math.max(54, effectiveChunkLoadRadius * CHUNK_SIZE * 0.72);
-        const FOG_DAY_FAR_BOOST = Math.max(16, effectiveChunkLoadRadius * CHUNK_SIZE * 0.22);
-        const chunkOffsetsByRadius = new Map();
-        let lastChunkUpdateMs = -Infinity;
-        let lastFrustumCullMs = -Infinity;
-        let lastChunkCoordX = Number.NaN;
-        let lastChunkCoordZ = Number.NaN;
+        const CHUNK_UPDATE_INTERVAL_MS = Math.max(1, Number(renderOptimizationSettings.chunkUpdateIntervalMs) || 90);
+        const FRUSTUM_CULL_INTERVAL_MS = Math.max(1, Number(renderOptimizationSettings.frustumCullIntervalMs) || 60);
+        const FOG_BASE_NEAR = Number(renderOptimizationSettings.fogBaseNear) || Math.max(12, effectiveChunkLoadRadius * CHUNK_SIZE * 0.18);
+        const FOG_DAY_NEAR_BOOST = Number(renderOptimizationSettings.fogDayNearBoost) || Math.max(4, effectiveChunkLoadRadius * CHUNK_SIZE * 0.05);
+        const FOG_BASE_FAR = Number(renderOptimizationSettings.fogBaseFar) || Math.max(54, effectiveChunkLoadRadius * CHUNK_SIZE * 0.72);
+        const FOG_DAY_FAR_BOOST = Number(renderOptimizationSettings.fogDayFarBoost) || Math.max(16, effectiveChunkLoadRadius * CHUNK_SIZE * 0.22);
      
 
       
@@ -479,16 +424,18 @@ window.perlin = perlinInstance;
         let wasmRuntime = window.WorldgenWasmRuntime || null;
         let lightingSystem = null;
         const torchLightsByChunk = new Map();
-        const frustum = new THREE.Frustum();
-        const cameraViewProj = new THREE.Matrix4();
-        const frustumTempCenter = new THREE.Vector3();
-        const frustumTempSphere = new THREE.Sphere();
-        const lastFrustumCameraPos = new THREE.Vector3();
-        const lastFrustumCameraQuat = new THREE.Quaternion();
-        let hasFrustumCameraState = false;
         const chunks = new Map();
         const sparseAirChunkKeys = new Set();
         const worldGroup = new THREE.Group();
+        let frustumOptimizations = null;
+        let chunkStreamOptimizations = null;
+        remeshOptimizations = window.SingleplayerChunkRemeshOptimizations?.create?.({
+            getChunkKey: chunkKeyFromCoords,
+            getChunk: (key) => chunks.get(key),
+            updateChunkGeometry,
+            meshRebuildBudgetPerFrame: MESH_REBUILD_BUDGET_PER_FRAME,
+            meshRebuildBudgetForce: MESH_REBUILD_BUDGET_FORCE,
+        }) || null;
         let yawObject, pitchObject; 
         let currentPlayerHeight = playerRuntime.currentPlayerHeight;
 
@@ -590,17 +537,7 @@ window.perlin = perlinInstance;
         function isLiquid(type) { return LIQUID_BLOCKS.includes(type); }
 
         function getChunkOffsetsForRadius(radius) {
-            const cached = chunkOffsetsByRadius.get(radius);
-            if (cached) return cached;
-            const offsets = [];
-            for (let dx = -radius; dx <= radius; dx++) {
-                for (let dz = -radius; dz <= radius; dz++) {
-                    offsets.push({ dx, dz, dist2: dx * dx + dz * dz });
-                }
-            }
-            offsets.sort((a, b) => a.dist2 - b.dist2);
-            chunkOffsetsByRadius.set(radius, offsets);
-            return offsets;
+            return chunkStreamOptimizations?.getChunkOffsetsForRadius?.(radius) || [];
         }
 
         function getTexturePackScriptPath(packId) {
@@ -7070,6 +7007,14 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             }
         }
 
+        function computeChunkHash(data) {
+            return remeshOptimizations?.computeChunkHash?.(data) || 0;
+        }
+
+        function isChunkAllAir(data) {
+            return chunkStreamOptimizations?.isChunkAllAir?.(data) || false;
+        }
+
         function createChunk(cx, cz) {
 
             const generated = generateChunkData(cx, cz);
@@ -7109,28 +7054,9 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
         }
 
 
-        function computeChunkHash(data) {
-            let h = 2166136261 >>> 0;
-            for (let i = 0; i < data.length; i++) {
-                h ^= data[i] & 0xff;
-                h = Math.imul(h, 16777619) >>> 0;
-            }
-            return h >>> 0;
-        }
-
-        function isChunkAllAir(data) {
-            for (let i = 0; i < data.length; i++) {
-                if (data[i] !== 0) return false;
-            }
-            return true;
-        }
-
-        function convertChunkToSparseAir(chunkGroup) {
+        function disposeLoadedChunkByKey(chunkKey) {
+            const chunkGroup = chunks.get(chunkKey);
             if (!chunkGroup || !chunkGroup.userData) return;
-            const cx = chunkGroup.userData.cx;
-            const cz = chunkGroup.userData.cz;
-            const chunkKey = `${cx},${cz}`;
-
             removeTorchLightsForChunk(chunkKey);
             worldGroup.remove(chunkGroup);
             if (chunkGroup.children) {
@@ -7141,28 +7067,19 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             if (chunkGroup.userData?.meshesByKey) {
                 chunkGroup.userData.meshesByKey.clear();
             }
-
             chunks.delete(chunkKey);
+        }
+
+        function convertChunkToSparseAir(chunkGroup) {
+            if (!chunkGroup || !chunkGroup.userData) return;
+            const chunkKey = `${chunkGroup.userData.cx},${chunkGroup.userData.cz}`;
+            disposeLoadedChunkByKey(chunkKey);
             sparseAirChunkKeys.add(chunkKey);
-            dirtyChunkRemeshReasons.delete(chunkKey);
+            remeshOptimizations?.deleteChunk?.(chunkKey);
         }
 
         function updateChunkFrustumCulling() {
-            camera.updateMatrixWorld();
-            cameraViewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-            frustum.setFromProjectionMatrix(cameraViewProj);
-
-            // Conservative chunk-level culling only: rely on frustum test to avoid directional popping.
-            for (const group of chunks.values()) {
-                frustumTempCenter.set(
-                    group.userData.cx * CHUNK_SIZE + CHUNK_SIZE * 0.5,
-                    CHUNK_HEIGHT * 0.5,
-                    group.userData.cz * CHUNK_SIZE + CHUNK_SIZE * 0.5
-                );
-                frustumTempSphere.center.copy(frustumTempCenter);
-                frustumTempSphere.radius = group.userData.frustumRadius || 40;
-                group.visible = frustum.intersectsSphere(frustumTempSphere);
-            }
+            frustumOptimizations?.updateChunkFrustumCulling?.();
         }
 
         function updateChunkAndNeighbors(centerGroup, lx, lz) {
@@ -7170,7 +7087,7 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             const cz = centerGroup.userData.cz;
             const needsNeighbors = (lx === 0 || lx === CHUNK_SIZE - 1 || lz === 0 || lz === CHUNK_SIZE - 1);
 
-            if (blockUpdateBatchDepth > 0) {
+            if (remeshOptimizations?.isBatchActive?.()) {
                 markBatchedChunkRemeshNeed(cx, cz, needsNeighbors);
                 return;
             }
@@ -7181,6 +7098,30 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
             }
             rebuildDirtyChunkMeshes();
         }
+
+        frustumOptimizations = window.SingleplayerFrustumOptimizations?.create?.({
+            THREE,
+            getCamera: () => camera,
+            chunks,
+            CHUNK_SIZE,
+            CHUNK_HEIGHT,
+            intervalMs: FRUSTUM_CULL_INTERVAL_MS,
+        }) || null;
+
+        chunkStreamOptimizations = window.SingleplayerChunkStreamOptimizations?.create?.({
+            getYawObject: () => yawObject,
+            getCurrentChunkLoadRadius: () => currentChunkLoadRadius,
+            getChunkCreationBudgetPerTick: () => CHUNK_CREATION_BUDGET_PER_TICK,
+            getChunkCreationBudgetForce: () => CHUNK_CREATION_BUDGET_FORCE,
+            getChunkKey: chunkKeyFromCoords,
+            getChunkEntries: () => chunks.entries(),
+            hasChunk: (key) => chunks.has(key),
+            hasSparseAirChunk: (key) => sparseAirChunkKeys.has(key),
+            createChunk,
+            removeChunk: disposeLoadedChunkByKey,
+            CHUNK_SIZE,
+            chunkUpdateIntervalMs: CHUNK_UPDATE_INTERVAL_MS,
+        }) || null;
         
         // Maps block ID to the THREE.js material key/fallback key
         function getMaterialKey(id, faceDir) {
@@ -8037,67 +7978,11 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
 
 
         function getChunkRetentionRadius() {
-            // Small hysteresis band prevents rapid load/unload thrashing when crossing chunk borders.
-            return currentChunkLoadRadius + 1;
+            return chunkStreamOptimizations?.getChunkRetentionRadius?.() || (currentChunkLoadRadius + 1);
         }
 
         function ensureChunksAroundPlayer(forceUpdate = false, nowMs = performance.now()) {
-            if (!yawObject) return;
-            const playerChunkX = Math.floor(yawObject.position.x / CHUNK_SIZE);
-            const playerChunkZ = Math.floor(yawObject.position.z / CHUNK_SIZE);
-            const sameChunk = playerChunkX === lastChunkCoordX && playerChunkZ === lastChunkCoordZ;
-            if (!forceUpdate && sameChunk && (nowMs - lastChunkUpdateMs) < CHUNK_UPDATE_INTERVAL_MS) return;
-
-            lastChunkCoordX = playerChunkX;
-            lastChunkCoordZ = playerChunkZ;
-            lastChunkUpdateMs = nowMs;
-
-            const loadRadius = currentChunkLoadRadius;
-            const keepRadius = getChunkRetentionRadius();
-
-            const budget = forceUpdate ? CHUNK_CREATION_BUDGET_FORCE : CHUNK_CREATION_BUDGET_PER_TICK;
-            if (budget > 0) {
-                const offsets = getChunkOffsetsForRadius(loadRadius);
-                const loadRadiusSq = loadRadius * loadRadius;
-                let created = 0;
-                for (let i = 0; i < offsets.length && created < budget; i++) {
-                    const off = offsets[i];
-                    if (off.dist2 > loadRadiusSq) continue;
-                    const cx = playerChunkX + off.dx;
-                    const cz = playerChunkZ + off.dz;
-                    const chunkKey = `${cx},${cz}`;
-                    if (chunks.has(chunkKey) || sparseAirChunkKeys.has(chunkKey)) continue;
-                    createChunk(cx, cz);
-                    created++;
-                }
-            }
-
-            const chunkKeysToRemove = [];
-            const keepRadiusSq = keepRadius * keepRadius;
-            for (const [chunkKey, chunkGroup] of chunks.entries()) {
-                const dx = chunkGroup.userData.cx - playerChunkX;
-                const dz = chunkGroup.userData.cz - playerChunkZ;
-                const dist2 = dx * dx + dz * dz;
-                if (dist2 > keepRadiusSq) {
-                    chunkKeysToRemove.push(chunkKey);
-                }
-            }
-
-            for (const chunkKey of chunkKeysToRemove) {
-                const chunkGroup = chunks.get(chunkKey);
-                if (!chunkGroup) continue;
-                removeTorchLightsForChunk(chunkKey);
-                worldGroup.remove(chunkGroup);
-                if (chunkGroup.children) {
-                    for (const child of chunkGroup.children) {
-                        if (child.geometry) child.geometry.dispose();
-                    }
-                }
-                if (chunkGroup.userData?.meshesByKey) {
-                    chunkGroup.userData.meshesByKey.clear();
-                }
-                chunks.delete(chunkKey);
-            }
+            chunkStreamOptimizations?.ensureChunksAroundPlayer?.(forceUpdate, nowMs);
         }
 
         function generateWorld() {
@@ -8105,24 +7990,11 @@ if ((t === 3 || t === 13) && y > 2 && y < CHUNK_HEIGHT * 0.2) {
         }
 
         function processMeshUpdateQueue() {
-            // Spread chunk mesh rebuilds across frames to avoid spikes.
             rebuildDirtyChunkMeshes(false);
         }
 
         function maybeUpdateChunkFrustumCulling(nowMs) {
-            const intervalElapsed = (nowMs - lastFrustumCullMs) >= FRUSTUM_CULL_INTERVAL_MS;
-
-            const movedSq = hasFrustumCameraState ? camera.position.distanceToSquared(lastFrustumCameraPos) : Infinity;
-            const rotatedDelta = hasFrustumCameraState ? (1 - Math.abs(camera.quaternion.dot(lastFrustumCameraQuat))) : Infinity;
-            const cameraChanged = movedSq > 0.04 || rotatedDelta > 0.00008;
-
-            if (!intervalElapsed && !cameraChanged) return;
-
-            lastFrustumCullMs = nowMs;
-            lastFrustumCameraPos.copy(camera.position);
-            lastFrustumCameraQuat.copy(camera.quaternion);
-            hasFrustumCameraState = true;
-            updateChunkFrustumCulling();
+            frustumOptimizations?.maybeUpdateChunkFrustumCulling?.(nowMs);
         }
 
         function updateMining(deltaMs) {
