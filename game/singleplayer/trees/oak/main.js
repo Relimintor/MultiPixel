@@ -67,21 +67,25 @@
         const validGround = topType === 1 || topType === 2 || topType === 3 || topType === 7 || topType === 28;
         if (!validGround) return false;
 
+        const isJungleForest = biome === 'Jungle Forest';
+        const isOakForest = biome === 'Forest';
         const treeNoise = octaveNoise2D(wx, wz, 2, 0.56, 2.0, 0.028, 700, -350) * 0.5 + 0.5;
         const scatter = hashRand2D(wx, wz, 99);
         const density = treeNoise * 0.7 + scatter * 0.3;
         const chance = getTreeSpawnChanceForBiome(biome, topY);
-        const clusterBonus = Number(worldGenSettings.treeClusterBonus ?? 0.12);
-        const nearbyTree = hasNearbyTreeTrunk(data, x, z, 3);
-        const spacingGate = Number(worldGenSettings.treeMinSpacingChance ?? 0.65);
+        const clusterBase = Number(worldGenSettings.treeClusterBonus ?? 0.12);
+        const clusterBonus = isJungleForest ? clusterBase * 1.28 : (isOakForest ? clusterBase * 1.08 : clusterBase * 0.92);
+        const spacingRadius = isJungleForest ? 1 : (isOakForest ? 2 : 3);
+        const nearbyTree = hasNearbyTreeTrunk(data, x, z, spacingRadius);
+        const spacingBase = Number(worldGenSettings.treeMinSpacingChance ?? 0.65);
+        const spacingGate = isJungleForest ? Math.max(spacingBase, 0.98) : (isOakForest ? Math.max(spacingBase, 0.72) : spacingBase);
         const spawnRoll = hashRand2D(wx, wz, 431);
-        const shouldTrySpawn = (spawnRoll < (chance + density * clusterBonus)) && (!nearbyTree || spawnRoll < spacingGate * 0.75);
+        const shouldTrySpawn = (spawnRoll < (chance + density * clusterBonus)) && (!nearbyTree || spawnRoll < spacingGate);
         if (!shouldTrySpawn) {
           fallbackTreeCandidates.push({ x, z, topY, wx, wz, biome });
           return false;
         }
 
-        const isJungleForest = biome === 'Jungle Forest';
         const jungleProfile = isJungleForest ? chooseJungleTreeProfile({ topY, wx, wz, seaLevel, hashRand2D }) : null;
         const oakPlacement = !isJungleForest ? resolveOakPlacementProfile({ biome, wx, wz, hashRand2D }) : null;
         const trunkHeight = isJungleForest ? jungleProfile.trunkHeight : oakPlacement?.trunkHeight;
@@ -94,12 +98,14 @@
 
         if (data[topIdx] === 2) data[topIdx] = 1;
         placeMinecraftLikeTree(data, x, z, topY, trunkHeight, wx, wz, treeStyle);
+        fallbackTreeCandidates.splice(candidateIndex, 1);
         return true;
       },
       placeFallbackTree({ data, cx, cz, fallbackTreeCandidates, hashRand2D, chunkSize }) {
         if (!fallbackTreeCandidates.length) return false;
         const pick = Math.floor(hashRand2D(cx, cz, 6083) * fallbackTreeCandidates.length);
-        const candidate = fallbackTreeCandidates[Math.max(0, Math.min(fallbackTreeCandidates.length - 1, pick))];
+        const candidateIndex = Math.max(0, Math.min(fallbackTreeCandidates.length - 1, pick));
+        const candidate = fallbackTreeCandidates[candidateIndex];
         if (!candidate) return false;
 
         const { x, z, topY, wx, wz, biome } = candidate;
@@ -114,6 +120,7 @@
         const topIdx = x + topY * chunkSize + z * chunkSize * chunkHeight;
         if (data[topIdx] === 2) data[topIdx] = 1;
         placeMinecraftLikeTree(data, x, z, topY, trunkHeight, wx, wz, treeStyle);
+        fallbackTreeCandidates.splice(candidateIndex, 1);
         return true;
       },
     };

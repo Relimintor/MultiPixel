@@ -44,16 +44,16 @@
       regionHillChance: 0.08,
     },
     treeDensityByBiome: {
-      Forest: 0.6,
-      'Jungle Forest': 1.0,
+      Forest: 0.82,
+      'Jungle Forest': 1.3,
       Plains: 0.15,
       Mountains: 0.02,
       'Snowy Plains': 0.04,
       Desert: 0,
       Ocean: 0,
     },
-    treeClusterBonus: 1.2,
-    treeMinSpacingChance: 0.1,
+    treeClusterBonus: 1.14,
+    treeMinSpacingChance: 0.62,
     decorations: {
       amethystGeodes: {
         enabled: true,
@@ -97,6 +97,8 @@
     return `${ASSET_BASE_DIR}/${subPath}`;
   };
 
+  const sideConfig = window.SingleplayerSideConfig || {};
+
   const ASSET_FILEPATHS = {
     GRASS: getAssetPath('textures/grass.png'),
     DIRT: getAssetPath('textures/dirt.png'),
@@ -128,6 +130,7 @@
     SANDSTONE_BOTTOM: getAssetPath('sand/sandstone/sandstone_bottom.png'),
     SANDSTONE_TOP: getAssetPath('sand/sandstone/sandstone_top.png'),
     COBBLESTONE: getAssetPath('textures/cobblestone.png'),
+    MOSSY_COBBLESTONE: getAssetPath('textures/mossy_cobblestone.png'),
     SNOW_BLOCK: getAssetPath('textures/snow.png'),
     SNOWBALL: getAssetPath('textures/item/snowball.png'),
     BEDROCK: getAssetPath('textures/bedrock.png'),
@@ -218,6 +221,22 @@
     DIAMOND_PICKAXE: getAssetPath('textures/item/tool/pickaxe/diamond_pickaxe.png'),
     EMERALD_PICKAXE: getAssetPath('textures/item/tool/pickaxe/emerald_pickaxe.png'),
 
+    /*Axes*/
+    WOODEN_AXE: getAssetPath('textures/item/tool/axe/wooden_axe.png'),
+    STONE_AXE: getAssetPath('textures/item/tool/axe/stone_axe.png'),
+    GOLDEN_AXE: getAssetPath('textures/item/tool/axe/golden_axe.png'),
+    COPPER_AXE: getAssetPath('textures/item/tool/axe/copper_axe.png'),
+    IRON_AXE: getAssetPath('textures/item/tool/axe/iron_axe.png'),
+    DIAMOND_AXE: getAssetPath('textures/item/tool/axe/diamond_axe.png'),
+    EMERALD_AXE: getAssetPath('textures/item/tool/axe/emerald_axe.png'),
+
+    /*Daggers*/
+    WOOD_DAGGER: getAssetPath('textures/item/tool/dagger/wood_dagger.png'),
+    STONE_DAGGER: getAssetPath('textures/item/tool/dagger/stone_dagger.png'),
+    GOLD_DAGGER: getAssetPath('textures/item/tool/dagger/gold_dagger.png'),
+    STEEL_DAGGER: getAssetPath('textures/item/tool/dagger/steel_dagger.png'),
+    EMERALD_DAGGER: getAssetPath('textures/item/tool/dagger/emerald_dagger.png'),
+
     //Shovel
     WOODEN_SHOVEL: getAssetPath('textures/item/tool/shovel/wooden_shovel.png'),
     STONE_SHOVEL: getAssetPath('textures/item/tool/shovel/stone_shovel.png'),
@@ -255,7 +274,7 @@
     MELON_SLICE: getAssetPath('textures/item/melon_slice.png'),
   };
 
-  const blockMaterials = {
+  const baseBlockMaterials = {
     
     /*Iligals*/
     0: { name: 'Air', id: 0, textured: false },
@@ -339,6 +358,7 @@
     /*Building ig*/
     8: { name: 'Oak Planks', id: 8, textured: true, textureKey: 'OAK_PLANK' },
     17: { name: 'Cobblestone', id: 17, textured: true, textureKey: 'COBBLESTONE' },
+    113: { name: 'Mossy Cobblestone', id: 113, textured: true, textureKey: 'MOSSY_COBBLESTONE', color: 0x6f8d5b },
     22: { name: 'torch', id: 22, textured: true, textureKey: 'TORCH', transparent: true, opacity: 1 },
     102: { name: 'chiseled stone bricks', id: 102, textured: true, textureKey: 'CHISELED_STONE_BRICK' },
     104: { name: 'Amethyst Block', id: 104, textured: true, textureKey: 'AMETHYST_BLOCK' },
@@ -526,6 +546,18 @@
     74: { name: 'Iron Pickaxe', id: 74, textured: true, textureKey: 'IRON_PICKAXE', toolType: 'pickaxe', tier: 5 },
     75: { name: 'Diamond Pickaxe', id: 75, textured: true, textureKey: 'DIAMOND_PICKAXE', toolType: 'pickaxe', tier: 6 },
     93: { name: 'Emerald Pickaxe', id: 93, textured: true, textureKey: 'EMERALD_PICKAXE', toolType: 'pickaxe', tier: 7 },
+    127: { name: 'Wooden Axe', id: 127, textured: true, textureKey: 'WOODEN_AXE', toolType: 'axe', tier: 1 },
+    128: { name: 'Stone Axe', id: 128, textured: true, textureKey: 'STONE_AXE', toolType: 'axe', tier: 2 },
+    129: { name: 'Gold Axe', id: 129, textured: true, textureKey: 'GOLDEN_AXE', toolType: 'axe', tier: 3 },
+    130: { name: 'Copper Axe', id: 130, textured: true, textureKey: 'COPPER_AXE', toolType: 'axe', tier: 4 },
+    131: { name: 'Iron Axe', id: 131, textured: true, textureKey: 'IRON_AXE', toolType: 'axe', tier: 5 },
+    132: { name: 'Diamond Axe', id: 132, textured: true, textureKey: 'DIAMOND_AXE', toolType: 'axe', tier: 6 },
+    133: { name: 'Emerald Axe', id: 133, textured: true, textureKey: 'EMERALD_AXE', toolType: 'axe', tier: 7 },
+    121: { name: 'Wooden Dagger', id: 121, textured: true, textureKey: 'WOOD_DAGGER', toolType: 'dagger', tier: 1, meleeDamage: 3, attackRange: 1.5 },
+    122: { name: 'Stone Dagger', id: 122, textured: true, textureKey: 'STONE_DAGGER', toolType: 'dagger', tier: 2, meleeDamage: 3.5, attackRange: 1.5 },
+    123: { name: 'Gold Dagger', id: 123, textured: true, textureKey: 'GOLD_DAGGER', toolType: 'dagger', tier: 3, meleeDamage: 3.25, attackRange: 1.5 },
+    124: { name: 'Steel Dagger', id: 124, textured: true, textureKey: 'STEEL_DAGGER', toolType: 'dagger', tier: 5, meleeDamage: 4.5, attackRange: 1.5 },
+    125: { name: 'Emerald Dagger', id: 125, textured: true, textureKey: 'EMERALD_DAGGER', toolType: 'dagger', tier: 7, meleeDamage: 5, attackRange: 1.5 },
 
     //SHovel
     83: { name: 'Wooden Shovel', id: 83, textured: true, textureKey: 'WOODEN_SHOVEL', toolType: 'shovel', tier: 1 },
@@ -558,6 +590,13 @@
     112: { name: 'Cooked Pumpkin Slice', id: 112, textured: false, color: 0xe38b1f },
   }; 
 
+  const blockMaterials = {
+    ...baseBlockMaterials,
+    ...(sideConfig.SIDE_BLOCK_MATERIALS || sideConfig.FLOWER_BLOCK_MATERIALS || {}),
+  };
+
+  const solidBlocks = [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 108, 110, 113 ];
+
   window.SingleplayerConfig = {
     CHUNK_SIZE, CHUNK_HEIGHT, WORLD_RADIUS, BLOCK_SIZE, SEA_LEVEL, BASE_LAND_Y, ISLAND_RADIUS,
     CAVE_SCALE, CAVE_THRESHOLD, CAVE_MIN_Y, CAVE_MAX_Y_OFFSET,
@@ -565,8 +604,13 @@
     INV_COLS, INV_ROWS, HOTBAR_SLOTS, TOTAL_INV_SIZE,
     REPO_BASE_PREFIX,
     WORLD_GEN_SETTINGS,
-    ASSET_FILEPATHS, blockMaterials,
-    SOLID_BLOCKS: [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 108, 110 ],
+    ASSET_FILEPATHS: {
+      ...ASSET_FILEPATHS,
+      ...(sideConfig.SIDE_ASSET_FILEPATHS || sideConfig.FLOWER_ASSET_FILEPATHS || {}),
+    }, blockMaterials,
+    SIDE_RENDER_BLOCK_IDS: sideConfig.SIDE_RENDER_BLOCK_IDS || sideConfig.FLOWER_IDS || [],
+    FLOWER_SPAWN_CONFIG: sideConfig.FLOWER_SPAWN_CONFIG || {},
+    SOLID_BLOCKS: solidBlocks,
     LIQUID_BLOCKS: [4, 33, 47, 48, 49, 50, 51, 52, 53, 60, 61, 62, 63, 64, 65, 66],
     DEFAULT_PLAYER: {
       moveSpeed: 0.12,
