@@ -1,4 +1,6 @@
 (function () {
+  const GLOWSTONE_PORTAL_Z_ID = window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_Z_ID || 147;
+  const GLOWSTONE_PORTAL_X_ID = window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_X_ID || 148;
   const PICKAXE_BY_ITEM_ID = {
     11: { name: 'Wooden Pickaxe', tier: 1, hardBlockSpeed: 0.56, utilityBlockSpeed: 1.08, softBlockPenalty: 1.18 },
     12: { name: 'Stone Pickaxe', tier: 2, hardBlockSpeed: 0.38, utilityBlockSpeed: 0.94, softBlockPenalty: 1.08 },
@@ -29,7 +31,7 @@
     94: { name: 'Emerald Shovel', tier: 7, softBlockSpeed: 0.10, hardBlockPenalty: 1.10 },
   };
 
-  const HARD_BLOCKS = new Set([3, 13, 21, 24, 27, 29, 18, 30, 35, 40, 43, 54, 17, 20, 32, 34, 36, 37, 41, 45, 55, 68, 23, 71, 39, 104, 106]);
+  const HARD_BLOCKS = new Set([3, 13, 21, 24, 27, 29, 18, 30, 35, 40, 43, 54, 17, 20, 32, 34, 36, 37, 41, 45, 55, 68, 23, 71, 39, 104, 106, 119]);
   const SOFT_BLOCKS = new Set([1,2,7,15,28]);
   const WOOD_BLOCKS = new Set([5, 8, 9, 82, 96, 98, 101, 103, 110, 114]);
 
@@ -99,6 +101,8 @@
     if (blockId === 99 || blockId === 100) return { id: 101, count: 1 };
     if (blockId === 107) return { id: 110, count: 1 };
     if (blockId === 108) return { id: 109, count: 9 };
+    if (blockId === 119) return { id: 118, count: 4 };
+    if (blockId === GLOWSTONE_PORTAL_Z_ID || blockId === GLOWSTONE_PORTAL_X_ID) return { id: 0, count: 0 };
     return { id: blockId, count: 1 };
   }
 

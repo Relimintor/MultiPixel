@@ -876,7 +876,7 @@ window.perlin = perlinInstance;
                 const promise = new Promise((resolve) => {
                     const matId = getMaterialIdByTextureKey(key);
                     const matCfg = matId >= 0 ? blockMaterials[matId] : {};
-                    const isDoubleSidedCutout = key === 'LEAVES' || matCfg.renderAs === 'cross' || matCfg.renderAs === 'plane';
+                    const isDoubleSidedCutout = key === 'LEAVES' || matCfg.renderAs === 'cross' || matCfg.renderAs === 'plane' || matCfg.renderAs === 'plane_x';
                     loader.load(
                         path, // <-- DIRECTLY using the calculated path
                         (texture) => {
@@ -895,6 +895,8 @@ window.perlin = perlinInstance;
                                 alphaTest: key === 'LEAVES' || matCfg.alphaCutout ? 0.5 : 0,
                                 depthWrite: true,
                                 opacity: matCfg.opacity || 1.0,
+                                emissive: matCfg.emissive || 0x000000,
+                                emissiveIntensity: matCfg.emissive ? 0.65 : 0,
                                 vertexColors: true,
                             });
                             resolve();
@@ -909,6 +911,8 @@ window.perlin = perlinInstance;
                                 alphaTest: key === 'LEAVES' || matCfg.alphaCutout ? 0.5 : 0,
                                 depthWrite: true,
                                 opacity: matCfg.opacity || 1.0,
+                                emissive: matCfg.emissive || 0x000000,
+                                emissiveIntensity: matCfg.emissive ? 0.55 : 0,
                                 vertexColors: true,
                             });
                             resolve(); 
@@ -1227,7 +1231,7 @@ window.perlin = perlinInstance;
 
         function getMaxStackSize(itemId) {
             const itemDef = blockMaterials[itemId];
-            return itemDef?.toolType ? 1 : 64;
+            return itemDef?.toolType || itemDef?.nonStackable ? 1 : 64;
         }
 
         function shouldShowItemCount(item) {
@@ -1284,6 +1288,17 @@ window.perlin = perlinInstance;
         function getSelectedItemId() {
             const held = inventory[selectedHotbarIndex];
             return held ? held.id : null;
+        }
+
+        function setSelectedHotbarItem(itemId, count = 1) {
+            if (!Number.isFinite(itemId) || itemId <= 0 || count <= 0) {
+                inventory[selectedHotbarIndex] = null;
+            } else {
+                inventory[selectedHotbarIndex] = { id: itemId, count: count };
+            }
+            updateHotbarUI();
+            if (isInventoryOpen) renderInventoryScreen();
+            return true;
         }
 
         function setItemKnockbackEnchant(itemId, amount) {
@@ -1974,6 +1989,7 @@ window.perlin = perlinInstance;
                 teleportToCoordinates,
                 teleportToBiome,
                 teleportToVillageStructure,
+                teleportToRuinStructure,
                 openCommandHelp: () => window.SingleplayerChat?.openCommandHelp?.(),
                 mobileAssetBase: MOBILE_ASSET_BASE,
                 onOpen: () => {
@@ -2039,7 +2055,7 @@ window.perlin = perlinInstance;
             creativeCatalog.length = 0;
             const seen = new Set();
             const entries = Object.values(blockMaterials || {})
-                .filter((mat) => mat && Number.isFinite(mat.id) && mat.id !== 0)
+                .filter((mat) => mat && Number.isFinite(mat.id) && mat.id !== 0 && !mat.notInCreative)
                 .sort((a, b) => a.id - b.id);
             entries.forEach((mat) => {
                 if (seen.has(mat.id)) return;
@@ -2235,6 +2251,17 @@ window.perlin = perlinInstance;
                 chestStates.set(key, new Array(27).fill(null));
             }
             return chestStates.get(key);
+        }
+
+        function seedChestStateWithLoot(key, items = []) {
+            if (!key) return false;
+            const slots = new Array(27).fill(null);
+            items.slice(0, 27).forEach((item, index) => {
+                if (!item || !Number.isFinite(item.id) || item.id <= 0 || !Number.isFinite(item.count) || item.count <= 0) return;
+                slots[index] = { id: item.id, count: item.count };
+            });
+            chestStates.set(key, slots);
+            return true;
         }
 
         function resolveInventorySlotTarget(slotIndex, slotType = 'inv') {
@@ -3138,10 +3165,28 @@ window.perlin = perlinInstance;
             }
 
             const item = inventory[selectedHotbarIndex];
-            if (!item || !isPlaceableBlock(item.id)) return;
+            if (!item) return;
 
             const placePos = hit.point.clone().add(hit.face.normal.clone().multiplyScalar(0.01));
-            const px = Math.floor(placePos.x), py = Math.floor(placePos.y), pz = Math.floor(placePos.z);
+            const px = Math.floor(placePos.x);
+            const py = Math.floor(placePos.y);
+            const pz = Math.floor(placePos.z);
+
+            const bucketContext = {
+                heldItemId: item.id,
+                targetBlockId,
+                targetPos: { wx, wy, wz },
+                placePos: { wx: px, wy: py, wz: pz },
+                getBlock: getBlockType,
+                setBlock: (xw, yw, zw, newType) => setBlockTypeRaw(xw, yw, zw, newType, true),
+                setSelectedItem: setSelectedHotbarItem,
+                showGameMessage,
+            };
+            if (window.SingleplayerWaterBucket?.tryInteract?.(bucketContext)) return;
+            if (window.SingleplayerLavaBucket?.tryInteract?.(bucketContext)) return;
+
+            if (!isPlaceableBlock(item.id)) return;
+
             const playerBox = new THREE.Box3(
                 new THREE.Vector3(yawObject.position.x - PLAYER_RADIUS, yawObject.position.y, yawObject.position.z - PLAYER_RADIUS),
                 new THREE.Vector3(yawObject.position.x + PLAYER_RADIUS, yawObject.position.y + currentPlayerHeight, yawObject.position.z + PLAYER_RADIUS)
@@ -3254,7 +3299,7 @@ window.perlin = perlinInstance;
 
             const oldMat = blockMaterials[oldType];
             const newMat = blockMaterials[newType];
-            const lightingSensitive = Boolean(oldMat?.emissive || newMat?.emissive || oldType === 22 || newType === 22 || oldType === 4 || newType === 4 || oldType === 33 || newType === 33);
+            const lightingSensitive = Boolean(oldMat?.emissive || newMat?.emissive || oldType === 22 || newType === 22 || oldType === 4 || newType === 4 || oldType === 33 || newType === 33 || oldType === 119 || newType === 119);
             if (lightingSensitive) requestChunkAndNeighborsRemesh(cx, cz, 'lighting');
 
             if (newType === 0 && isChunkAllAir(chunkData)) {
@@ -4612,6 +4657,7 @@ window.perlin = perlinInstance;
                  SEA_LEVEL
              });
              const placedVillage = placeVillageInChunk(data, cx, cz, spawnedVillagers);
+             placeRuinsInChunk(data, cx, cz);
              if (!placedVillage) {
                  window.DesertWorldgen?.placeDesertWellInChunk?.({
                      data,
@@ -5302,6 +5348,139 @@ window.perlin = perlinInstance;
 
 
 
+        function placeRuinsInChunk(data, cx, cz) {
+            const rg = window.RuinsGeneration || {};
+            if (!rg.getRuinRegionCandidate || !rg.getBiomeDefinition) return false;
+
+            const regionSize = Number(rg.DEFAULT_RUIN_REGION_SIZE) || 256;
+            const chance = Number(rg.DEFAULT_RUIN_CHANCE_PER_REGION) || 0.28;
+            const influenceRadius = 18;
+            const chunkMinX = cx * CHUNK_SIZE;
+            const chunkMinZ = cz * CHUNK_SIZE;
+            const chunkMaxX = chunkMinX + CHUNK_SIZE - 1;
+            const chunkMaxZ = chunkMinZ + CHUNK_SIZE - 1;
+            const regionMinX = Math.floor((chunkMinX - influenceRadius) / regionSize);
+            const regionMaxX = Math.floor((chunkMaxX + influenceRadius) / regionSize);
+            const regionMinZ = Math.floor((chunkMinZ - influenceRadius) / regionSize);
+            const regionMaxZ = Math.floor((chunkMaxZ + influenceRadius) / regionSize);
+
+            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
+            const getColumnTop = (lx, lz) => {
+                for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
+                    const topBlock = data[idx(lx, y, lz)];
+                    if (topBlock !== 0 && topBlock !== 4) return y;
+                }
+                return -1;
+            };
+            const getGroundYAt = (wx, wz) => {
+                if (wx < chunkMinX || wx > chunkMaxX || wz < chunkMinZ || wz > chunkMaxZ) return null;
+                const lx = wx - chunkMinX;
+                const lz = wz - chunkMinZ;
+                const top = getColumnTop(lx, lz);
+                return top > 0 ? top : null;
+            };
+            const placeSolid = (wx, wy, wz, blockId) => {
+                if (wx < chunkMinX || wx > chunkMaxX || wz < chunkMinZ || wz > chunkMaxZ) return false;
+                if (wy < 1 || wy >= CHUNK_HEIGHT - 1) return false;
+                data[idx(wx - chunkMinX, wy, wz - chunkMinZ)] = blockId;
+                return true;
+            };
+            const placedRuins = new Set();
+            let placedAny = false;
+
+            function choosePaletteBlock(blocks, seedX, seedZ, salt) {
+                if (!Array.isArray(blocks) || !blocks.length) return 17;
+                const roll = hashRand2D(seedX + salt * 7, seedZ - salt * 11, 42400 + salt);
+                return blocks[Math.floor(roll * blocks.length) % blocks.length];
+            }
+
+            function placeColumn(wx, wz, height, blocks, seedX, seedZ, salt) {
+                const groundY = getGroundYAt(wx, wz);
+                if (!Number.isFinite(groundY)) return;
+                for (let step = 1; step <= height; step++) {
+                    const blockId = choosePaletteBlock(blocks, seedX + wx, seedZ + wz, salt + step);
+                    placeSolid(wx, groundY + step, wz, blockId);
+                }
+            }
+
+            function placeRuinAt(coreX, coreZ, biomeKey) {
+                const def = rg.getBiomeDefinition(biomeKey);
+                if (!def) return false;
+                const columns = [
+                    { x: 0, z: 0, h: 4 },
+                    { x: 1, z: 0, h: 3 }, { x: 2, z: 0, h: 2 }, { x: 3, z: 0, h: 1 },
+                    { x: 0, z: 1, h: 3 }, { x: 0, z: 2, h: 2 }, { x: 0, z: 3, h: 1 },
+                    { x: -1, z: 0, h: 3 }, { x: -2, z: 0, h: 2 }, { x: -3, z: 0, h: 1 },
+                    { x: 0, z: -1, h: 3 }, { x: 0, z: -2, h: 2 }, { x: 0, z: -3, h: 1 },
+                ];
+                const fillerOffsets = [
+                    { x: 1, z: 1 }, { x: -1, z: -1 }, { x: 1, z: -1 }, { x: -1, z: 1 },
+                    { x: 2, z: 1 }, { x: 1, z: 2 }, { x: -2, z: -1 }, { x: -1, z: -2 },
+                ];
+
+                columns.forEach((column, index) => placeColumn(coreX + column.x, coreZ + column.z, column.h, def.blocks, coreX, coreZ, index + 1));
+                fillerOffsets.forEach((offset, index) => {
+                    const roll = hashRand2D(coreX + offset.x * 3, coreZ + offset.z * 5, 42500 + index);
+                    if (roll > 0.62) return;
+                    const height = 1 + Math.floor(hashRand2D(coreX - offset.x * 7, coreZ + offset.z * 11, 42600 + index) * 2);
+                    placeColumn(coreX + offset.x, coreZ + offset.z, height, def.blocks, coreX, coreZ, 30 + index);
+                });
+
+                const chestRoll = hashRand2D(coreX, coreZ, 42700);
+                if (chestRoll < 0.20) {
+                    const chestOffsets = [{ x: 1, z: 1 }, { x: -1, z: -1 }, { x: 1, z: -1 }, { x: -1, z: 1 }];
+                    const chosen = chestOffsets[Math.floor(hashRand2D(coreX, coreZ, 42701) * chestOffsets.length) % chestOffsets.length];
+                    const chestX = coreX + chosen.x;
+                    const chestZ = coreZ + chosen.z;
+                    const groundY = getGroundYAt(chestX, chestZ);
+                    if (Number.isFinite(groundY) && placeSolid(chestX, groundY + 1, chestZ, 82)) {
+                        placeSolid(chestX, groundY, chestZ, def.chestBaseBlockId);
+                        const chestKey = `${chestX},${groundY + 1},${chestZ}`;
+                        const loot = window.RuinsChestLoot?.generateLoot?.({ hashRand2D, seedX: coreX, seedZ: coreZ, biomeKey }) || [];
+                        seedChestStateWithLoot(chestKey, loot);
+                    }
+                }
+
+                return true;
+            }
+
+            for (let rx = regionMinX; rx <= regionMaxX; rx++) {
+                for (let rz = regionMinZ; rz <= regionMaxZ; rz++) {
+                    const candidateInfo = rg.getRuinRegionCandidate({
+                        regionX: rx,
+                        regionZ: rz,
+                        hashRand2D,
+                        getBiomeAt: (x, z) => getBiome(Math.floor(x), Math.floor(z)),
+                        chance,
+                        regionSize,
+                    });
+                    if (!candidateInfo?.allowed || !candidateInfo.candidate) continue;
+
+                    const coreX = Math.floor(candidateInfo.candidate.worldX);
+                    const coreZ = Math.floor(candidateInfo.candidate.worldZ);
+                    const ruinKey = `${coreX},${coreZ}`;
+                    if (placedRuins.has(ruinKey)) continue;
+                    if (coreX + influenceRadius < chunkMinX || coreX - influenceRadius > chunkMaxX || coreZ + influenceRadius < chunkMinZ || coreZ - influenceRadius > chunkMaxZ) continue;
+
+                    const biomeKey = normalizeRuinBiomeKey(getBiome(coreX, coreZ));
+                    if (!biomeKey || biomeKey !== candidateInfo.candidate.biomeKey) continue;
+                    if (!placeRuinAt(coreX, coreZ, biomeKey)) continue;
+
+                    placedRuins.add(ruinKey);
+                    placedAny = true;
+                }
+            }
+
+            return placedAny;
+        }
+
+
+
+
+
+
+
+
         function placePumpkinPatchInChunk(data, cx, cz) {
             const pumpkinCfg = worldGenSettings.decorations?.pumpkins || {};
             if (pumpkinCfg.enabled === false) return;
@@ -5533,18 +5712,26 @@ window.perlin = perlinInstance;
             torchLightsByChunk.delete(chunkKey);
         }
 
-        function syncTorchLightsForChunk(group, torchPositions) {
+        function syncTorchLightsForChunk(group, torchPositions, glowstonePositions = []) {
             if (!scene) return;
             const chunkKey = `${group.userData.cx},${group.userData.cz}`;
             removeTorchLightsForChunk(chunkKey);
-            if (!torchPositions || torchPositions.length === 0) return;
+            if ((!torchPositions || torchPositions.length === 0) && (!glowstonePositions || glowstonePositions.length === 0)) return;
 
             const maxLightsPerChunk = 24;
             const created = [];
-            for (let i = 0; i < torchPositions.length && created.length < maxLightsPerChunk; i++) {
+            for (let i = 0; i < (torchPositions?.length || 0) && created.length < maxLightsPerChunk; i++) {
                 const p = torchPositions[i];
                 const light = new THREE.PointLight(0xffc88a, 0.88, 12, 2);
                 light.position.set(p.x + 0.5, p.y + 0.62, p.z + 0.5);
+                scene.add(light);
+                created.push(light);
+            }
+            for (let i = 0; i < (glowstonePositions?.length || 0) && created.length < maxLightsPerChunk; i++) {
+                const p = glowstonePositions[i];
+                const glowCfg = blockMaterials[p.id] || {};
+                const light = new THREE.PointLight(glowCfg.emissive || 0xffd27a, glowCfg.lightIntensity || 1.15, glowCfg.lightRadius || 13, 2);
+                light.position.set(p.x + 0.5, p.y + 0.5, p.z + 0.5);
                 scene.add(light);
                 created.push(light);
             }
@@ -5567,6 +5754,7 @@ window.perlin = perlinInstance;
             const cx = group.userData.cx;
             const cz = group.userData.cz;
             const torchPositions = [];
+            const glowstonePositions = [];
 
             const faces = [
                 { name: 'posX', dir: [1,0,0], corners: [[1,1,1],[1,0,1],[1,0,0],[1,1,0]], uv: [0,1, 0,0, 1,0, 1,1] },
@@ -5617,6 +5805,9 @@ window.perlin = perlinInstance;
             ];
             const singlePlaneFaces = [
                 { name: 'posZ', dir: [0, 0, 1], corners: [[0.15,1,0.5],[0.15,0,0.5],[0.85,0,0.5],[0.85,1,0.5]], uv: [0,1,0,0,1,0,1,1] },
+            ];
+            const singlePlaneFacesX = [
+                { name: 'posX', dir: [1, 0, 0], corners: [[0.5,1,0.15],[0.5,0,0.15],[0.5,0,0.85],[0.5,1,0.85]], uv: [0,1,0,0,1,0,1,1] },
             ];
 
 
@@ -5933,10 +6124,13 @@ window.perlin = perlinInstance;
                         const sideRenderMode = getSideRenderMode(id);
                         const isSideRenderBlock = Boolean(sideRenderMode);
                         if (isTorch) torchPositions.push({ x: x + cx * CS, y, z: z + cz * CS });
+                        if (id === 119) glowstonePositions.push({ x: x + cx * CS, y, z: z + cz * CS, id });
                         const isTrans = mat.transparent || (mat.textured && mat.textureKey === 'LEAVES');
                         if (!isTorch && !isBambooStage && !isBambooStalk && !isSlab && !isSideRenderBlock && !isTrans) continue;
                         const activeFaces = isSideRenderBlock
-                            ? (sideRenderMode === 'plane' ? singlePlaneFaces : crossPlantFaces)
+                            ? (sideRenderMode === 'plane'
+                                ? singlePlaneFaces
+                                : (sideRenderMode === 'plane_x' ? singlePlaneFacesX : crossPlantFaces))
                             : (isTorch ? torchFaces : (isBambooStalk ? bambooStalkFaces : (isBambooStage ? bambooStageFaces : (isSlab ? slabFaces : faces))));
 
                         for (let i = 0; i < activeFaces.length; i++) {
@@ -6016,7 +6210,7 @@ window.perlin = perlinInstance;
                 meshesByKey.delete(key);
             }
 
-            syncTorchLightsForChunk(group, torchPositions);
+            syncTorchLightsForChunk(group, torchPositions, glowstonePositions);
         }
 
         const SPAWN_MIN_LIGHT_LEVEL = 7;
@@ -6144,6 +6338,14 @@ window.perlin = perlinInstance;
             return profile?.villageKey ? profile.name : '';
         }
 
+        function normalizeRuinBiomeKey(rawBiomeName) {
+            return window.RuinsGeneration?.normalizeRuinBiomeKey?.(rawBiomeName) || '';
+        }
+
+        function formatRuinBiomeKeyList() {
+            return (window.RuinsGeneration?.VALID_RUIN_BIOMES || ['desert', 'plains', 'jungle']).join(', ');
+        }
+
         function teleportToVillageStructure(rawBiomeName) {
             const targetBiome = normalizeVillageBiomeName(rawBiomeName);
             if (!targetBiome) {
@@ -6235,6 +6437,81 @@ window.perlin = perlinInstance;
             }
 
             return { ok: false, message: `Could not find village candidate in biome ${targetBiome}.` };
+        }
+
+        function teleportToRuinStructure(rawBiomeName) {
+            const rg = window.RuinsGeneration || {};
+            const targetBiomeKey = normalizeRuinBiomeKey(rawBiomeName);
+            if (!targetBiomeKey) {
+                return { ok: false, message: `Ruins biome must be one of: ${formatRuinBiomeKeyList()}.` };
+            }
+
+            const regionSize = Number(rg.DEFAULT_RUIN_REGION_SIZE) || 256;
+            const chance = Number(rg.DEFAULT_RUIN_CHANCE_PER_REGION) || 0.28;
+            const searchRegionRadius = 26;
+
+            for (let r = 0; r <= searchRegionRadius; r++) {
+                for (let rx = -r; rx <= r; rx++) {
+                    for (const rz of [-r, r]) {
+                        const candidateInfo = rg.getRuinRegionCandidate?.({
+                            regionX: rx,
+                            regionZ: rz,
+                            hashRand2D,
+                            getBiomeAt: (x, z) => getBiome(Math.floor(x), Math.floor(z)),
+                            chance,
+                            regionSize,
+                        });
+                        if (!candidateInfo?.allowed || !candidateInfo.candidate) continue;
+                        if (candidateInfo.candidate.biomeKey !== targetBiomeKey) continue;
+
+                        const wx = Math.floor(candidateInfo.candidate.worldX);
+                        const wz = Math.floor(candidateInfo.candidate.worldZ);
+                        const biome = getBiome(wx, wz);
+                        const y = Math.max(4, Math.floor(getNoiseGroundHeight(wx, wz, biome)) + 4);
+                        yawObject.position.set(wx + 0.5, y, wz + 0.5);
+                        player.velocity.set(0, 0, 0);
+                        player.isJumping = false;
+                        ensureChunksAroundPlayer(true);
+                        return {
+                            ok: true,
+                            structure: 'ruins',
+                            biome: rg.biomeDisplayNameFromKey?.(targetBiomeKey) || targetBiomeKey,
+                            message: `Teleported to ruins in ${rg.biomeDisplayNameFromKey?.(targetBiomeKey) || targetBiomeKey} at ${wx}, ${Math.floor(y)}, ${wz}.`,
+                        };
+                    }
+                }
+                for (let rz = -r + 1; rz <= r - 1; rz++) {
+                    for (const rx of [-r, r]) {
+                        const candidateInfo = rg.getRuinRegionCandidate?.({
+                            regionX: rx,
+                            regionZ: rz,
+                            hashRand2D,
+                            getBiomeAt: (x, z) => getBiome(Math.floor(x), Math.floor(z)),
+                            chance,
+                            regionSize,
+                        });
+                        if (!candidateInfo?.allowed || !candidateInfo.candidate) continue;
+                        if (candidateInfo.candidate.biomeKey !== targetBiomeKey) continue;
+
+                        const wx = Math.floor(candidateInfo.candidate.worldX);
+                        const wz = Math.floor(candidateInfo.candidate.worldZ);
+                        const biome = getBiome(wx, wz);
+                        const y = Math.max(4, Math.floor(getNoiseGroundHeight(wx, wz, biome)) + 4);
+                        yawObject.position.set(wx + 0.5, y, wz + 0.5);
+                        player.velocity.set(0, 0, 0);
+                        player.isJumping = false;
+                        ensureChunksAroundPlayer(true);
+                        return {
+                            ok: true,
+                            structure: 'ruins',
+                            biome: rg.biomeDisplayNameFromKey?.(targetBiomeKey) || targetBiomeKey,
+                            message: `Teleported to ruins in ${rg.biomeDisplayNameFromKey?.(targetBiomeKey) || targetBiomeKey} at ${wx}, ${Math.floor(y)}, ${wz}.`,
+                        };
+                    }
+                }
+            }
+
+            return { ok: false, message: `Could not find ruins candidate in biome ${targetBiomeKey}.` };
         }
 
         function setInitialPlayerPosition() {
