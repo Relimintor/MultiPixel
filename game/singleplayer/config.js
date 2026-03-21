@@ -52,7 +52,7 @@
       Desert: 0,
       Ocean: 0,
     },
-    treeClusterBonus: 0.8,
+    treeClusterBonus: 1.2,
     treeMinSpacingChance: 0.1,
     decorations: {
       amethystGeodes: {
