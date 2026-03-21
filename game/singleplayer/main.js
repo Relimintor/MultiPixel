@@ -573,6 +573,7 @@ window.perlin = perlinInstance;
         let defaultPlayerSkin = null;
         let dirtToGrassLoop = null;
         let waypointsMod = null;
+        let nodeViewMod = null;
         let pigMob = null;
         let zombieMob = null;
         let wolfMob = null;
@@ -624,6 +625,10 @@ window.perlin = perlinInstance;
             getRenderer: () => renderer,
             getPlayerPosition: () => yawObject?.position || null,
             showGameMessage,
+        }) || null;
+        nodeViewMod = window.SingleplayerNodeView?.create?.({
+            getTargetInfo: getNodeViewTargetInfo,
+            getIsSuppressed: () => !player.canMove || isInventoryOpen || isCreativeMenuOpen,
         }) || null;
         pigMob = window.SingleplayerPigMob?.create?.({
             THREE,
@@ -1092,6 +1097,7 @@ window.perlin = perlinInstance;
             updateHotbarUI();
             waypointsMod?.initUi?.();
             waypointsMod?.setInventoryOpen?.(false);
+            nodeViewMod?.initUi?.();
             const closeBtn = document.getElementById('inventory-close-btn');
             const closeIcon = document.getElementById('inventory-close-icon');
             const furnaceCloseBtn = document.getElementById('furnace-close-btn');
@@ -2802,6 +2808,121 @@ window.perlin = perlinInstance;
             hud.classList.add('opacity-0');
             if (!mobileControls.enabled) document.exitPointerLock();
             player.keys = {};
+        }
+
+
+        function getToolNameForRequiredTier(tier) {
+            if (!Number.isFinite(Number(tier))) return 'Hand';
+            const requiredTier = Number(tier);
+            if (requiredTier <= 1) return 'Wooden Pickaxe';
+            if (requiredTier === 2) return 'Stone Pickaxe';
+            if (requiredTier === 3) return 'Gold Pickaxe';
+            if (requiredTier === 4) return 'Copper Pickaxe';
+            if (requiredTier === 5) return 'Iron Pickaxe';
+            if (requiredTier === 6) return 'Diamond Pickaxe';
+            return 'Emerald Pickaxe';
+        }
+
+        function getSuggestedToolLabel(blockId) {
+            const hardnessGrade = BlockHardnessSystem.getHardness
+                ? BlockHardnessSystem.getHardness(blockId)
+                : 6;
+            if (hardnessGrade < 0) return { description: 'Unbreakable', type: 'None' };
+            const requiredTier = BlockBreakableSystem.getRequiredTier
+                ? BlockBreakableSystem.getRequiredTier(blockId)
+                : null;
+            if (Number.isFinite(requiredTier)) {
+                return { description: getToolNameForRequiredTier(requiredTier), type: 'Pickaxe' };
+            }
+            if (PickaxeSystem.HARD_BLOCKS?.has?.(blockId)) return { description: 'Hand', type: 'Hard block' };
+            if (PickaxeSystem.SOFT_BLOCKS?.has?.(blockId)) return { description: 'Shovel', type: 'Soft block' };
+            if (PickaxeSystem.WOOD_BLOCKS?.has?.(blockId)) return { description: 'Axe', type: 'Wood block' };
+            return { description: 'Hand', type: 'General' };
+        }
+
+        function getBlockPreviewTexture(blockId) {
+            const mat = blockMaterials?.[blockId];
+            if (!mat || !mat.textured) return '';
+            const faceKey = mat.textureByFace?.posX || mat.textureByFace?.posZ || mat.textureByFace?.top;
+            const preferredKey = faceKey || mat.textureKey;
+            return ASSET_FILEPATHS[preferredKey] || ASSET_FILEPATHS[mat.textureKey] || '';
+        }
+
+        function getEntityPreviewTexture(entityKey) {
+            if (entityKey === 'pig') return ASSET_FILEPATHS.PIG_TEXTURE || '';
+            if (entityKey === 'panda') return ASSET_FILEPATHS.PANDA_TEXTURE || '';
+            if (entityKey === 'zombie') return ASSET_FILEPATHS.ZOMBIE_TEXTURE || '';
+            return '';
+        }
+
+        function getCrosshairEntityInfo() {
+            if (!prepareCrosshairRaycast()) return null;
+            const hitboxes = [];
+            const pushHitboxes = (entities, hitboxKey, profile) => {
+                for (const entity of entities) {
+                    const hitbox = entity?.root?.userData?.[hitboxKey];
+                    if (!hitbox) continue;
+                    hitboxes.push({ hitbox, entity, profile });
+                }
+            };
+            pushHitboxes(zombieMob?.getEntities?.() || [], 'zombieHitbox', { key: 'zombie', kind: 'Entity', name: 'Zombie', maxHealth: 20 });
+            pushHitboxes(wolfMob?.getEntities?.() || [], 'wolfHitbox', { key: 'wolf', kind: 'Entity', name: 'Wolf', maxHealth: 12 });
+            pushHitboxes(pandaMob?.getEntities?.() || [], 'pandaHitbox', { key: 'panda', kind: 'Entity', name: 'Panda', maxHealth: 16 });
+            pushHitboxes(villagerMob?.getEntities?.() || [], 'villagerHitbox', { key: 'villager', kind: 'Entity', name: 'Villager', maxHealth: 20 });
+            pushHitboxes(pigMob?.getEntities?.() || [], 'pigHitbox', { key: 'pig', kind: 'Entity', name: 'Pig', maxHealth: 10 });
+            if (!hitboxes.length) return null;
+            const hits = raycaster.intersectObjects(hitboxes.map((entry) => entry.hitbox), false);
+            if (!hits.length) return null;
+            const match = hitboxes.find((entry) => entry.hitbox === hits[0].object);
+            if (!match) return null;
+            const currentHp = Number(match.entity?.hp);
+            const maxHealth = Number(match.profile?.maxHealth) || Number(match.entity?.maxHp) || Number(match.entity?.maxHealth) || null;
+            const healthLine = Number.isFinite(currentHp)
+                ? `<strong class="node-view-health">Health:</strong> ${Math.max(0, Math.round(currentHp * 10) / 10)}${Number.isFinite(maxHealth) ? ` / ${Math.round(maxHealth * 10) / 10}` : ''}`
+                : '<strong class="node-view-health">Health:</strong> Unknown';
+            const entityName = match.profile.key === 'wolf' && match.entity?.tamed ? 'Dog' : match.profile.name;
+            return {
+                key: `entity:${match.profile.key}:${match.entity?.root?.uuid || ''}:${Math.round(currentHp || -1)}`,
+                kind: 'Entity',
+                title: entityName,
+                icon: getEntityPreviewTexture(match.profile.key),
+                primary: healthLine,
+                secondary: '<strong>Family:</strong> singleplayer mob',
+                mod: 'singleplayer',
+            };
+        }
+
+        function getNodeViewTargetInfo() {
+            const entityInfo = getCrosshairEntityInfo();
+            if (entityInfo) return entityInfo;
+
+            const target = getTargetBlockFromCrosshair();
+            if (!target) return null;
+            const material = blockMaterials?.[target.blockId];
+            if (!material) return null;
+            const toolInfo = getSuggestedToolLabel(target.blockId);
+            const miningInfo = getMiningDurationMs(target.blockId);
+            const details = [];
+            if (toolInfo?.description) {
+                details.push(`<strong>Tool:</strong> ${toolInfo.description}`);
+            }
+            if (Number.isFinite(miningInfo?.durationMs)) {
+                details.push(`<strong>Break:</strong> ${(Math.max(0, miningInfo.durationMs) / 1000).toFixed(2)}s`);
+            } else if (miningInfo?.reason === 'unbreakable') {
+                details.push('<strong>Break:</strong> Unbreakable');
+            }
+            const secondaryBits = [];
+            if (toolInfo?.type) secondaryBits.push(`<strong>Type:</strong> ${toolInfo.type}`);
+            secondaryBits.push(`<strong>ID:</strong> ${target.blockId}`);
+            return {
+                key: `block:${target.blockId}:${target.wx},${target.wy},${target.wz}:${selectedHotbarIndex}`,
+                kind: 'Block',
+                title: material.name || `Block ${target.blockId}`,
+                icon: getBlockPreviewTexture(target.blockId),
+                primary: details.join(' • '),
+                secondary: secondaryBits.join(' • '),
+                mod: 'singleplayer',
+            };
         }
 
         function getMiningDurationMs(blockId) {
@@ -6505,6 +6626,7 @@ window.perlin = perlinInstance;
             }
             updateAdaptiveCrosshair();
             updateCoordinatesUI();
+            nodeViewMod?.update?.(time, delta);
             waypointsMod?.update?.(time, delta);
             renderer.render(scene, camera);
         }

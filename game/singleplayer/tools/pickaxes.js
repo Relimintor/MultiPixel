@@ -109,5 +109,6 @@
     getDrop,
     HARD_BLOCKS,
     SOFT_BLOCKS,
+    WOOD_BLOCKS,
   };
 })();
