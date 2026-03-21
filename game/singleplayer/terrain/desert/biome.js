@@ -1,5 +1,15 @@
 (function () {
   const DesertTerrain = {
+    meta: {
+      terrainKey: 'desert',
+      name: 'Desert',
+      aliases: ['desert'],
+      villageKey: 'desert',
+      treeEligible: false,
+      treeSpawnChance: 0,
+      treeDensityKey: 'Plains',
+      climateTarget: { temp: 0.09, humidity: -0.12, continentalness: 0.18, erosion: 0.08, weirdness: 0.06 },
+    },
     isBiome({ climateNoise, moistureNoise, continentalNoise }) {
       return climateNoise > -0.12 &&
              moistureNoise < 0.32 &&

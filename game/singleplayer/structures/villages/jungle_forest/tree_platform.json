@@ -2,7 +2,7 @@
   "id": "tree_platform",
   "biome": "jungle_forest",
   "style": "tree_village",
-  "category": "tree",
+  "category": "platform",
   "weight": 6,
   "footprint": {
     "width": 11,
