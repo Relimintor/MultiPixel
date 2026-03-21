@@ -1,0 +1,34 @@
+# textdomain: node_view
+
+Hand=Ruka
+Pickaxe=Krápáč / Krumpáč
+Sword=Meč
+Shears=Nůžky
+Axe=Sekera
+Shovel=Lopata
+
+Unbreakable=Nezničitelné
+None=Žádné
+Type=Typ
+Health=Zdraví
+
+Unknown=Neznámé
+
+Preview=Náhled
+Hud Alignment=Zarovnání HUD
+Top-Middle=Nahoře-Střed
+Top-Right=Nahoře-Vpravo
+Top-Left=Nahoře-Vlevo
+Middle-Right=Střed-Vpravo
+Middle-Left=Střed-Vlevo
+Bottom-Right=Dole-Vpravo
+Bottom-Left=Dole-Vlevo
+Health in=Zdraví v
+Points=Body
+Hearts=Srdce
+Set to Default=Obnovit výchozí
+Change Preview to=Změnit náhled na
+Node=Uzel
+Entity=Entita
+Cancel=Zrušit
+Apply Changes=Použít změny
