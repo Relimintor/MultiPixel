@@ -115,13 +115,10 @@
             getHeight: function (ctx) { return ctx.BASE_LAND_Y + 10 + ctx.continentalMask * 14 + ctx.terrainNoise * 14 + ctx.ridgeNoise * 8; }
         };
 
-        // --- DAY/NIGHT CYCLE CONFIG ---
-        const DAY_SEGMENTS = { sunrise: 2 * 60 * 1000, day: 8 * 60 * 1000, sunset: 2 * 60 * 1000, night: 8 * 60 * 1000 };
-        const DAY_CYCLE_DURATION = DAY_SEGMENTS.sunrise + DAY_SEGMENTS.day + DAY_SEGMENTS.sunset + DAY_SEGMENTS.night;
-        let cycleTimeMs = DAY_SEGMENTS.sunrise + DAY_SEGMENTS.day / 2; // Start near noon
         let lastTime = 0; // For delta time calculation
         let inventoryEntityUpdateAccumulatorMs = 0;
         let ambientLight, hemiLight, moonLight, dirLight; // global lighting rig
+        let dayNightCycle = null;
 
         const BREATH_MAX = 20;
         const playerRuntime = window.SingleplayerPlayerCore.createRuntime({
@@ -435,6 +432,15 @@ window.perlin = perlinInstance;
             updateChunkGeometry,
             meshRebuildBudgetPerFrame: MESH_REBUILD_BUDGET_PER_FRAME,
             meshRebuildBudgetForce: MESH_REBUILD_BUDGET_FORCE,
+        }) || null;
+        dayNightCycle = window.SingleplayerDayNightCycle?.create?.({
+            THREE,
+            getScene: () => scene,
+            getLights: () => ({ ambientLight, hemiLight, moonLight, dirLight }),
+            getBiomeAt: (x, z) => getBiome(x, z),
+            getPlayerPosition: () => yawObject?.position,
+            getCurrentRenderDistance: () => currentChunkLoadRadius,
+            CHUNK_SIZE,
         }) || null;
         let yawObject, pitchObject; 
         let currentPlayerHeight = playerRuntime.currentPlayerHeight;
@@ -853,61 +859,23 @@ window.perlin = perlinInstance;
         
         // --- Day/Night Cycle Logic ---
         function getTimePhaseInfo() {
-            const t = cycleTimeMs % DAY_CYCLE_DURATION;
-            const sunriseEnd = DAY_SEGMENTS.sunrise;
-            const dayEnd = sunriseEnd + DAY_SEGMENTS.day;
-            const sunsetEnd = dayEnd + DAY_SEGMENTS.sunset;
-
-            if (t < sunriseEnd) return { phase: 'Sunrise', localT: t / DAY_SEGMENTS.sunrise };
-            if (t < dayEnd) return { phase: 'Day', localT: (t - sunriseEnd) / DAY_SEGMENTS.day };
-            if (t < sunsetEnd) return { phase: 'Sunset', localT: (t - dayEnd) / DAY_SEGMENTS.sunset };
-            return { phase: 'Night', localT: (t - sunsetEnd) / DAY_SEGMENTS.night };
+            return dayNightCycle?.getTimePhaseInfo?.() || { phase: 'Day', localT: 1 };
         }
 
         function getSunFactor() {
-            const phaseInfo = getTimePhaseInfo();
-            if (phaseInfo.phase === 'Day') return 1;
-            if (phaseInfo.phase === 'Night') return -0.85;
-            if (phaseInfo.phase === 'Sunrise') return -0.85 + 1.85 * phaseInfo.localT;
-            return 1 - 1.85 * phaseInfo.localT;
+            return dayNightCycle?.getSunFactor?.() ?? 1;
         }
 
         function getCurrentSkyLightCap() {
-            const normalized = Math.max(0, Math.min(1, (getSunFactor() + 0.85) / 1.85));
-            return Math.max(0, Math.min(15, Math.floor(normalized * 15)));
+            return dayNightCycle?.getCurrentSkyLightCap?.() ?? 15;
         }
 
         function setTimeByClock(hours, minutes) {
-            const hh = Number.parseInt(hours, 10);
-            const mm = Number.parseInt(minutes, 10);
-            if (!Number.isFinite(hh) || !Number.isFinite(mm)) return false;
-            if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return false;
-            const minutesOfDay = hh * 60 + mm;
-            const dayProgress = minutesOfDay / 1440;
-            cycleTimeMs = dayProgress * DAY_CYCLE_DURATION;
-            updateSkyAndSun();
-            return true;
+            return dayNightCycle?.setTimeByClock?.(hours, minutes) || false;
         }
 
-        function getFogDistances(renderDistance) {
-            const radius = Math.max(1, Number(renderDistance) || 1);
-            return {
-                nearBase: Math.max(10, radius * CHUNK_SIZE * 0.12),
-                nearDayBoost: Math.max(3, radius * CHUNK_SIZE * 0.04),
-                farBase: Math.max(42, radius * CHUNK_SIZE * 0.52),
-                farDayBoost: Math.max(10, radius * CHUNK_SIZE * 0.16),
-            };
-        }
-
-
-        function getBiomeFogAndHumidityEffects() {
-            const wx = Math.floor(yawObject?.position?.x || 0);
-            const wz = Math.floor(yawObject?.position?.z || 0);
-            const biome = getBiome(wx, wz);
-            if (biome === 'Jungle Forest') {
-                return { humidity: 0.9, nearMul: 1.18, farMul: 0.7 };
-            }
-            return { humidity: 0.5, nearMul: 1.0, farMul: 1.0 };
+        function updateSkyAndSun() {
+            dayNightCycle?.updateSkyAndSun?.();
         }
 
         function setRenderDistance(amount) {
@@ -917,7 +885,7 @@ window.perlin = perlinInstance;
             if (normalized === currentChunkLoadRadius) return true;
             currentChunkLoadRadius = normalized;
             effectiveChunkLoadRadius = currentChunkLoadRadius;
-            lastChunkUpdateMs = -Infinity;
+            updateSkyAndSun();
             ensureChunksAroundPlayer(true);
             return true;
         }
@@ -935,51 +903,6 @@ window.perlin = perlinInstance;
             return Number(camera?.fov || 90);
         }
 
-        function updateSkyAndSun() {
-            const sunFactor = getSunFactor();
-
-            const dayColor = new THREE.Color(0x87ceeb);
-            const twilightColor = new THREE.Color(0x9a7d90);
-            const nightColor = new THREE.Color(0x1a1a2e);
-
-            let skyColor;
-            if (sunFactor > 0.1) {
-                const k = Math.min(1, Math.max(0, (sunFactor - 0.1) / 0.9));
-                skyColor = twilightColor.clone().lerp(dayColor, k);
-            } else {
-                const k = Math.min(1, Math.max(0, (sunFactor + 0.85) / 0.95));
-                skyColor = nightColor.clone().lerp(twilightColor, k);
-            }
-
-            scene.background.copy(skyColor);
-            scene.fog.color.copy(skyColor);
-
-            const angle = (cycleTimeMs / DAY_CYCLE_DURATION) * (2 * Math.PI);
-            const daylight = Math.max(0, sunFactor + 0.1);
-            const nightness = Math.max(0, -sunFactor);
-
-            dirLight.intensity = Math.max(0.04, daylight) * 1.18;
-            dirLight.position.x = Math.sin(angle) * 100;
-            dirLight.position.y = Math.cos(angle) * 100;
-            dirLight.position.z = Math.sin(angle) * 50;
-
-            moonLight.intensity = 0.06 + nightness * 0.34;
-            moonLight.position.x = -Math.sin(angle) * 85;
-            moonLight.position.y = Math.max(8, -Math.cos(angle) * 85);
-            moonLight.position.z = -Math.sin(angle) * 45;
-
-            ambientLight.intensity = 0.26 + daylight * 0.45;
-            hemiLight.intensity = 0.18 + daylight * 0.55;
-            const fog = getFogDistances(currentChunkLoadRadius);
-            const biomeEffects = getBiomeFogAndHumidityEffects();
-            scene.fog.near = (fog.nearBase + daylight * fog.nearDayBoost) * biomeEffects.nearMul;
-            scene.fog.far = (fog.farBase + daylight * fog.farDayBoost) * biomeEffects.farMul;
-            window.SingleplayerClimateState = window.SingleplayerClimateState || {};
-            window.SingleplayerClimateState.humidity = biomeEffects.humidity;
-        }
-
-
-     
         function getMaxStackSize(itemId) {
             const itemDef = blockMaterials[itemId];
             return itemDef?.toolType ? 1 : 64;
@@ -6879,14 +6802,6 @@ function buildPartFaceRects(x, y, w, h, d) {
             return chunkStreamOptimizations?.isChunkAllAir?.(data) || false;
         }
 
-        function computeChunkHash(data) {
-            return remeshOptimizations?.computeChunkHash?.(data) || 0;
-        }
-
-        function isChunkAllAir(data) {
-            return chunkStreamOptimizations?.isChunkAllAir?.(data) || false;
-        }
-
         function createChunk(cx, cz) {
 
             const generated = generateChunkData(cx, cz);
@@ -8027,8 +7942,7 @@ function buildPartFaceRects(x, y, w, h, d) {
             const delta = lastTime ? (time - lastTime) : 0;
             lastTime = time;
 
-            cycleTimeMs = (cycleTimeMs + delta) % DAY_CYCLE_DURATION;
-            updateSkyAndSun();
+            dayNightCycle?.tick?.(delta);
 
             const liquidState = getPlayerLiquidState();
             updateBreathing(delta / 1000, liquidState.isUnderLiquid);
