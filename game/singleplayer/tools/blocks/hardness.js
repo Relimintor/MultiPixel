@@ -10,6 +10,7 @@
     6: 2,   // Leaves
     7: 5,   // Sand
     8: 6,   // Oak Planks
+    114: 4, // Wooden slab
     9: 8,   // Crafting table
     13: 10, // Sandstone
     14: -1, // Bedrock

@@ -572,6 +572,7 @@ window.perlin = perlinInstance;
         let chunkStreamOptimizations = null;
         let defaultPlayerSkin = null;
         let dirtToGrassLoop = null;
+        let waypointsMod = null;
         let pigMob = null;
         let zombieMob = null;
         let wolfMob = null;
@@ -616,6 +617,13 @@ window.perlin = perlinInstance;
             getBlockType,
             getColumnTopFromData,
             setBlockTypeRaw,
+        }) || null;
+        waypointsMod = window.SingleplayerWaypoints?.create?.({
+            THREE,
+            getCamera: () => camera,
+            getRenderer: () => renderer,
+            getPlayerPosition: () => yawObject?.position || null,
+            showGameMessage,
         }) || null;
         pigMob = window.SingleplayerPigMob?.create?.({
             THREE,
@@ -775,6 +783,28 @@ window.perlin = perlinInstance;
         // --- 3. CORE UTILITIES ---
 
         function isSolid(type) { return SOLID_BLOCKS.includes(type); }
+
+        function getBlockBounds(type) {
+            const bounds = blockMaterials[type]?.bounds;
+            if (!bounds) return null;
+            return {
+                minX: Number.isFinite(bounds.minX) ? bounds.minX : 0,
+                minY: Number.isFinite(bounds.minY) ? bounds.minY : 0,
+                minZ: Number.isFinite(bounds.minZ) ? bounds.minZ : 0,
+                maxX: Number.isFinite(bounds.maxX) ? bounds.maxX : 1,
+                maxY: Number.isFinite(bounds.maxY) ? bounds.maxY : 1,
+                maxZ: Number.isFinite(bounds.maxZ) ? bounds.maxZ : 1,
+            };
+        }
+
+        function getBlockWorldBox(wx, wy, wz, type) {
+            if (!type || !isSolid(type)) return null;
+            const bounds = getBlockBounds(type) || { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 1, maxZ: 1 };
+            return new THREE.Box3(
+                new THREE.Vector3(wx + bounds.minX, wy + bounds.minY, wz + bounds.minZ),
+                new THREE.Vector3(wx + bounds.maxX, wy + bounds.maxY, wz + bounds.maxZ)
+            );
+        }
        
         function isLiquid(type) { return LIQUID_BLOCKS.includes(type); }
 
@@ -1060,6 +1090,8 @@ window.perlin = perlinInstance;
             renderHearts();
             renderAirBubbles(false);
             updateHotbarUI();
+            waypointsMod?.initUi?.();
+            waypointsMod?.setInventoryOpen?.(false);
             const closeBtn = document.getElementById('inventory-close-btn');
             const closeIcon = document.getElementById('inventory-close-icon');
             const furnaceCloseBtn = document.getElementById('furnace-close-btn');
@@ -2035,6 +2067,7 @@ window.perlin = perlinInstance;
             activeChestKey = null;
             buildCreativeCatalog();
             renderInventoryScreen();
+            waypointsMod?.setInventoryOpen?.(false);
             creativeScreen.classList.remove('hidden');
             document.getElementById('inventory-screen')?.classList.add('hidden');
             document.getElementById('furnace-screen')?.classList.add('hidden');
@@ -2062,6 +2095,7 @@ window.perlin = perlinInstance;
             heldItemSourceType = null;
             renderHeldItem();
             updateHotbarUI();
+            waypointsMod?.setInventoryOpen?.(false);
             return true;
         }
 
@@ -2478,6 +2512,9 @@ window.perlin = perlinInstance;
 
             if (!mainGrid || !hotbarGrid) return;
 
+            const waypointMenuEnabled = isInventoryOpen && !usingFurnaceScreen && !usingChestScreen && !isCreativeMenuOpen;
+            waypointsMod?.renderWaypointUi?.({ enabled: waypointMenuEnabled });
+
             mainGrid.innerHTML = '';
             hotbarGrid.innerHTML = '';
             if (craftInputGrid2x2) craftInputGrid2x2.innerHTML = '';
@@ -2672,6 +2709,7 @@ window.perlin = perlinInstance;
                 }
                 renderHeldItem();
                 updateHotbarUI();
+                waypointsMod?.setInventoryOpen?.(false);
                 return;
             }
 
@@ -2700,6 +2738,7 @@ window.perlin = perlinInstance;
             craftingOutput = checkCraftingRecipe(inputGrid, gridWidth);
 
             renderInventoryScreen();
+            waypointsMod?.setInventoryOpen?.(true);
             if (invScreen) invScreen.classList.remove('hidden');
             if (furnaceScreen) furnaceScreen.classList.add('hidden');
             if (chestScreen) chestScreen.classList.add('hidden');
@@ -2727,6 +2766,7 @@ window.perlin = perlinInstance;
             heldItemSourceType = null;
 
             renderInventoryScreen();
+            waypointsMod?.setInventoryOpen?.(false);
             if (invScreen) invScreen.classList.add('hidden');
             if (furnaceScreen) furnaceScreen.classList.remove('hidden');
             if (chestScreen) chestScreen.classList.add('hidden');
@@ -2755,6 +2795,7 @@ window.perlin = perlinInstance;
             heldItemSourceType = null;
 
             renderInventoryScreen();
+            waypointsMod?.setInventoryOpen?.(false);
             if (invScreen) invScreen.classList.add('hidden');
             if (furnaceScreen) furnaceScreen.classList.add('hidden');
             if (chestScreen) chestScreen.classList.remove('hidden');
@@ -3105,7 +3146,7 @@ window.perlin = perlinInstance;
                 new THREE.Vector3(yawObject.position.x - PLAYER_RADIUS, yawObject.position.y, yawObject.position.z - PLAYER_RADIUS),
                 new THREE.Vector3(yawObject.position.x + PLAYER_RADIUS, yawObject.position.y + currentPlayerHeight, yawObject.position.z + PLAYER_RADIUS)
             );
-            const blockBox = new THREE.Box3(
+            const blockBox = getBlockWorldBox(px, py, pz, item.id) || new THREE.Box3(
                 new THREE.Vector3(px, py, pz), new THREE.Vector3(px + 1, py + 1, pz + 1)
             );
 
@@ -3623,8 +3664,10 @@ window.perlin = perlinInstance;
               
                 if (player.velocity.y < 0) {
                     player.isJumping = false;
-                    
-                   
+
+                    const supportTop = findSupportingBlockTop(yawObject.position.x, yawObject.position.y, yawObject.position.z);
+                    if (supportTop !== null) yawObject.position.y = supportTop;
+
                     if (player.inAir) {
                         const fallDist = player.fallStartY - yawObject.position.y;
                         if (fallDist > 4 && !player.isSwimming) { // 4 blocks safe fall
@@ -3633,8 +3676,7 @@ window.perlin = perlinInstance;
                         }
                         player.inAir = false;
                     }
-                    
-                  
+
                     yawObject.position.y = Math.round(yawObject.position.y * 100) / 100;
                 } else {
                    
@@ -3674,6 +3716,34 @@ window.perlin = perlinInstance;
             }
         }
 
+        function findSupportingBlockTop(px, py, pz) {
+            const r = PLAYER_RADIUS;
+            const minX = Math.floor(px - r);
+            const maxX = Math.floor(px + r);
+            const minY = Math.max(0, Math.floor(py) - 1);
+            const maxY = Math.min(CHUNK_HEIGHT - 1, Math.floor(py + 0.6));
+            const minZ = Math.floor(pz - r);
+            const maxZ = Math.floor(pz + r);
+            let bestTop = -Infinity;
+
+            for (let x = minX; x <= maxX; x++) {
+                for (let y = minY; y <= maxY; y++) {
+                    for (let z = minZ; z <= maxZ; z++) {
+                        const type = getBlockType(x, y, z);
+                        if (!isSolid(type) || isLiquid(type)) continue;
+                        const blockBox = getBlockWorldBox(x, y, z, type);
+                        if (!blockBox) continue;
+                        if (px + r <= blockBox.min.x || px - r >= blockBox.max.x) continue;
+                        if (pz + r <= blockBox.min.z || pz - r >= blockBox.max.z) continue;
+                        const top = blockBox.max.y;
+                        if (top <= py + 0.2 && top > bestTop) bestTop = top;
+                    }
+                }
+            }
+
+            return Number.isFinite(bestTop) ? bestTop : null;
+        }
+
         function isColliding() {
             if (playerPrivileges.noclip && playerPrivileges.fly && isFlyActive) return false;
 
@@ -3682,6 +3752,11 @@ window.perlin = perlinInstance;
             const pz = yawObject.position.z;
             const r = PLAYER_RADIUS;
             const h = currentPlayerHeight; 
+
+            const playerBox = new THREE.Box3(
+                new THREE.Vector3(px - r, py, pz - r),
+                new THREE.Vector3(px + r, py + h, pz + r)
+            );
 
             const minX = Math.floor(px - r);
             const maxX = Math.floor(px + r);
@@ -3694,7 +3769,9 @@ window.perlin = perlinInstance;
                 for (let y = minY; y <= maxY; y++) {
                     for (let z = minZ; z <= maxZ; z++) {
                         const type = getBlockType(x, y, z);
-                        if (isSolid(type)) return true;
+                        if (!isSolid(type)) continue;
+                        const blockBox = getBlockWorldBox(x, y, z, type);
+                        if (blockBox && playerBox.intersectsBox(blockBox)) return true;
                     }
                 }
             }
@@ -5499,6 +5576,14 @@ window.perlin = perlinInstance;
                 { name: 'posZ', dir: [0,0,1], corners: [[0,1,1],[0,0,1],[1,0,1],[1,1,1]], uv: [0,1, 0,0, 1,0, 1,1] },
                 { name: 'negZ', dir: [0,0,-1], corners: [[1,1,0],[1,0,0],[0,0,0],[0,1,0]], uv: [0,1, 0,0, 1,0, 1,1] }
             ];
+            const slabFaces = [
+                { name: 'posX', dir: [1,0,0], corners: [[1,0.5,1],[1,0,1],[1,0,0],[1,0.5,0]], uv: [0,0.5, 0,0, 1,0, 1,0.5] },
+                { name: 'negX', dir: [-1,0,0], corners: [[0,0.5,0],[0,0,0],[0,0,1],[0,0.5,1]], uv: [0,0.5, 0,0, 1,0, 1,0.5] },
+                { name: 'top', dir: [0,1,0], corners: [[0,0.5,1],[1,0.5,1],[1,0.5,0],[0,0.5,0]], uv: [0,1, 0,0, 1,0, 1,1] },
+                { name: 'bottom', dir: [0,-1,0], corners: [[0,0,0],[1,0,0],[1,0,1],[0,0,1]], uv: [0,1, 0,0, 1,0, 1,1] },
+                { name: 'posZ', dir: [0,0,1], corners: [[0,0.5,1],[0,0,1],[1,0,1],[1,0.5,1]], uv: [0,0.5, 0,0, 1,0, 1,0.5] },
+                { name: 'negZ', dir: [0,0,-1], corners: [[1,0.5,0],[1,0,0],[0,0,0],[0,0.5,0]], uv: [0,0.5, 0,0, 1,0, 1,0.5] }
+            ];
             const torchFaces = [
                 { name: 'posX', dir: [1,0,0], corners: [[0.5625,0.8,0.5625],[0.5625,0.05,0.5625],[0.5625,0.05,0.4375],[0.5625,0.8,0.4375]], uv: [0,1,0,0,1,0,1,1] },
                 { name: 'negX', dir: [-1,0,0], corners: [[0.4375,0.8,0.4375],[0.4375,0.05,0.4375],[0.4375,0.05,0.5625],[0.4375,0.8,0.5625]], uv: [0,1,0,0,1,0,1,1] },
@@ -5694,7 +5779,7 @@ window.perlin = perlinInstance;
                                 const id = get(x, y, z);
                                 if (id === 0 || id === 22) continue;
                                 const mat = blockMaterials[id];
-                                if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES')) continue;
+                                if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES') || mat.shape) continue;
                                 const nid = get(x, y + face.sign, z);
                                 if (!shouldDrawFace(id, nid)) continue;
                                 const materialKey = getMaterialKey(id, face.dir);
@@ -5743,7 +5828,7 @@ window.perlin = perlinInstance;
                                 const id = get(x, y, z);
                                 if (id === 0 || id === 22) continue;
                                 const mat = blockMaterials[id];
-                                if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES')) continue;
+                                if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES') || mat.shape) continue;
                                 const nid = get(x + face.sign, y, z);
                                 if (!shouldDrawFace(id, nid)) continue;
                                 const materialKey = getMaterialKey(id, face.dir);
@@ -5792,7 +5877,7 @@ window.perlin = perlinInstance;
                                 const id = get(x, y, z);
                                 if (id === 0 || id === 22) continue;
                                 const mat = blockMaterials[id];
-                                if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES')) continue;
+                                if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES') || mat.shape) continue;
                                 const nid = get(x, y, z + face.sign);
                                 if (!shouldDrawFace(id, nid)) continue;
                                 const materialKey = getMaterialKey(id, face.dir);
@@ -5844,20 +5929,21 @@ window.perlin = perlinInstance;
                         const isTorch = id === 22;
                         const isBambooStage = id === 99 || id === 100;
                         const isBambooStalk = id === 101;
+                        const isSlab = mat.shape === 'slab';
                         const sideRenderMode = getSideRenderMode(id);
                         const isSideRenderBlock = Boolean(sideRenderMode);
                         if (isTorch) torchPositions.push({ x: x + cx * CS, y, z: z + cz * CS });
                         const isTrans = mat.transparent || (mat.textured && mat.textureKey === 'LEAVES');
-                        if (!isTorch && !isBambooStage && !isBambooStalk && !isSideRenderBlock && !isTrans) continue;
+                        if (!isTorch && !isBambooStage && !isBambooStalk && !isSlab && !isSideRenderBlock && !isTrans) continue;
                         const activeFaces = isSideRenderBlock
                             ? (sideRenderMode === 'plane' ? singlePlaneFaces : crossPlantFaces)
-                            : (isTorch ? torchFaces : (isBambooStalk ? bambooStalkFaces : (isBambooStage ? bambooStageFaces : faces)));
+                            : (isTorch ? torchFaces : (isBambooStalk ? bambooStalkFaces : (isBambooStage ? bambooStageFaces : (isSlab ? slabFaces : faces))));
 
                         for (let i = 0; i < activeFaces.length; i++) {
                             const f = activeFaces[i];
                             const nid = get(x + f.dir[0], y + f.dir[1], z + f.dir[2]);
                             let draw = false;
-                            if (isTorch || isBambooStage || isBambooStalk || isSideRenderBlock) draw = true;
+                            if (isTorch || isBambooStage || isBambooStalk || isSlab || isSideRenderBlock) draw = true;
                             else if (shouldDrawFace(id, nid)) draw = true;
                             if (!draw) continue;
 
@@ -6419,6 +6505,7 @@ window.perlin = perlinInstance;
             }
             updateAdaptiveCrosshair();
             updateCoordinatesUI();
+            waypointsMod?.update?.(time, delta);
             renderer.render(scene, camera);
         }
         
