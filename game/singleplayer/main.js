@@ -36,7 +36,16 @@
         window.__SINGLEPLAYER_BUILD__ = 'sp-2026-03-01-06';
         console.info('[Singleplayer build]', window.__SINGLEPLAYER_BUILD__);
 
-        const TerrainModules = {};
+        const TerrainModules = {
+            ocean: window.OceanTerrain || {},
+            river: window.RiverTerrain || {},
+            oakForest: window.OakForestTerrain || {},
+            desert: window.DesertTerrain || {},
+            plains: window.PlainsTerrain || {},
+            snowyPlains: window.SnowyPlainsTerrain || {},
+            jungleForest: window.JungleForestTerrain || {},
+            mountains: window.MountainsTerrain || {},
+        };
 
         const worldGenSettings = WORLD_GEN_SETTINGS || {};
         const wasmSettings = worldGenSettings.wasm || {};
@@ -60,6 +69,61 @@
             return normalized > 0 ? normalized : 1;
         }
 
+        function normalizeBiomeLookupKey(value) {
+            return String(value || '').toLowerCase().trim().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
+        }
+
+        function buildBiomeProfiles() {
+            const profiles = [];
+            const addProfile = (moduleKey, meta, inherited = {}) => {
+                if (!meta?.name) return;
+                profiles.push({
+                    moduleKey,
+                    ...inherited,
+                    ...meta,
+                    aliases: Array.isArray(meta.aliases) ? meta.aliases : [],
+                });
+            };
+
+            Object.entries(TerrainModules).forEach(([moduleKey, terrainModule]) => {
+                const meta = terrainModule?.meta;
+                if (!meta) return;
+                addProfile(moduleKey, meta);
+                const variants = Array.isArray(meta.variants) ? meta.variants : [];
+                variants.forEach((variant) => addProfile(moduleKey, {
+                    ...meta,
+                    ...variant,
+                    variants: undefined,
+                    aliases: variant.aliases,
+                }, {
+                    baseName: meta.name,
+                    villageKey: variant.villageKey ?? meta.villageKey,
+                    treeEligible: variant.treeEligible ?? meta.treeEligible,
+                    treeSpawnChance: variant.treeSpawnChance ?? meta.treeSpawnChance,
+                    treeDensityKey: variant.treeDensityKey ?? meta.treeDensityKey,
+                    climateTarget: variant.climateTarget ?? meta.climateTarget,
+                    isOcean: variant.isOcean ?? meta.isOcean,
+                }));
+            });
+            return profiles;
+        }
+
+        const BIOME_PROFILES = buildBiomeProfiles();
+        const BIOME_PROFILE_BY_LOOKUP = new Map();
+        BIOME_PROFILES.forEach((profile) => {
+            BIOME_PROFILE_BY_LOOKUP.set(normalizeBiomeLookupKey(profile.name), profile);
+            profile.aliases.forEach((alias) => BIOME_PROFILE_BY_LOOKUP.set(normalizeBiomeLookupKey(alias), profile));
+        });
+        const VILLAGE_BIOME_KEYS = Array.from(new Set(BIOME_PROFILES.map((profile) => profile.villageKey).filter(Boolean)));
+
+        function resolveBiomeProfile(rawBiome) {
+            return BIOME_PROFILE_BY_LOOKUP.get(normalizeBiomeLookupKey(rawBiome)) || null;
+        }
+
+        function formatVillageBiomeKeyList() {
+            return VILLAGE_BIOME_KEYS.join(', ');
+        }
+
         function resolveWorldSeed() {
             // Always use a fresh random seed per game load so terrain changes each time.
             // Optional override: if WORLD_GEN_SETTINGS.seed is provided, honor that value.
@@ -67,53 +131,6 @@
             if (configuredSeed) return configuredSeed;
             return Math.floor(Math.random() * 2147483646) + 1;
         }
-
-        TerrainModules['ocean'] = window.OceanTerrain || {
-            isBiome: function (ctx) { return ctx.climateNoise <= -0.2; },
-            getHeight: function (ctx) { return ctx.SEA_LEVEL - 10 - ctx.terrainNoise * 5; }
-        };
-
-        TerrainModules['river'] = window.RiverTerrain || {
-            getMask: function (ctx) {
-                const scale = 0.001;
-                const path = ctx.perlin.noise2D(ctx.wx * scale, ctx.wz * scale);
-                return 1.0 - Math.min(1.0, Math.abs(path) / 0.08);
-            },
-            applyHeight: function (ctx) {
-                if (ctx.riverInfluence <= 0.1) return ctx.height;
-                return Math.max(ctx.height - ctx.riverInfluence * 15, ctx.SEA_LEVEL - 5);
-            }
-        };
-
-        TerrainModules['oakForest'] = window.OakForestTerrain || {
-            isBiome: function (ctx) { return ctx.distFromCenter < ctx.ISLAND_RADIUS || ctx.detailNoise > 0.1; },
-            getHeight: function (ctx) { return ctx.BASE_LAND_Y + ctx.continentalMask * 12 + ctx.terrainNoise * 7; }
-        };
-
-        TerrainModules['desert'] = window.DesertTerrain || {
-            isBiome: function (ctx) { return ctx.climateNoise > 0.2 && ctx.moistureNoise < 0.2; },
-            getHeight: function (ctx) { return ctx.BASE_LAND_Y + 3 + ctx.continentalMask * 10 + ctx.terrainNoise * 5; }
-        };
-
-        TerrainModules['plains'] = window.PlainsTerrain || {
-            isBiome: function () { return true; },
-            getHeight: function (ctx) { return ctx.BASE_LAND_Y + ctx.continentalMask * 8 + ctx.terrainNoise * 2; }
-        };
-
-        TerrainModules['snowyPlains'] = window.SnowyPlainsTerrain || {
-            isBiome: function (ctx) { return ctx.tempNoise < -0.34 && ctx.humidityNoise > -0.12 && ctx.mountainNoise < 0.58; },
-            getHeight: function (ctx) { return ctx.BASE_LAND_Y + ctx.continentalMask * 6 + ctx.terrainNoise * 2 - ctx.erosionNoise; }
-        };
-
-        TerrainModules['jungleForest'] = window.JungleForestTerrain || {
-            isBiome: function (ctx) { return ctx.tempNoise > 0.45 && ctx.humidityNoise > 0.35 && ctx.mountainNoise < 0.78; },
-            getHeight: function (ctx) { return ctx.BASE_LAND_Y + 2 + ctx.continentalMask * 9.5 + ctx.terrainNoise * 6.6 - ctx.erosionNoise * 0.9; }
-        };
-
-        TerrainModules['mountains'] = window.MountainsTerrain || {
-            isBiome: function (ctx) { return ctx.mountainNoise > 0.62 && ctx.climateNoise > -0.15; },
-            getHeight: function (ctx) { return ctx.BASE_LAND_Y + 10 + ctx.continentalMask * 14 + ctx.terrainNoise * 14 + ctx.ridgeNoise * 8; }
-        };
 
         let lastTime = 0; // For delta time calculation
         let inventoryEntityUpdateAccumulatorMs = 0;
@@ -775,6 +792,61 @@ window.perlin = perlinInstance;
 
         // --- 4. INITIALIZATION ---
 
+        function setupEatingOverlay() {
+            if (eatOverlayEl && eatItemEl && document.body.contains(eatOverlayEl) && document.body.contains(eatItemEl)) return eatOverlayEl;
+
+            eatOverlayEl = document.getElementById('eat-overlay');
+            if (!eatOverlayEl) {
+                eatOverlayEl = document.createElement('div');
+                eatOverlayEl.id = 'eat-overlay';
+                eatOverlayEl.className = 'hidden';
+                document.body.appendChild(eatOverlayEl);
+            }
+
+            eatItemEl = document.getElementById('eat-item');
+            if (!eatItemEl) {
+                eatItemEl = document.createElement('img');
+                eatItemEl.id = 'eat-item';
+                eatItemEl.alt = 'Eating item';
+                eatItemEl.draggable = false;
+                eatOverlayEl.appendChild(eatItemEl);
+            } else if (eatItemEl.parentElement !== eatOverlayEl) {
+                eatOverlayEl.appendChild(eatItemEl);
+            }
+
+            playerRuntime.eatOverlayEl = eatOverlayEl;
+            playerRuntime.eatItemEl = eatItemEl;
+            return eatOverlayEl;
+        }
+
+        function startEatingAnimation(itemId) {
+            setupEatingOverlay();
+            if (!eatOverlayEl || !eatItemEl) return false;
+
+            const mat = blockMaterials?.[itemId] || null;
+            const imgPath = getMaterialIconPath(mat);
+            if (imgPath) {
+                eatItemEl.src = imgPath;
+                eatItemEl.style.display = '';
+                eatItemEl.style.backgroundColor = '';
+                eatItemEl.style.border = 'none';
+            } else {
+                eatItemEl.removeAttribute('src');
+                const colorHex = mat?.color ? mat.color.toString(16).padStart(6, '0') : '7F8C8D';
+                eatItemEl.style.display = 'block';
+                eatItemEl.style.backgroundColor = `#${colorHex}`;
+                eatItemEl.style.border = '8px solid rgba(255, 255, 255, 0.12)';
+            }
+            eatItemEl.style.transform = 'translate(-50%, -50%)';
+            eatOverlayEl.classList.remove('hidden');
+            eatingAnimState.active = true;
+            eatingAnimState.timeMs = 0;
+            eatingAnimState.particleMs = 0;
+            eatingAnimState.durationMs = 850;
+            eatingAnimState.itemId = itemId;
+            return true;
+        }
+
         async function init() {
             
             await applySelectedTexturePackOverrides();
@@ -1090,25 +1162,7 @@ window.perlin = perlinInstance;
 
 
         function normalizeVillageBiomeKey(rawBiome) {
-            const key = String(rawBiome || '').toLowerCase().trim().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
-            const map = {
-                plains: 'plains',
-                desert: 'desert',
-                forest: 'oak_forest',
-                'oak forest': 'oak_forest',
-                'jungle forest': 'jungle_forest',
-                jungle: 'jungle_forest',
-                snowy: 'snowy_plains',
-                snow: 'snowy_plains',
-                'snowy plains': 'snowy_plains',
-                ocean: 'ocean',
-                'coast ocean': 'ocean',
-                'warm ocean': 'ocean',
-                'lukewarm ocean': 'ocean',
-                'cold ocean': 'ocean',
-                'frozen ocean': 'ocean'
-            };
-            return map[key] || '';
+            return resolveBiomeProfile(rawBiome)?.villageKey || '';
         }
 
         function getVillageTemplateForBiome(rawBiome) {
@@ -1160,7 +1214,7 @@ window.perlin = perlinInstance;
         }
 
         async function loadVillageTemplates() {
-            const biomeKeys = ['plains', 'desert', 'jungle_forest', 'oak_forest', 'ocean', 'snowy_plains'];
+            const biomeKeys = VILLAGE_BIOME_KEYS.slice();
             const fallbackLayout = getDefaultVillageLayout();
             await Promise.all(biomeKeys.map(async (biomeKey) => {
                 const path = `./structures/villages/${biomeKey}/village.json`;
@@ -1286,7 +1340,7 @@ window.perlin = perlinInstance;
         function spawnVillageStructure(rawBiomeName, rawBuildingName) {
             if (!yawObject) return { ok: false, message: 'Player not ready.' };
             const biomeKey = normalizeVillageBiomeKey(rawBiomeName);
-            if (!biomeKey) return { ok: false, message: 'Unknown village biome. Try plains, desert, oak_forest, jungle_forest, ocean, snowy_plains.' };
+            if (!biomeKey) return { ok: false, message: `Unknown village biome. Try ${formatVillageBiomeKeyList()}.` };
 
             const template = villageTemplatesByBiomeKey.get(biomeKey) || getVillageTemplateForBiome(rawBiomeName);
             if (!template) return { ok: false, message: `Village template for biome ${biomeKey} is not loaded.` };
@@ -3312,13 +3366,9 @@ window.perlin = perlinInstance;
             return false;
         }
 
-        const BIOME_CLIMATE_TARGETS = [
-            { name: 'Desert', temp: 0.09, humidity: -0.12, continentalness: 0.18, erosion: 0.08, weirdness: 0.06 },
-            { name: 'Forest', temp: 0.0, humidity: 0.16, continentalness: 0.14, erosion: 0.06, weirdness: -0.04 },
-            { name: 'Jungle Forest', temp: 0.95, humidity: 0.9, continentalness: 0.2, erosion: 0.03, weirdness: 0.0 },
-            { name: 'Plains', temp: -0.02, humidity: 0.02, continentalness: 0.1, erosion: 0.2, weirdness: 0.02 },
-            { name: 'Snowy Plains', temp: -0.52, humidity: 0.04, continentalness: 0.12, erosion: 0.18, weirdness: -0.02 },
-        ];
+        const BIOME_CLIMATE_TARGETS = BIOME_PROFILES
+            .filter((profile) => profile.climateTarget)
+            .map((profile) => ({ name: profile.name, ...profile.climateTarget }));
 
         function sampleClimateVector(wx, wz, y = SEA_LEVEL) {
             const rawTemp = octaveNoise3D(wx, y, wz, 3, 0.52, 2.0, 0.00048, -600, 170, 300);
@@ -3407,12 +3457,7 @@ window.perlin = perlinInstance;
         }
 
         function isOceanBiomeName(biomeName) {
-            return biomeName === 'Ocean'
-                || biomeName === 'Coast Ocean'
-                || biomeName === 'Warm Ocean'
-                || biomeName === 'Lukewarm Ocean'
-                || biomeName === 'Cold Ocean'
-                || biomeName === 'Frozen Ocean';
+            return Boolean(resolveBiomeProfile(biomeName)?.isOcean);
         }
 
         function getBiome(wx, wz) {
@@ -4007,20 +4052,16 @@ window.perlin = perlinInstance;
 
         function getTreeSpawnChanceForBiome(biomeName, topY) {
             const map = worldGenSettings.treeDensityByBiome || {};
-            const rawName = String(biomeName || 'Plains');
-            const normalized = rawName.toLowerCase();
-            let baseChance = Number(map[rawName]);
-            if (!Number.isFinite(baseChance)) {
-                if (normalized.includes('forest') || normalized.includes('jungle') || normalized.includes('taiga')) {
-                    baseChance = Number(map.Forest ?? 0.19);
-                } else if (normalized.includes('plains') || normalized.includes('river') || normalized.includes('swamp') || normalized.includes('savanna')) {
-                    baseChance = Number(map.Plains ?? 0.06);
-                } else if (normalized.includes('mushroom')) {
-                    baseChance = 0.017;
-                } else {
-                    baseChance = Number(map.Plains ?? 0.06);
-                }
+            const profile = resolveBiomeProfile(biomeName);
+            const rawName = String(biomeName || profile?.name || 'Plains');
+            const densityKeys = [rawName, profile?.name, profile?.terrainKey, profile?.treeDensityKey].filter(Boolean);
+            let baseChance = Number.NaN;
+            for (const key of densityKeys) {
+                baseChance = Number(map[key]);
+                if (Number.isFinite(baseChance)) break;
             }
+            if (!Number.isFinite(baseChance)) baseChance = Number(profile?.treeSpawnChance);
+            if (!Number.isFinite(baseChance)) baseChance = Number(map.Plains ?? 0.06);
             let adjusted = baseChance;
             if (topY > SEA_LEVEL + 26) adjusted *= 0.7;
             if (topY < SEA_LEVEL + 2) adjusted *= 0.5;
@@ -4028,10 +4069,7 @@ window.perlin = perlinInstance;
         }
 
         function isTreeBiome(biomeName) {
-            const normalized = String(biomeName || '').toLowerCase();
-            if (!normalized) return false;
-            if (normalized.includes('ocean') || normalized.includes('desert') || normalized.includes('snowy') || normalized.includes('mountain')) return false;
-            return true;
+            return Boolean(resolveBiomeProfile(biomeName)?.treeEligible);
         }
 
         function hasNearbyTreeTrunk(data, x, z, radius) {
@@ -4053,35 +4091,32 @@ window.perlin = perlinInstance;
         }
 
 
+        function resolveMinecraftLikeTreeProfile(treeStyle = 'oak') {
+            const oakProfile = window.OakTreeGeneration?.resolveOakTreeProfile?.(treeStyle);
+            if (oakProfile) return oakProfile;
+            if (treeStyle === 'jungle_large') return window.JungleLargeTree || null;
+            if (treeStyle === 'jungle_small') return window.JungleSmallTree || null;
+            return null;
+        }
+
         function chooseJungleTreeProfile({ topY, wx, wz, seaLevel, hashRand2D }) {
             const useLarge = hashRand2D(wx, wz, 911) < 0.28;
+            const profile = resolveMinecraftLikeTreeProfile(useLarge ? 'jungle_large' : 'jungle_small');
+            if (!profile?.trunkHeight) return null;
             return {
-                style: useLarge ? 'jungle_large' : 'jungle_small',
-                trunkHeight: useLarge
-                    ? (8 + Math.floor(hashRand2D(wx, wz, 913) * 4))
-                    : (5 + Math.floor(hashRand2D(wx, wz, 157) * 3)),
+                style: profile.style,
+                trunkHeight: profile.trunkHeight({ topY, wx, wz, seaLevel, hashRand2D }),
             };
         }
 
         function getMinecraftLikeTreeLayout(treeStyle, relY) {
-            const oakLayout = window.OakTreeGeneration?.getOakTreeLayout?.(treeStyle, relY);
-            if (oakLayout) return oakLayout;
-            if (treeStyle === 'jungle_large') {
-                const profile = window.JungleLargeTree;
-                if (profile?.canopyRadius) return { radius: profile.canopyRadius(relY), trunkOffsets: profile.trunkOffsets || [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 }, { x: 1, z: 1 }] };
-                if (relY >= 2) return { radius: 2, trunkOffsets: [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 }, { x: 1, z: 1 }] };
-                if (relY >= 1) return { radius: 3, trunkOffsets: [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 }, { x: 1, z: 1 }] };
-                if (relY >= 0) return { radius: 4, trunkOffsets: [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 }, { x: 1, z: 1 }] };
-                if (relY >= -1) return { radius: 4, trunkOffsets: [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 }, { x: 1, z: 1 }] };
-                return { radius: 3, trunkOffsets: [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 }, { x: 1, z: 1 }] };
-            }
-
-            const profile = window.JungleSmallTree;
-            if (profile?.canopyRadius) return { radius: profile.canopyRadius(relY), trunkOffsets: profile.trunkOffsets || [{ x: 0, z: 0 }] };
-            if (relY >= 1) return { radius: 1, trunkOffsets: [{ x: 0, z: 0 }] };
-            if (relY >= 0) return { radius: 2, trunkOffsets: [{ x: 0, z: 0 }] };
-            if (relY >= -1) return { radius: 2, trunkOffsets: [{ x: 0, z: 0 }] };
-            return { radius: 1, trunkOffsets: [{ x: 0, z: 0 }] };
+            const profile = resolveMinecraftLikeTreeProfile(treeStyle);
+            if (!profile?.canopyRadius) return null;
+            return {
+                radius: profile.canopyRadius(relY),
+                trunkOffsets: profile.trunkOffsets || [{ x: 0, z: 0 }],
+                crownRadius: Number.isFinite(profile.crownRadius) ? profile.crownRadius : 0,
+            };
         }
 
         function canPlaceMinecraftLikeTree(data, x, z, topY, trunkHeight, treeStyle = 'oak') {
@@ -4128,10 +4163,10 @@ window.perlin = perlinInstance;
 
         function placeMinecraftLikeTree(data, x, z, topY, trunkHeight, wx, wz, treeStyle = 'oak') {
             const trunkTopY = topY + trunkHeight;
-            const isJungleTree = treeStyle === 'jungle_small' || treeStyle === 'jungle_large' || treeStyle === 'jungle_mountain';
-            const trunkType = treeStyle === 'glass_mushroom' ? 80 : (isJungleTree ? 96 : 5);
-            const leafType = treeStyle === 'glass_mushroom' ? 26 : (isJungleTree ? 97 : 6);
-            const trunkOffsets = treeStyle === 'jungle_mountain' ? [{ x: 0, z: 0 }] : getMinecraftLikeTreeLayout(treeStyle, 0).trunkOffsets;
+            const treeProfile = treeStyle === 'jungle_mountain' ? null : resolveMinecraftLikeTreeProfile(treeStyle);
+            const trunkType = treeStyle === 'glass_mushroom' ? 80 : (treeProfile?.trunkBlockId ?? 5);
+            const leafType = treeStyle === 'glass_mushroom' ? 26 : (treeProfile?.leafBlockId ?? 6);
+            const trunkOffsets = treeStyle === 'jungle_mountain' ? [{ x: 0, z: 0 }] : (treeProfile?.trunkOffsets || getMinecraftLikeTreeLayout(treeStyle, 0)?.trunkOffsets || [{ x: 0, z: 0 }]);
             for (let i = 1; i <= trunkHeight; i++) {
                 const ty = topY + i;
                 for (const offset of trunkOffsets) {
@@ -4161,10 +4196,20 @@ window.perlin = perlinInstance;
                 }
             }
 
+            const crownRadius = treeStyle === 'jungle_mountain'
+                ? 0
+                : (treeProfile?.crownRadius ?? getMinecraftLikeTreeLayout(treeStyle, 0)?.crownRadius ?? 0);
             const crownY = trunkTopY + 2;
             if (crownY < CHUNK_HEIGHT) {
-                const crownIdx = x + crownY * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
-                if (data[crownIdx] === 0) data[crownIdx] = leafType;
+                for (let ox = -crownRadius; ox <= crownRadius; ox++) {
+                    for (let oz = -crownRadius; oz <= crownRadius; oz++) {
+                        const tx = x + ox;
+                        const tz = z + oz;
+                        if (tx < 0 || tx >= CHUNK_SIZE || tz < 0 || tz >= CHUNK_SIZE) continue;
+                        const crownIdx = tx + crownY * CHUNK_SIZE + tz * CHUNK_SIZE * CHUNK_HEIGHT;
+                        if (data[crownIdx] === 0) data[crownIdx] = leafType;
+                    }
+                }
             }
         }
         
@@ -5686,38 +5731,12 @@ window.perlin = perlinInstance;
         }
 
         function normalizeBiomeCommandName(raw) {
-            const key = String(raw || '').toLowerCase().trim().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
-            const map = {
-                plains: 'Plains',
-                forest: 'Forest',
-                'oak forest': 'Forest',
-                oak_forest: 'Forest',
-                desert: 'Desert',
-                mountains: 'Mountains',
-                mountain: 'Mountains',
-                snowy: 'Snowy Plains',
-                'snowy plains': 'Snowy Plains',
-                snow: 'Snowy Plains',
-                jungle: 'Jungle Forest',
-                'jungle forest': 'Jungle Forest',
-                ocean: 'Ocean',
-                coast_ocean: 'Coast Ocean',
-                'coast ocean': 'Coast Ocean',
-                warm_ocean: 'Warm Ocean',
-                'warm ocean': 'Warm Ocean',
-                lukewarm_ocean: 'Lukewarm Ocean',
-                'lukewarm ocean': 'Lukewarm Ocean',
-                cold_ocean: 'Cold Ocean',
-                'cold ocean': 'Cold Ocean',
-                frozen_ocean: 'Frozen Ocean',
-                'frozen ocean': 'Frozen Ocean',
-            };
-            return map[key] || '';
+            return resolveBiomeProfile(raw)?.name || '';
         }
 
         function teleportToBiome(rawBiomeName) {
             const targetBiome = normalizeBiomeCommandName(rawBiomeName);
-            if (!targetBiome) return { ok: false, message: 'Unknown biome. Try plains, forest, oak_forest, desert, mountains, snowy_plains, jungle.' };
+            if (!targetBiome) return { ok: false, message: 'Unknown biome. Try plains, forest, oak_forest, desert, mountains, snowy_plains, jungle, ocean.' };
             const biomeAnchorSearchRadius = 2400;
             const biomeAnchorStep = 6;
             const localSpawnSearchRadius = 96;
@@ -5782,16 +5801,14 @@ window.perlin = perlinInstance;
 
 
         function normalizeVillageBiomeName(rawBiomeName) {
-            const normalized = normalizeBiomeCommandName(rawBiomeName);
-            if (!normalized) return '';
-            const allowed = new Set(['Plains', 'Desert', 'Jungle Forest', 'Forest', 'Ocean', 'Snowy Plains']);
-            return allowed.has(normalized) ? normalized : '';
+            const profile = resolveBiomeProfile(rawBiomeName);
+            return profile?.villageKey ? profile.name : '';
         }
 
         function teleportToVillageStructure(rawBiomeName) {
             const targetBiome = normalizeVillageBiomeName(rawBiomeName);
             if (!targetBiome) {
-                return { ok: false, message: 'Village biome must be one of: plains, desert, jungle_forest, oak_forest, ocean, snowy_plains.' };
+                return { ok: false, message: `Village biome must be one of: ${formatVillageBiomeKeyList()}.` };
             }
 
             const vg = window.VillageGeneration || {};
@@ -5799,10 +5816,8 @@ window.perlin = perlinInstance;
             const chance = Number(vg.DEFAULT_VILLAGE_CHANCE_PER_REGION) || 0.36;
             const searchRegionRadius = 22;
 
-            const oceanBiomeSet = new Set(['Ocean', 'Coast Ocean', 'Warm Ocean', 'Lukewarm Ocean', 'Cold Ocean', 'Frozen Ocean']);
             function biomeMatchesVillageTarget(actualBiome) {
-                if (targetBiome === 'Ocean') return oceanBiomeSet.has(actualBiome);
-                return actualBiome === targetBiome;
+                return normalizeVillageBiomeKey(actualBiome) === normalizeVillageBiomeKey(targetBiome);
             }
 
             for (let r = 0; r <= searchRegionRadius; r++) {
