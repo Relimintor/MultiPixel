@@ -130,6 +130,7 @@
     SANDSTONE_BOTTOM: getAssetPath('sand/sandstone/sandstone_bottom.png'),
     SANDSTONE_TOP: getAssetPath('sand/sandstone/sandstone_top.png'),
     COBBLESTONE: getAssetPath('textures/cobblestone.png'),
+    MOSSY_COBBLESTONE: getAssetPath('textures/mossy_cobblestone.png'),
     SNOW_BLOCK: getAssetPath('textures/snow.png'),
     SNOWBALL: getAssetPath('textures/item/snowball.png'),
     BEDROCK: getAssetPath('textures/bedrock.png'),
@@ -341,6 +342,7 @@
     /*Building ig*/
     8: { name: 'Oak Planks', id: 8, textured: true, textureKey: 'OAK_PLANK' },
     17: { name: 'Cobblestone', id: 17, textured: true, textureKey: 'COBBLESTONE' },
+    113: { name: 'Mossy Cobblestone', id: 113, textured: true, textureKey: 'MOSSY_COBBLESTONE', color: 0x6f8d5b },
     22: { name: 'torch', id: 22, textured: true, textureKey: 'TORCH', transparent: true, opacity: 1 },
     102: { name: 'chiseled stone bricks', id: 102, textured: true, textureKey: 'CHISELED_STONE_BRICK' },
     104: { name: 'Amethyst Block', id: 104, textured: true, textureKey: 'AMETHYST_BLOCK' },
@@ -562,10 +564,10 @@
 
   const blockMaterials = {
     ...baseBlockMaterials,
-    ...(sideConfig.FLOWER_BLOCK_MATERIALS || {}),
+    ...(sideConfig.SIDE_BLOCK_MATERIALS || sideConfig.FLOWER_BLOCK_MATERIALS || {}),
   };
 
-  const solidBlocks = [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 108, 110 ];
+  const solidBlocks = [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 108, 110, 113 ];
 
   window.SingleplayerConfig = {
     CHUNK_SIZE, CHUNK_HEIGHT, WORLD_RADIUS, BLOCK_SIZE, SEA_LEVEL, BASE_LAND_Y, ISLAND_RADIUS,
@@ -576,9 +578,9 @@
     WORLD_GEN_SETTINGS,
     ASSET_FILEPATHS: {
       ...ASSET_FILEPATHS,
-      ...(sideConfig.FLOWER_ASSET_FILEPATHS || {}),
+      ...(sideConfig.SIDE_ASSET_FILEPATHS || sideConfig.FLOWER_ASSET_FILEPATHS || {}),
     }, blockMaterials,
-    SIDE_RENDER_BLOCK_IDS: sideConfig.FLOWER_IDS || [],
+    SIDE_RENDER_BLOCK_IDS: sideConfig.SIDE_RENDER_BLOCK_IDS || sideConfig.FLOWER_IDS || [],
     FLOWER_SPAWN_CONFIG: sideConfig.FLOWER_SPAWN_CONFIG || {},
     SOLID_BLOCKS: solidBlocks,
     LIQUID_BLOCKS: [4, 33, 47, 48, 49, 50, 51, 52, 53, 60, 61, 62, 63, 64, 65, 66],

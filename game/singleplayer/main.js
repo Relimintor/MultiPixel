@@ -846,7 +846,7 @@ window.perlin = perlinInstance;
                 const promise = new Promise((resolve) => {
                     const matId = getMaterialIdByTextureKey(key);
                     const matCfg = matId >= 0 ? blockMaterials[matId] : {};
-                    const isDoubleSidedCutout = key === 'LEAVES' || matCfg.renderAs === 'cross';
+                    const isDoubleSidedCutout = key === 'LEAVES' || matCfg.renderAs === 'cross' || matCfg.renderAs === 'plane';
                     loader.load(
                         path, // <-- DIRECTLY using the calculated path
                         (texture) => {
@@ -5379,7 +5379,10 @@ window.perlin = perlinInstance;
 
         const sideRenderBlockIds = new Set(SIDE_RENDER_BLOCK_IDS);
 
-        function isCrossRenderBlock(id) { return sideRenderBlockIds.has(id); }
+        function getSideRenderMode(id) {
+            if (!sideRenderBlockIds.has(id)) return null;
+            return blockMaterials[id]?.renderAs || 'cross';
+        }
 
         function isPlaceableBlock(id) {
             return isSolid(id) || Boolean(blockMaterials[id]?.placeable);
@@ -5491,6 +5494,9 @@ window.perlin = perlinInstance;
                 { dir: [-0.7071, 0, 0.7071], corners: [[0.8536,1,0.8536],[0.8536,0,0.8536],[0.1464,0,0.1464],[0.1464,1,0.1464]], uv: [0,1,0,0,1,0,1,1] },
                 { dir: [0.7071, 0, 0.7071], corners: [[0.1464,1,0.8536],[0.1464,0,0.8536],[0.8536,0,0.1464],[0.8536,1,0.1464]], uv: [0,1,0,0,1,0,1,1] },
                 { dir: [-0.7071, 0, -0.7071], corners: [[0.8536,1,0.1464],[0.8536,0,0.1464],[0.1464,0,0.8536],[0.1464,1,0.8536]], uv: [0,1,0,0,1,0,1,1] },
+            ];
+            const singlePlaneFaces = [
+                { name: 'posZ', dir: [0, 0, 1], corners: [[0.15,1,0.5],[0.15,0,0.5],[0.85,0,0.5],[0.85,1,0.5]], uv: [0,1,0,0,1,0,1,1] },
             ];
 
 
@@ -5803,17 +5809,20 @@ window.perlin = perlinInstance;
                         const isTorch = id === 22;
                         const isBambooStage = id === 99 || id === 100;
                         const isBambooStalk = id === 101;
-                        const isCrossPlant = isCrossRenderBlock(id);
+                        const sideRenderMode = getSideRenderMode(id);
+                        const isSideRenderBlock = Boolean(sideRenderMode);
                         if (isTorch) torchPositions.push({ x: x + cx * CS, y, z: z + cz * CS });
                         const isTrans = mat.transparent || (mat.textured && mat.textureKey === 'LEAVES');
-                        if (!isTorch && !isBambooStage && !isBambooStalk && !isCrossPlant && !isTrans) continue;
-                        const activeFaces = isCrossPlant ? crossPlantFaces : (isTorch ? torchFaces : (isBambooStalk ? bambooStalkFaces : (isBambooStage ? bambooStageFaces : faces)));
+                        if (!isTorch && !isBambooStage && !isBambooStalk && !isSideRenderBlock && !isTrans) continue;
+                        const activeFaces = isSideRenderBlock
+                            ? (sideRenderMode === 'plane' ? singlePlaneFaces : crossPlantFaces)
+                            : (isTorch ? torchFaces : (isBambooStalk ? bambooStalkFaces : (isBambooStage ? bambooStageFaces : faces)));
 
                         for (let i = 0; i < activeFaces.length; i++) {
                             const f = activeFaces[i];
                             const nid = get(x + f.dir[0], y + f.dir[1], z + f.dir[2]);
                             let draw = false;
-                            if (isTorch || isBambooStage || isBambooStalk || isCrossPlant) draw = true;
+                            if (isTorch || isBambooStage || isBambooStalk || isSideRenderBlock) draw = true;
                             else if (shouldDrawFace(id, nid)) draw = true;
                             if (!draw) continue;
 
@@ -5823,7 +5832,7 @@ window.perlin = perlinInstance;
                             const wx = x + cx * CS;
                             const wz = z + cz * CS;
                             const corners = f.corners.map((c) => [wx + c[0], y + c[1], wz + c[2]]);
-                            emitQuad(id, materialKey, f.dir, corners, uvInfo.uv, !(isTorch || isBambooStage || isBambooStalk || isCrossPlant));
+                            emitQuad(id, materialKey, f.dir, corners, uvInfo.uv, !(isTorch || isBambooStage || isBambooStalk || isSideRenderBlock));
                         }
                     }
                 }
