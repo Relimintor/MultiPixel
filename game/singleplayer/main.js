@@ -4185,7 +4185,7 @@ window.perlin = perlinInstance;
         }
 
         function chooseJungleTreeProfile({ topY, wx, wz, seaLevel, hashRand2D }) {
-            const useLarge = hashRand2D(wx, wz, 911) < 0.28;
+            const useLarge = hashRand2D(wx, wz, 911) < 0.18;
             const profile = resolveMinecraftLikeTreeProfile(useLarge ? 'jungle_large' : 'jungle_small');
             if (!profile?.trunkHeight) return null;
             return {
