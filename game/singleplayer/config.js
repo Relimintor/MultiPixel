@@ -221,6 +221,15 @@
     DIAMOND_PICKAXE: getAssetPath('textures/item/tool/pickaxe/diamond_pickaxe.png'),
     EMERALD_PICKAXE: getAssetPath('textures/item/tool/pickaxe/emerald_pickaxe.png'),
 
+    /*Axes*/
+    WOODEN_AXE: getAssetPath('textures/item/tool/axe/wooden_axe.png'),
+    STONE_AXE: getAssetPath('textures/item/tool/axe/stone_axe.png'),
+    GOLDEN_AXE: getAssetPath('textures/item/tool/axe/golden_axe.png'),
+    COPPER_AXE: getAssetPath('textures/item/tool/axe/copper_axe.png'),
+    IRON_AXE: getAssetPath('textures/item/tool/axe/iron_axe.png'),
+    DIAMOND_AXE: getAssetPath('textures/item/tool/axe/diamond_axe.png'),
+    EMERALD_AXE: getAssetPath('textures/item/tool/axe/emerald_axe.png'),
+
     //Shovel
     WOODEN_SHOVEL: getAssetPath('textures/item/tool/shovel/wooden_shovel.png'),
     STONE_SHOVEL: getAssetPath('textures/item/tool/shovel/stone_shovel.png'),
@@ -530,6 +539,13 @@
     74: { name: 'Iron Pickaxe', id: 74, textured: true, textureKey: 'IRON_PICKAXE', toolType: 'pickaxe', tier: 5 },
     75: { name: 'Diamond Pickaxe', id: 75, textured: true, textureKey: 'DIAMOND_PICKAXE', toolType: 'pickaxe', tier: 6 },
     93: { name: 'Emerald Pickaxe', id: 93, textured: true, textureKey: 'EMERALD_PICKAXE', toolType: 'pickaxe', tier: 7 },
+    127: { name: 'Wooden Axe', id: 127, textured: true, textureKey: 'WOODEN_AXE', toolType: 'axe', tier: 1 },
+    128: { name: 'Stone Axe', id: 128, textured: true, textureKey: 'STONE_AXE', toolType: 'axe', tier: 2 },
+    129: { name: 'Gold Axe', id: 129, textured: true, textureKey: 'GOLDEN_AXE', toolType: 'axe', tier: 3 },
+    130: { name: 'Copper Axe', id: 130, textured: true, textureKey: 'COPPER_AXE', toolType: 'axe', tier: 4 },
+    131: { name: 'Iron Axe', id: 131, textured: true, textureKey: 'IRON_AXE', toolType: 'axe', tier: 5 },
+    132: { name: 'Diamond Axe', id: 132, textured: true, textureKey: 'DIAMOND_AXE', toolType: 'axe', tier: 6 },
+    133: { name: 'Emerald Axe', id: 133, textured: true, textureKey: 'EMERALD_AXE', toolType: 'axe', tier: 7 },
 
     //SHovel
     83: { name: 'Wooden Shovel', id: 83, textured: true, textureKey: 'WOODEN_SHOVEL', toolType: 'shovel', tier: 1 },

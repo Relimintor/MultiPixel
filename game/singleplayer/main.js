@@ -2778,7 +2778,7 @@ window.perlin = perlinInstance;
                 ? BlockHardnessSystem.toLegacyHardness(hardnessGrade)
                 : Math.max(0.2, hardnessGrade / 5);
 
-            const effectiveTool = equippedTool && equippedTool.toolType === 'shovel'
+            const effectiveTool = equippedTool && (equippedTool.toolType === 'shovel' || equippedTool.toolType === 'axe')
                 ? equippedTool
                 : (breakable.dropsItems ? equippedPickaxe : null);
 

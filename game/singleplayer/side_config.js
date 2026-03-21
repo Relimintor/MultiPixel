@@ -18,7 +18,7 @@
     { name: 'White Tulip', textureKey: 'FLOWER_WHITE_TULIP', texturePath: 'textures/flowers/white_tulip.png', color: 0xf3f0e8, spawnBiomes: ['Plains'] },
   ];
 
-  const FIRST_FLOWER_ID = 114;
+  const FIRST_FLOWER_ID = 134;
   const flowerBlockMaterials = {};
   const flowerAssetFilepaths = {};
   const flowerIds = [];
