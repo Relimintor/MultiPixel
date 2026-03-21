@@ -1,0 +1,34 @@
+# textdomain: node_view
+
+Hand=Hand
+Pickaxe=Spitzhacke
+Sword=Schwert
+Shears=Schere
+Axe=Axt
+Shovel=Schaufel
+
+Unbreakable=Unzerstörbar
+None=Keiner
+Type=Typ
+Health=Gesundheit
+
+Unknown=Unbekannt
+
+Preview=Vorschau
+Hud Alignment=Hudausrichtung
+Top-Middle=Oben-Mitte
+Top-Right=Oben-Rechts
+Top-Left=Oben-Links
+Middle-Right=Mitte-Rechts
+Middle-Left=Mitte-Links
+Bottom-Right=Unten-Rechts
+Bottom-Left=Unten-Links
+Health in=Gesundheit in
+Points=Punkten
+Hearts=Herzen
+Set to Default=auf Standart setzen
+Change Preview to=Vorschau ändern zu
+Node=Node
+Entity=Entity
+Cancel=Abbrechen
+Apply Changes=Änderungen übernehmen
