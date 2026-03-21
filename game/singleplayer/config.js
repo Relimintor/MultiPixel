@@ -97,6 +97,8 @@
     return `${ASSET_BASE_DIR}/${subPath}`;
   };
 
+  const makeInlineSvgIcon = (svgMarkup) => `data:image/svg+xml;utf8,${encodeURIComponent(svgMarkup)}`;
+
   const sideConfig = window.SingleplayerSideConfig || {};
 
   const ASSET_FILEPATHS = {
@@ -272,6 +274,11 @@
     //slice
     PUMPKIN_SLICE:getAssetPath('textures/item/glistering_melon_slice.png'),
     MELON_SLICE: getAssetPath('textures/item/melon_slice.png'),
+    BUCKET: makeInlineSvgIcon(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges"><rect width="16" height="16" fill="none"/><path d="M4 3h8v1H4zm1 1h6v2h1v6H4V6h1z" fill="#d0d5db"/><path d="M5 12h6v1H5z" fill="#7b8794"/><path d="M5 6h1v5H5zm5 0h1v5h-1z" fill="#eef2f6"/></svg>`),
+    WATER_BUCKET: makeInlineSvgIcon(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges"><rect width="16" height="16" fill="none"/><path d="M4 3h8v1H4zm1 1h6v2h1v6H4V6h1z" fill="#d0d5db"/><path d="M5 7h6v5H5z" fill="#4aa8ff"/><path d="M5 12h6v1H5z" fill="#7b8794"/></svg>`),
+    LAVA_BUCKET: makeInlineSvgIcon(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges"><rect width="16" height="16" fill="none"/><path d="M4 3h8v1H4zm1 1h6v2h1v6H4V6h1z" fill="#d0d5db"/><path d="M5 7h6v5H5z" fill="#ff7a1a"/><path d="M5 12h6v1H5z" fill="#7b8794"/></svg>`),
+    GLOWSTONE: makeInlineSvgIcon(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges"><rect width="16" height="16" fill="#c88d37"/><rect x="1" y="1" width="5" height="5" fill="#ffe792"/><rect x="7" y="1" width="4" height="4" fill="#ffd166"/><rect x="11" y="2" width="3" height="5" fill="#ffbf52"/><rect x="2" y="8" width="4" height="4" fill="#ffd978"/><rect x="8" y="7" width="6" height="6" fill="#ffea9b"/><rect x="5" y="12" width="5" height="2" fill="#ffb347"/></svg>`),
+    GLOWSTONE_DUST: makeInlineSvgIcon(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges"><rect width="16" height="16" fill="none"/><rect x="4" y="5" width="2" height="2" fill="#ffe792"/><rect x="7" y="4" width="2" height="2" fill="#ffd166"/><rect x="9" y="6" width="2" height="2" fill="#ffbf52"/><rect x="5" y="8" width="2" height="2" fill="#ffd978"/><rect x="8" y="9" width="2" height="2" fill="#ffea9b"/></svg>`),
   };
 
   const baseBlockMaterials = {
@@ -384,6 +391,7 @@
         negZ: 'MELON_SIDE'
       }
          },
+    119: { name: 'Glowstone', id: 119, textured: true, textureKey: 'GLOWSTONE', color: 0xf5c15b, emissive: 0xffd27a, lightRadius: 13, lightIntensity: 1.25 },
     
     /*Glass*/
     26: { name: 'Glass', id: 26, textured: true, textureKey: 'GLASS_BLOCK', transparent: true, opacity: 0.8 },
@@ -597,6 +605,10 @@
       } },
     111: { name: 'Pumpkin Slice', id: 111, textured: true, textureKey: 'PUMPKIN_SLICE' },
     112: { name: 'Cooked Pumpkin Slice', id: 112, textured: false, color: 0xe38b1f },
+    115: { name: 'Bucket', id: 115, textured: true, textureKey: 'BUCKET', nonStackable: true },
+    116: { name: 'Water Bucket', id: 116, textured: true, textureKey: 'WATER_BUCKET', nonStackable: true },
+    117: { name: 'Lava Bucket', id: 117, textured: true, textureKey: 'LAVA_BUCKET', nonStackable: true },
+    118: { name: 'Glowstone Dust', id: 118, textured: true, textureKey: 'GLOWSTONE_DUST' },
   }; 
 
   const blockMaterials = {
@@ -604,7 +616,7 @@
     ...(sideConfig.SIDE_BLOCK_MATERIALS || sideConfig.FLOWER_BLOCK_MATERIALS || {}),
   };
 
-  const solidBlocks = [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 108, 110, 113, 114 ];
+  const solidBlocks = [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 108, 110, 113, 114, 119 ];
 
   window.SingleplayerConfig = {
     CHUNK_SIZE, CHUNK_HEIGHT, WORLD_RADIUS, BLOCK_SIZE, SEA_LEVEL, BASE_LAND_Y, ISLAND_RADIUS,
