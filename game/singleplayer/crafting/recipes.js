@@ -3,6 +3,7 @@
 
   const CRAFTING_RECIPES = [
     { name: 'Oak Planks', output: { id: 8, count: 4 }, shape: [[5]] },
+    { name: 'Wooden Slab', output: { id: 114, count: 6 }, shape: [[8, 8, 8]] },
     { name: 'Crafting Table', output: { id: 9, count: 1 }, shape: [[8, 8], [8, 8]] },
     { name: 'Crafting Table (Jungle)', output: { id: 9, count: 1 }, shape: [[98, 98], [98, 98]] },
     { name: 'Crafting Table (Bamboo)', output: { id: 9, count: 1 }, shape: [[103, 103], [103, 103]] },

@@ -357,6 +357,15 @@
     
     /*Building ig*/
     8: { name: 'Oak Planks', id: 8, textured: true, textureKey: 'OAK_PLANK' },
+    114: {
+      name: 'Wooden Slab',
+      id: 114,
+      textured: true,
+      textureKey: 'OAK_PLANK',
+      shape: 'slab',
+      bounds: { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 0.5, maxZ: 1 },
+      placeable: true
+    },
     17: { name: 'Cobblestone', id: 17, textured: true, textureKey: 'COBBLESTONE' },
     113: { name: 'Mossy Cobblestone', id: 113, textured: true, textureKey: 'MOSSY_COBBLESTONE', color: 0x6f8d5b },
     22: { name: 'torch', id: 22, textured: true, textureKey: 'TORCH', transparent: true, opacity: 1 },
@@ -595,7 +604,7 @@
     ...(sideConfig.SIDE_BLOCK_MATERIALS || sideConfig.FLOWER_BLOCK_MATERIALS || {}),
   };
 
-  const solidBlocks = [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 108, 110, 113 ];
+  const solidBlocks = [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 108, 110, 113, 114 ];
 
   window.SingleplayerConfig = {
     CHUNK_SIZE, CHUNK_HEIGHT, WORLD_RADIUS, BLOCK_SIZE, SEA_LEVEL, BASE_LAND_Y, ISLAND_RADIUS,
