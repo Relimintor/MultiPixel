@@ -58,6 +58,7 @@
     106: 14, // Basalt
     107: 2,  // Pumpkin block
     108: 2,  // Melon block
+    119: 8,  // Glowstone
   };
 
   function getHardness(blockId) {
