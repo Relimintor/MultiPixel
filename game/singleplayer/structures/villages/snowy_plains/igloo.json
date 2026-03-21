@@ -1,5 +1,21 @@
 {
-  "radius": 4,
+  "id": "igloo",
+  "biome": "snowy_plains",
+  "style": "igloo_village",
+  "category": "igloo",
+  "weight": 4,
+  "footprint": {
+    "width": 7,
+    "depth": 7
+  },
+  "connectors": [
+    {
+      "x": 0,
+      "z": -4,
+      "dir": "N",
+      "type": "path"
+    }
+  ],
   "wallBlockId": 15,
   "floorBlockId": 59,
   "windowBlockId": 80,
