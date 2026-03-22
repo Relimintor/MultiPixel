@@ -293,14 +293,9 @@ window.perlin = perlinInstance;
         const PERSISTED_WORLD_NAMESPACE = 'singleplayer.1d4p.persist.v1';
         const PERSISTED_WORLD_MAX_CHUNKS = 180;
         const PERSISTED_WORLD_FLUSH_MS = 2200;
-        const ENABLE_1D4P_LOCAL_WORLD_CACHE = /[?&]localpersist=1(?:&|$)/i.test(window.location.search || '');
         let persistedWorldManifest = { chunkKeys: [], touched: {}, modified: {} };
         const dirtyPersistedChunkKeys = new Set();
         let persistedWorldFlushTimerMs = 0;
-
-        function canUseLocalPersistedWorld() {
-            return IS_1D4P_MULTIPLAYER && ENABLE_1D4P_LOCAL_WORLD_CACHE && typeof localStorage !== 'undefined';
-        }
 
         function getPersistedWorldPrefix() {
             return `${PERSISTED_WORLD_NAMESPACE}.${worldSeed}`;
@@ -344,7 +339,7 @@ window.perlin = perlinInstance;
         }
 
         function loadPersistedWorldManifest() {
-            if (!canUseLocalPersistedWorld()) return;
+            if (!IS_1D4P_MULTIPLAYER || typeof localStorage === 'undefined') return;
             try {
                 const raw = localStorage.getItem(getPersistedManifestKey());
                 if (!raw) {
@@ -364,7 +359,7 @@ window.perlin = perlinInstance;
         }
 
         function persistWorldManifest() {
-            if (!canUseLocalPersistedWorld()) return;
+            if (!IS_1D4P_MULTIPLAYER || typeof localStorage === 'undefined') return;
             localStorage.setItem(getPersistedManifestKey(), JSON.stringify(persistedWorldManifest));
         }
 
@@ -392,7 +387,7 @@ window.perlin = perlinInstance;
         }
 
         function markChunkForPersistence(cx, cz, isModified = false) {
-            if (!canUseLocalPersistedWorld()) return;
+            if (!IS_1D4P_MULTIPLAYER) return;
             const chunkKey = `${cx},${cz}`;
             dirtyPersistedChunkKeys.add(chunkKey);
             if (!persistedWorldManifest.chunkKeys.includes(chunkKey)) persistedWorldManifest.chunkKeys.push(chunkKey);
@@ -401,7 +396,7 @@ window.perlin = perlinInstance;
         }
 
         function flushDirtyPersistedChunks(force = false) {
-            if (!canUseLocalPersistedWorld()) return;
+            if (!IS_1D4P_MULTIPLAYER || typeof localStorage === 'undefined') return;
             if (!dirtyPersistedChunkKeys.size && !force) return;
             const keys = dirtyPersistedChunkKeys.size ? Array.from(dirtyPersistedChunkKeys) : (persistedWorldManifest.chunkKeys || []);
             for (const chunkKey of keys) {
@@ -424,7 +419,7 @@ window.perlin = perlinInstance;
         }
 
         function loadPersistedChunkData(cx, cz) {
-            if (!canUseLocalPersistedWorld()) return null;
+            if (!IS_1D4P_MULTIPLAYER || typeof localStorage === 'undefined') return null;
             const chunkKey = `${cx},${cz}`;
             if (!persistedWorldManifest.chunkKeys.includes(chunkKey)) return null;
             try {
@@ -440,7 +435,7 @@ window.perlin = perlinInstance;
         }
 
         function persistChunkGroupData(chunkKey, chunkData) {
-            if (!canUseLocalPersistedWorld()) return;
+            if (!IS_1D4P_MULTIPLAYER || typeof localStorage === 'undefined') return;
             if (!chunkKey || !Array.isArray(chunkData) || !chunkData.length) return;
             try {
                 const encoded = encodeChunkDataToBase64(chunkData);
@@ -1834,7 +1829,7 @@ window.perlin = perlinInstance;
             installMultiplayerBridge();
             setInitialPlayerPosition();
             dimension1WorldController?.init?.();
-            if (canUseLocalPersistedWorld()) {
+            if (IS_1D4P_MULTIPLAYER) {
                 window.addEventListener('beforeunload', () => flushDirtyPersistedChunks(true));
             }
             
@@ -6809,7 +6804,7 @@ window.perlin = perlinInstance;
         function disposeLoadedChunkByKey(chunkKey) {
             const chunkGroup = chunks.get(chunkKey);
             if (!chunkGroup || !chunkGroup.userData) return;
-            if (canUseLocalPersistedWorld() && dirtyPersistedChunkKeys.has(chunkKey)) {
+            if (IS_1D4P_MULTIPLAYER && dirtyPersistedChunkKeys.has(chunkKey)) {
                 persistChunkGroupData(chunkKey, chunkGroup.userData.chunkData);
             }
             removeTorchLightsForChunk(chunkKey);
@@ -8085,7 +8080,7 @@ window.perlin = perlinInstance;
             updateWaterAnimation(delta);
             flushPendingNetworkBlockChanges();
             updateDroppedItems(time, delta);
-            if (canUseLocalPersistedWorld()) {
+            if (IS_1D4P_MULTIPLAYER) {
                 persistedWorldFlushTimerMs += delta;
                 if (persistedWorldFlushTimerMs >= PERSISTED_WORLD_FLUSH_MS) {
                     flushDirtyPersistedChunks();
