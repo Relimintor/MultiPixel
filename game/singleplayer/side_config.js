@@ -55,6 +55,19 @@
 
   const GLOWSTONE_PORTAL_Z_ID = VINE_ID + 1;
   const GLOWSTONE_PORTAL_X_ID = VINE_ID + 2;
+  const portalFrameKeys = [
+    'GLOWSTONE_PORTAL_FRAME_0',
+    'GLOWSTONE_PORTAL_FRAME_1',
+    'GLOWSTONE_PORTAL_FRAME_2',
+    'GLOWSTONE_PORTAL_FRAME_3',
+  ];
+  const portalTexturePathByFrame = {
+    GLOWSTONE_PORTAL_FRAME_0: 'textures/portal/glowstone_portal.mpmeta#frame=0',
+    GLOWSTONE_PORTAL_FRAME_1: 'textures/portal/glowstone_portal.mpmeta#frame=1',
+    GLOWSTONE_PORTAL_FRAME_2: 'textures/portal/glowstone_portal.mpmeta#frame=2',
+    GLOWSTONE_PORTAL_FRAME_3: 'textures/portal/glowstone_portal.mpmeta#frame=3',
+  };
+  const PORTAL_TEXTURE_KEY = 'GLOWSTONE_PORTAL';
 
   const sideBlockMaterials = {
     ...flowerBlockMaterials,
@@ -75,24 +88,24 @@
       name: 'Glowstone Portal',
       id: GLOWSTONE_PORTAL_Z_ID,
       textured: true,
-      textureKey: vineDefinition.textureKey,
+      textureKey: PORTAL_TEXTURE_KEY,
       transparent: true,
-      opacity: 1,
-      alphaCutout: true,
+      opacity: 0.62,
+      alphaCutout: false,
       renderAs: 'plane',
-      color: vineDefinition.color,
+      color: 0x7c55ff,
       notInCreative: true,
     },
     [GLOWSTONE_PORTAL_X_ID]: {
       name: 'Glowstone Portal',
       id: GLOWSTONE_PORTAL_X_ID,
       textured: true,
-      textureKey: vineDefinition.textureKey,
+      textureKey: PORTAL_TEXTURE_KEY,
       transparent: true,
-      opacity: 1,
-      alphaCutout: true,
+      opacity: 0.62,
+      alphaCutout: false,
       renderAs: 'plane_x',
-      color: vineDefinition.color,
+      color: 0x7c55ff,
       notInCreative: true,
     },
   };
@@ -100,6 +113,10 @@
   const sideAssetFilepaths = {
     ...flowerAssetFilepaths,
     [vineDefinition.textureKey]: `${ASSET_BASE_PATH}/${vineDefinition.texturePath || fallbackTexturePath}`,
+    [PORTAL_TEXTURE_KEY]: `${ASSET_BASE_PATH}/${portalTexturePathByFrame.GLOWSTONE_PORTAL_FRAME_0}`,
+    ...Object.fromEntries(
+      portalFrameKeys.map((key) => [key, `${ASSET_BASE_PATH}/${portalTexturePathByFrame[key] || portalTexturePathByFrame.GLOWSTONE_PORTAL_FRAME_0}`])
+    ),
   };
 
   const flowerSpawnConfig = {
@@ -151,6 +168,8 @@
     },
     GLOWSTONE_PORTAL_Z_ID,
     GLOWSTONE_PORTAL_X_ID,
+    GLOWSTONE_PORTAL_TEXTURE_KEY: PORTAL_TEXTURE_KEY,
+    GLOWSTONE_PORTAL_FRAME_KEYS: portalFrameKeys.slice(),
     SIDE_BLOCK_MATERIALS: sideBlockMaterials,
     SIDE_ASSET_FILEPATHS: sideAssetFilepaths,
     SIDE_RENDER_BLOCK_IDS: [...flowerIds, vineDefinition.id, GLOWSTONE_PORTAL_Z_ID, GLOWSTONE_PORTAL_X_ID],
