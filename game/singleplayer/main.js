@@ -451,7 +451,9 @@ window.perlin = perlinInstance;
             const parsed = Number(amount);
             if (!Number.isFinite(parsed) || parsed <= 0) return false;
             currentLookSensitivity = parsed;
-            player.rotationSpeed = DEFAULT_PLAYER.rotationSpeed * (parsed / DEFAULT_LOOK_SENSITIVITY);
+            const sensitivityScale = parsed / DEFAULT_LOOK_SENSITIVITY;
+            player.rotationSpeed = DEFAULT_PLAYER.rotationSpeed * sensitivityScale;
+            if (mobileControls) mobileControls.lookRotationSpeed = player.rotationSpeed;
             return true;
         }
 
@@ -469,6 +471,39 @@ window.perlin = perlinInstance;
 
         function getReach() {
             return currentInteractionReach;
+        }
+
+        async function loadFurnaceMpmeta() {
+            const repoPrefix = window.SingleplayerConfig?.REPO_BASE_PREFIX || '';
+            const metaPath = `${repoPrefix}/game/singleplayer/assets/textures/furnace/furnace.mpmeta`;
+            try {
+                const response = await fetch(metaPath, { cache: 'no-store' });
+                if (!response.ok) return false;
+                const meta = await response.json();
+                const states = meta?.states || {};
+                const offState = states.off || {};
+                const onState = states.on || {};
+                const offFrontKey = String(offState.frontTextureKey || 'FURNACE_FRONT');
+                const onFrontKey = String(onState.frontTextureKey || 'FURNACE_FRONT_LIT');
+                const lightLevel = Math.max(0, Math.min(15, Number(onState.lightLevel) || 13));
+                const lightRadius = Number.isFinite(Number(onState.lightRadius)) ? Number(onState.lightRadius) : lightLevel;
+                const lightIntensity = Number.isFinite(Number(onState.lightIntensity)) ? Number(onState.lightIntensity) : 1.15;
+                const emissiveHex = Number.isFinite(Number(onState.emissiveHex)) ? Number(onState.emissiveHex) : 0xffb347;
+
+                const offDef = blockMaterials[23];
+                if (offDef?.textureByFace) offDef.textureByFace.posX = offFrontKey;
+
+                const litDef = blockMaterials[71] || { ...offDef, id: 71, name: 'Lit Furnace' };
+                litDef.textureByFace = { ...(offDef?.textureByFace || {}), ...(litDef.textureByFace || {}), posX: onFrontKey };
+                litDef.emissive = emissiveHex;
+                litDef.lightRadius = lightRadius;
+                litDef.lightIntensity = lightIntensity;
+                blockMaterials[71] = litDef;
+                return true;
+            } catch (err) {
+                console.warn('[Furnace mpmeta] load failed, using defaults.', err);
+                return false;
+            }
         }
 
         function prepareCrosshairRaycast() {
@@ -540,7 +575,7 @@ window.perlin = perlinInstance;
             if (miningState.active) return 'mining';
             const target = getTargetBlockFromCrosshair();
             if (!target) return 'idle';
-            if (target.blockId === 9 || target.blockId === 23 || target.blockId === 82) return 'interact';
+            if (target.blockId === 9 || target.blockId === 23 || target.blockId === 71 || target.blockId === 82) return 'interact';
             const miningInfo = getMiningDurationMs(target.blockId);
             if (!Number.isFinite(miningInfo?.durationMs)) return 'blocked';
             if (miningInfo?.reason === 'tool_too_weak') return 'blocked';
@@ -1529,6 +1564,7 @@ window.perlin = perlinInstance;
         async function init() {
             
             await applySelectedTexturePackOverrides();
+            await loadFurnaceMpmeta();
             await loadAssets(); // Load all textures and materials first!
             await loadIglooStructure();
             await loadVillageTemplates();
@@ -2752,6 +2788,27 @@ window.perlin = perlinInstance;
             return furnaceStates.get(key);
         }
 
+        function parseWorldKeyToCoords(key) {
+            const parts = String(key || '').split(',');
+            if (parts.length !== 3) return null;
+            const x = Math.floor(Number(parts[0]));
+            const y = Math.floor(Number(parts[1]));
+            const z = Math.floor(Number(parts[2]));
+            if (![x, y, z].every(Number.isFinite)) return null;
+            return { x, y, z };
+        }
+
+        function syncFurnaceVisualState(furnaceKey, state) {
+            const coords = parseWorldKeyToCoords(furnaceKey);
+            if (!coords) return;
+            const current = getBlockType(coords.x, coords.y, coords.z);
+            if (current !== 23 && current !== 71) return;
+            const shouldBeLit = Number(state?.burnTime) > 0;
+            const desired = shouldBeLit ? 71 : 23;
+            if (current === desired) return;
+            setBlockTypeRaw(coords.x, coords.y, coords.z, desired, true);
+        }
+
         function getFurnaceSlotRef(slotType) {
             const state = getOrCreateFurnaceState(activeFurnaceKey);
             if (!state) return null;
@@ -3671,7 +3728,7 @@ window.perlin = perlinInstance;
                 toggleInventory(true);
                 return;
             }
-            if (targetBlockId === 23) {
+            if (targetBlockId === 23 || targetBlockId === 71) {
                 openFurnaceScreen(`${wx},${wy},${wz}`);
                 return;
             }
@@ -7343,7 +7400,10 @@ window.perlin = perlinInstance;
                 processMeshUpdateQueue();
                 const dtSec = delta / 1000;
                 if (window.FurnaceSystem) {
-                    for (const state of furnaceStates.values()) window.FurnaceSystem.updateState(state, dtSec);
+                    for (const [furnaceKey, state] of furnaceStates.entries()) {
+                        window.FurnaceSystem.updateState(state, dtSec);
+                        syncFurnaceVisualState(furnaceKey, state);
+                    }
                     if (isInventoryOpen && isFurnaceOpen) renderInventoryScreen();
                 }
             } else {
