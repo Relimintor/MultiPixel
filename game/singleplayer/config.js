@@ -209,7 +209,7 @@
     COPPER_GRATE: getAssetPath('textures/copper/copper_grate.png'),
     CHISELED_COPPER: getAssetPath('textures/copper/chiseled_copper.png'),
     CUT_COPPER: getAssetPath('textures/copper/cut_copper.png'),
-    game1k: getassetPath('textures/game1k.webp'),
+    game1k: getAssetPath('textures/game1k.webp'),
 
     /*Glass*/
     BLACK_STAINED_GLASS: getAssetPath('textures/glass/black_stained_glass.png'),
