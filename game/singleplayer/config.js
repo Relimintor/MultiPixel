@@ -209,6 +209,7 @@
     COPPER_GRATE: getAssetPath('textures/copper/copper_grate.png'),
     CHISELED_COPPER: getAssetPath('textures/copper/chiseled_copper.png'),
     CUT_COPPER: getAssetPath('textures/copper/cut_copper.png'),
+    game1k: getAssetPath('textures/game1k.webp'),
 
     /*Glass*/
     BLACK_STAINED_GLASS: getAssetPath('textures/glass/black_stained_glass.png'),
@@ -392,6 +393,7 @@
       }
          },
     119: { name: 'Glowstone', id: 119, textured: true, textureKey: 'GLOWSTONE', color: 0xf5c15b, emissive: 0xffd27a, lightRadius: 13, lightIntensity: 1.25 },
+    222: { name: 'game1k block', id: 222, textured: true, textureKey: 'game1k', },
     
     /*Glass*/
     26: { name: 'Glass', id: 26, textured: true, textureKey: 'GLASS_BLOCK', transparent: true, opacity: 0.8 },
@@ -616,7 +618,7 @@
     ...(sideConfig.SIDE_BLOCK_MATERIALS || sideConfig.FLOWER_BLOCK_MATERIALS || {}),
   };
 
-  const solidBlocks = [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 108, 110, 113, 114, 119 ];
+  const solidBlocks = [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 108, 110, 113, 114, 119, 222 ];
 
   window.SingleplayerConfig = {
     CHUNK_SIZE, CHUNK_HEIGHT, WORLD_RADIUS, BLOCK_SIZE, SEA_LEVEL, BASE_LAND_Y, ISLAND_RADIUS,
