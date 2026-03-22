@@ -950,8 +950,6 @@ window.perlin = perlinInstance;
         const gnomeEntities = [];
         const remotePlayers = new Map();
         const pendingNetworkBlockUpdates = new Map();
-        let remotePlayerMaterial = null;
-        let remotePlayerGeometry = null;
         let onlinePlayersOverlayEl = null;
         let isSneaking = false;
         let bambooGrowthTimerMs = 0;
@@ -988,21 +986,41 @@ window.perlin = perlinInstance;
             });
         }
 
-        function ensureRemotePlayerAssets() {
-            if (!remotePlayerGeometry) {
-                remotePlayerGeometry = new THREE.BoxGeometry(0.7, 1.8, 0.55);
-            }
-            if (!remotePlayerMaterial) {
-                remotePlayerMaterial = new THREE.MeshStandardMaterial({ color: 0x40c9ff, emissive: 0x06263a });
-            }
-        }
-
         function createRemotePlayerMesh() {
-            ensureRemotePlayerAssets();
-            const mesh = new THREE.Mesh(remotePlayerGeometry, remotePlayerMaterial.clone());
-            mesh.castShadow = false;
-            mesh.receiveShadow = false;
-            return mesh;
+            const avatar = new THREE.Group();
+            const U = 1 / 16;
+            const head = createStevePartMesh([8 * U, 8 * U, 8 * U], getSkinPartRects('head', false), getSkinPartRects('head', true));
+            head.position.y = 28 * U;
+            const body = createStevePartMesh([8 * U, 12 * U, 4 * U], getSkinPartRects('body', false), getSkinPartRects('body', true));
+            body.position.y = 18 * U;
+
+            const rightArmPivot = new THREE.Group();
+            rightArmPivot.position.set(6 * U, 24 * U, 0);
+            const rightArm = createStevePartMesh([4 * U, 12 * U, 4 * U], getSkinPartRects('rightArm', false), getSkinPartRects('rightArm', true));
+            rightArm.position.set(0, -6 * U, 0);
+            rightArmPivot.add(rightArm);
+
+            const leftArmPivot = new THREE.Group();
+            leftArmPivot.position.set(-6 * U, 24 * U, 0);
+            const leftArm = createStevePartMesh([4 * U, 12 * U, 4 * U], getSkinPartRects('leftArm', false), getSkinPartRects('leftArm', true));
+            leftArm.position.set(0, -6 * U, 0);
+            leftArmPivot.add(leftArm);
+
+            const rightLegPivot = new THREE.Group();
+            rightLegPivot.position.set(2 * U, 12 * U, 0);
+            const rightLeg = createStevePartMesh([4 * U, 12 * U, 4 * U], getSkinPartRects('rightLeg', false), getSkinPartRects('rightLeg', true));
+            rightLeg.position.set(0, -6 * U, 0);
+            rightLegPivot.add(rightLeg);
+
+            const leftLegPivot = new THREE.Group();
+            leftLegPivot.position.set(-2 * U, 12 * U, 0);
+            const leftLeg = createStevePartMesh([4 * U, 12 * U, 4 * U], getSkinPartRects('leftLeg', false), getSkinPartRects('leftLeg', true));
+            leftLeg.position.set(0, -6 * U, 0);
+            leftLegPivot.add(leftLeg);
+
+            avatar.add(body, head, leftArmPivot, rightArmPivot, leftLegPivot, rightLegPivot);
+            avatar.userData.remoteRig = { leftArmPivot, rightArmPivot, leftLegPivot, rightLegPivot };
+            return avatar;
         }
 
         function updateRemotePlayerState(payload) {
@@ -1013,6 +1031,8 @@ window.perlin = perlinInstance;
                 entry = {
                     mesh: createRemotePlayerMesh(),
                     label: document.createElement('div'),
+                    isMining: false,
+                    isMoving: false,
                 };
                 entry.label.className = 'chat-row chat-info';
                 entry.label.style.position = 'fixed';
@@ -1030,8 +1050,10 @@ window.perlin = perlinInstance;
             const z = Number(payload.z);
             const rot = Number(payload.rot);
             if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return;
-            entry.mesh.position.set(x, y + 0.9, z);
+            entry.mesh.position.set(x, y, z);
             if (Number.isFinite(rot)) entry.mesh.rotation.y = rot;
+            entry.isMining = Boolean(payload.mining);
+            entry.isMoving = Boolean(payload.moving);
         }
 
         function removeRemotePlayer(id) {
@@ -1040,9 +1062,6 @@ window.perlin = perlinInstance;
             const entry = remotePlayers.get(key);
             if (!entry) return;
             scene?.remove(entry.mesh);
-            if (entry.mesh?.material && entry.mesh.material !== remotePlayerMaterial) {
-                entry.mesh.material.dispose?.();
-            }
             entry.label?.remove?.();
             remotePlayers.delete(key);
         }
@@ -1111,7 +1130,22 @@ window.perlin = perlinInstance;
                 y: yawObject.position.y,
                 z: yawObject.position.z,
                 rot: yawObject.rotation.y,
+                moving: Boolean(player.isMoving),
+                mining: Boolean(miningState?.active),
             };
+        }
+
+        function updateRemotePlayerAnimations(time) {
+            remotePlayers.forEach((entry) => {
+                const rig = entry?.mesh?.userData?.remoteRig;
+                if (!rig) return;
+                const moveSwing = entry.isMoving ? Math.sin(time * 0.015) * 0.7 : 0;
+                const mineStroke = entry.isMining ? (Math.sin(time * 0.04) * 1.1 - 0.55) : 0;
+                rig.leftLegPivot.rotation.x = moveSwing;
+                rig.rightLegPivot.rotation.x = -moveSwing;
+                rig.leftArmPivot.rotation.x = -moveSwing * 0.75;
+                rig.rightArmPivot.rotation.x = moveSwing * 0.6 + mineStroke;
+            });
         }
 
         function getNetworkBlockKey(x, y, z) {
@@ -7439,6 +7473,7 @@ window.perlin = perlinInstance;
                     persistedWorldFlushTimerMs = 0;
                 }
             }
+            updateRemotePlayerAnimations(time);
             refreshRemotePlayerLabels();
             renderOnlinePlayersOverlay();
             renderer.render(scene, camera);
