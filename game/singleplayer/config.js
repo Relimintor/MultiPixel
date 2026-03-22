@@ -209,6 +209,7 @@
     COPPER_GRATE: getAssetPath('textures/copper/copper_grate.png'),
     CHISELED_COPPER: getAssetPath('textures/copper/chiseled_copper.png'),
     CUT_COPPER: getAssetPath('textures/copper/cut_copper.png'),
+    game1k: getassetPath('textures/game1k.webp'),
 
     /*Glass*/
     BLACK_STAINED_GLASS: getAssetPath('textures/glass/black_stained_glass.png'),
@@ -392,6 +393,7 @@
       }
          },
     119: { name: 'Glowstone', id: 119, textured: true, textureKey: 'GLOWSTONE', color: 0xf5c15b, emissive: 0xffd27a, lightRadius: 13, lightIntensity: 1.25 },
+    222: { name: 'game1k block', id: 222, textured: true, textureKey: 'game1k', },
     
     /*Glass*/
     26: { name: 'Glass', id: 26, textured: true, textureKey: 'GLASS_BLOCK', transparent: true, opacity: 0.8 },
