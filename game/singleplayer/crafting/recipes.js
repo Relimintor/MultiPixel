@@ -1,5 +1,49 @@
 (function () {
   const VINE_ID = window.SingleplayerSideConfig?.VINE_ID || 146;
+  const FLOWER_DEFINITIONS = window.SingleplayerSideConfig?.FLOWER_DEFINITIONS || [];
+  const FLOWER_TO_DYE_BY_NAME = {
+    Dandelion: 126, // Yellow Dye
+    Poppy: 134, // Red Dye
+    'Blue Orchid': 136, // Light Blue Dye
+    Allium: 140, // Magenta Dye
+    'Azure Bluet': 107, // White Dye
+    'Oxeye Daisy': 107, // White Dye
+    Cornflower: 137, // Blue Dye
+    'Lily of the Valley': 107, // White Dye
+    'Orange Tulip': 139, // Orange Dye
+    'Pink Tulip': 120, // Pink Dye
+    'Red Tulip': 134, // Red Dye
+    'White Tulip': 107, // White Dye
+  };
+  const FLOWER_TO_DYE_RECIPES = FLOWER_DEFINITIONS
+    .map((flower) => {
+      const dyeId = FLOWER_TO_DYE_BY_NAME[flower.name];
+      if (!dyeId) return null;
+      return {
+        name: `${flower.name} Dye`,
+        output: { id: dyeId, count: 1 },
+        shape: [[flower.id]],
+      };
+    })
+    .filter(Boolean);
+  const DYE_TO_STAINED_GLASS_RECIPES = [
+    { name: 'Black Stained Glass', output: { id: 79, count: 1 }, shape: [[57, 26]] },
+    { name: 'Green Stained Glass', output: { id: 80, count: 1 }, shape: [[58, 26]] },
+    { name: 'White Stained Glass', output: { id: 145, count: 1 }, shape: [[107, 26]] },
+    { name: 'Pink Stained Glass', output: { id: 146, count: 1 }, shape: [[120, 26]] },
+    { name: 'Yellow Stained Glass', output: { id: 147, count: 1 }, shape: [[126, 26]] },
+    { name: 'Red Stained Glass', output: { id: 148, count: 1 }, shape: [[134, 26]] },
+    { name: 'Purple Stained Glass', output: { id: 149, count: 1 }, shape: [[135, 26]] },
+    { name: 'Light Blue Stained Glass', output: { id: 150, count: 1 }, shape: [[136, 26]] },
+    { name: 'Blue Stained Glass', output: { id: 151, count: 1 }, shape: [[137, 26]] },
+    { name: 'Lime Stained Glass', output: { id: 152, count: 1 }, shape: [[138, 26]] },
+    { name: 'Orange Stained Glass', output: { id: 153, count: 1 }, shape: [[139, 26]] },
+    { name: 'Magenta Stained Glass', output: { id: 154, count: 1 }, shape: [[140, 26]] },
+    { name: 'Cyan Stained Glass', output: { id: 155, count: 1 }, shape: [[141, 26]] },
+    { name: 'Gray Stained Glass', output: { id: 156, count: 1 }, shape: [[142, 26]] },
+    { name: 'Light Gray Stained Glass', output: { id: 157, count: 1 }, shape: [[143, 26]] },
+    { name: 'Brown Stained Glass', output: { id: 158, count: 1 }, shape: [[144, 26]] },
+  ];
 
   const CRAFTING_RECIPES = [
     { name: 'Oak Planks', output: { id: 8, count: 4 }, shape: [[5]] },
@@ -45,9 +89,10 @@
     { name: 'Packed Ice', output: { id: 81, count: 1}, shape: [[59, 59, 59], [59, 59, 59], [59, 59, 59]] },
     { name: 'Blue Ice', output: { id: 91, count: 1}, shape: [[81, 81, 81], [81, 81, 81], [81, 81, 81]] },
     
+    ...FLOWER_TO_DYE_RECIPES,
+    
     /*Glass*/
-    { name: 'Black Stained Glass', output: { id: 79, count: 1}, shape: [[57, 26]] },
-    { name: 'Green Stained Glass', output: { id: 80, count: 1}, shape: [[58, 26]] },
+    ...DYE_TO_STAINED_GLASS_RECIPES,
     
     /*Åickaxes*/
     { name: 'Wooden Pickaxe', output: { id: 11, count: 1 }, shape: [[8, 8, 8], [0, 10, 0], [0, 10, 0]] },
