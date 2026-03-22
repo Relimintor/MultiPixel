@@ -34,7 +34,7 @@
 
   function saveAuth(next) {
     authState = { ...next, serverUrl: normalizeServerUrl(next?.serverUrl || getPreferredServerUrl()) };
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authState));
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(next));
   }
 
   function createOverlay() {
@@ -115,7 +115,7 @@
           const payload = await res.json().catch(() => ({}));
           if (!res.ok || !payload?.ok) {
             errorEl.textContent = payload?.error || 'Auth failed.';
-            if (res.status >= 500 || res.status === 404 || res.status === 405) continue;
+            if (res.status >= 500) continue;
             return;
           }
           saveAuth({ username: payload.username, token: payload.token, serverUrl: baseUrl });
