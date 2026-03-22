@@ -746,6 +746,9 @@ window.perlin = perlinInstance;
         let iglooStructureDef = null;
         const villageTemplatesByBiomeKey = new Map();
         const gnomeEntities = [];
+        const remotePlayers = new Map();
+        let remotePlayerMaterial = null;
+        let remotePlayerGeometry = null;
         let bambooGrowthTimerMs = 0;
         let eatOverlayEl = playerRuntime.eatOverlayEl;
         let eatItemEl = playerRuntime.eatItemEl;
@@ -778,6 +781,106 @@ window.perlin = perlinInstance;
                 gnomeEntities,
                 mobCollisionRadius: MOB_COLLISION_RADIUS,
             });
+        }
+
+        function ensureRemotePlayerAssets() {
+            if (!remotePlayerGeometry) {
+                remotePlayerGeometry = new THREE.CapsuleGeometry(0.38, 1.0, 4, 8);
+            }
+            if (!remotePlayerMaterial) {
+                remotePlayerMaterial = new THREE.MeshStandardMaterial({ color: 0x40c9ff, emissive: 0x06263a });
+            }
+        }
+
+        function createRemotePlayerMesh() {
+            ensureRemotePlayerAssets();
+            const mesh = new THREE.Mesh(remotePlayerGeometry, remotePlayerMaterial.clone());
+            mesh.castShadow = false;
+            mesh.receiveShadow = false;
+            return mesh;
+        }
+
+        function updateRemotePlayerState(payload) {
+            if (!scene || !payload?.id) return;
+            const id = String(payload.id);
+            let entry = remotePlayers.get(id);
+            if (!entry) {
+                entry = {
+                    mesh: createRemotePlayerMesh(),
+                    label: document.createElement('div'),
+                };
+                entry.label.className = 'chat-row chat-info';
+                entry.label.style.position = 'fixed';
+                entry.label.style.pointerEvents = 'none';
+                entry.label.style.fontSize = '12px';
+                entry.label.style.zIndex = '190';
+                entry.label.textContent = id.slice(0, 6);
+                document.body.appendChild(entry.label);
+                scene.add(entry.mesh);
+                remotePlayers.set(id, entry);
+            }
+
+            const x = Number(payload.x);
+            const y = Number(payload.y);
+            const z = Number(payload.z);
+            const rot = Number(payload.rot);
+            if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return;
+            entry.mesh.position.set(x, y + 0.9, z);
+            if (Number.isFinite(rot)) entry.mesh.rotation.y = rot;
+        }
+
+        function removeRemotePlayer(id) {
+            const key = String(id || '');
+            if (!key) return;
+            const entry = remotePlayers.get(key);
+            if (!entry) return;
+            scene?.remove(entry.mesh);
+            if (entry.mesh?.material && entry.mesh.material !== remotePlayerMaterial) {
+                entry.mesh.material.dispose?.();
+            }
+            entry.label?.remove?.();
+            remotePlayers.delete(key);
+        }
+
+        function refreshRemotePlayerLabels() {
+            if (!camera || !renderer) return;
+            remotePlayers.forEach((entry) => {
+                if (!entry?.mesh || !entry?.label) return;
+                const world = entry.mesh.position.clone();
+                world.y += 1.1;
+                world.project(camera);
+                const isBehind = world.z > 1;
+                if (isBehind) {
+                    entry.label.style.display = 'none';
+                    return;
+                }
+                entry.label.style.display = 'block';
+                const x = ((world.x + 1) / 2) * renderer.domElement.clientWidth;
+                const y = ((-world.y + 1) / 2) * renderer.domElement.clientHeight;
+                entry.label.style.left = `${x}px`;
+                entry.label.style.top = `${y}px`;
+            });
+        }
+
+        function getLocalMultiplayerState() {
+            if (!yawObject) return null;
+            return {
+                x: yawObject.position.x,
+                y: yawObject.position.y,
+                z: yawObject.position.z,
+                rot: yawObject.rotation.y,
+            };
+        }
+
+        function installMultiplayerBridge() {
+            window.MultiPixelMultiplayerBridge = {
+                getLocalPlayerState: getLocalMultiplayerState,
+                updateOtherPlayer: updateRemotePlayerState,
+                removeOtherPlayer: removeRemotePlayer,
+                pushNetworkChatMessage(payload) {
+                    window.SingleplayerChat?.receiveNetworkMessage?.(payload);
+                },
+            };
         }
 
         // --- 3. CORE UTILITIES ---
@@ -1088,6 +1191,7 @@ window.perlin = perlinInstance;
             setupBlockInteraction();
             setupInputModeChooser();
             initChatSystem();
+            installMultiplayerBridge();
             setInitialPlayerPosition();
             
           
@@ -1992,6 +2096,7 @@ window.perlin = perlinInstance;
                 teleportToRuinStructure,
                 openCommandHelp: () => window.SingleplayerChat?.openCommandHelp?.(),
                 mobileAssetBase: MOBILE_ASSET_BASE,
+                onSendMessage: (text) => window.MultiPixelMultiplayerClient?.sendChatMessage?.(text) || false,
                 onOpen: () => {
                     player.canMove = false;
                     player.keys = {};
@@ -6783,6 +6888,7 @@ window.perlin = perlinInstance;
             updateAdaptiveCrosshair();
             updateCoordinatesUI();
             waypointsMod?.update?.(time, delta);
+            refreshRemotePlayerLabels();
             renderer.render(scene, camera);
         }
         
