@@ -799,6 +799,7 @@ window.perlin = perlinInstance;
         let villagerMob = null;
         let glowstonePortalDimension1 = null;
         let dimension1WorldController = null;
+        let lastKnownDimensionName = 'overworld';
         remeshOptimizations = window.SingleplayerChunkRemeshOptimizations?.create?.({
             getChunkKey: chunkKeyFromCoords,
             getChunk: (key) => chunks.get(key),
@@ -1963,6 +1964,27 @@ window.perlin = perlinInstance;
 
         function getCurrentSkyLightCap() {
             return dayNightCycle?.getCurrentSkyLightCap?.() ?? 15;
+        }
+
+        function isInDimension1() {
+            return dimension1WorldController?.getCurrentDimension?.() === 'dimension1';
+        }
+
+        function purgeEntityList(entityList) {
+            if (!Array.isArray(entityList)) return;
+            for (const entity of entityList) {
+                if (entity?.root && entity.root.parent) entity.root.parent.remove(entity.root);
+            }
+            entityList.length = 0;
+        }
+
+        function purgeDimensionSensitiveEntities() {
+            purgeEntityList(pigMob?.getEntities?.());
+            purgeEntityList(wolfMob?.getEntities?.());
+            purgeEntityList(pandaMob?.getEntities?.());
+            purgeEntityList(zombieMob?.getEntities?.());
+            purgeEntityList(villagerMob?.getEntities?.());
+            purgeEntityList(gnomeEntities);
         }
 
         function setTimeByClock(hours, minutes) {
@@ -8039,6 +8061,11 @@ window.perlin = perlinInstance;
             const deltaRaw = lastTime ? (time - lastTime) : 0;
             const delta = Math.min(66, Math.max(0, deltaRaw));
             lastTime = time;
+            const currentDimensionName = isInDimension1() ? 'dimension1' : 'overworld';
+            if (currentDimensionName !== lastKnownDimensionName) {
+                if (currentDimensionName === 'dimension1') purgeDimensionSensitiveEntities();
+                lastKnownDimensionName = currentDimensionName;
+            }
             frameTimeEmaMs = frameTimeEmaMs * 0.9 + delta * 0.1;
             maybeApplyAdaptiveQuality(time);
 
@@ -8062,15 +8089,19 @@ window.perlin = perlinInstance;
                 applyBlockPhysics(time);
                 ensureChunksAroundPlayer(false, time);
                 maybeUpdateChunkFrustumCulling(time);
-                updateGnomes(time);
-                pigMob?.update?.(time, delta);
-                wolfMob?.update?.(time, delta);
-                pandaMob?.update?.(time, delta);
-                villagerMob?.update?.(time, delta);
+                if (!isInDimension1()) {
+                    updateGnomes(time);
+                    pigMob?.update?.(time, delta);
+                    wolfMob?.update?.(time, delta);
+                    pandaMob?.update?.(time, delta);
+                    villagerMob?.update?.(time, delta);
+                }
                 updateBambooGrowth(delta);
                 updateGrassSpread(delta);
-                zombieMob?.trySpawnNight?.(delta);
-                zombieMob?.update?.(time, delta);
+                if (!isInDimension1()) {
+                    zombieMob?.trySpawnNight?.(delta);
+                    zombieMob?.update?.(time, delta);
+                }
                 resolveMobEntityPushing();
                 updateEatingAnimation(delta, time);
                 updatePlayerAvatarVisuals(time);
@@ -8091,11 +8122,13 @@ window.perlin = perlinInstance;
                 if (inventoryEntityUpdateAccumulatorMs >= INVENTORY_ENTITY_UPDATE_INTERVAL_MS) {
                     const simDelta = Math.min(250, inventoryEntityUpdateAccumulatorMs);
                     inventoryEntityUpdateAccumulatorMs = 0;
-                    pigMob?.update?.(time, simDelta);
-                    wolfMob?.update?.(time, simDelta);
-                    pandaMob?.update?.(time, simDelta);
-                    villagerMob?.update?.(time, simDelta);
-                    zombieMob?.update?.(time, simDelta);
+                    if (!isInDimension1()) {
+                        pigMob?.update?.(time, simDelta);
+                        wolfMob?.update?.(time, simDelta);
+                        pandaMob?.update?.(time, simDelta);
+                        villagerMob?.update?.(time, simDelta);
+                        zombieMob?.update?.(time, simDelta);
+                    }
                     resolveMobEntityPushing();
                 }
                 updateEatingAnimation(delta, time);
