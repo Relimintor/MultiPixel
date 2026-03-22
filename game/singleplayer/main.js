@@ -1335,7 +1335,10 @@ window.perlin = perlinInstance;
 
         // --- 3. CORE UTILITIES ---
 
-        function isSolid(type) { return SOLID_BLOCKS.includes(type); }
+        function isSolid(type) {
+            if (type === GLOWSTONE_PORTAL_Z_ID || type === GLOWSTONE_PORTAL_X_ID) return false;
+            return SOLID_BLOCKS.includes(type);
+        }
 
         function getBlockBounds(type) {
             const bounds = blockMaterials[type]?.bounds;
