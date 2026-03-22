@@ -1,6 +1,6 @@
 (function () {
   const SERVER_URL = 'https://multipixel-yzoq.onrender.com';
-  const EMIT_INTERVAL_MS = 100;
+  const EMIT_INTERVAL_MS = 50;
 
   let socket = null;
   let moveInterval = null;
@@ -54,6 +54,7 @@
       isConnected = true;
       console.log('Connected to server:', socket.id);
       if (moveInterval) clearInterval(moveInterval);
+      sendMove();
       moveInterval = setInterval(sendMove, EMIT_INTERVAL_MS);
     });
 
@@ -68,6 +69,11 @@
     socket.on('bootstrap', (payload) => {
       const players = Array.isArray(payload?.players) ? payload.players : [];
       players.forEach(updateOtherPlayer);
+
+      const blocks = Array.isArray(payload?.blocks) ? payload.blocks : [];
+      blocks.forEach((entry) => {
+        getBridge()?.applyNetworkBlockChange?.(entry);
+      });
 
       const chat = Array.isArray(payload?.chat) ? payload.chat : [];
       chat.forEach((message) => {

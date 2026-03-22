@@ -6649,6 +6649,10 @@ window.perlin = perlinInstance;
         }
 
         function setInitialPlayerPosition() {
+            if (IS_1D4P_MULTIPLAYER) {
+                yawObject.position.set(0, 27, 0);
+                return;
+            }
             const localSpawnSearchRadius = 96;
             const biomeAnchorSearchRadius = 1400;
             const biomeAnchorStep = 6;
