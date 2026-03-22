@@ -21,10 +21,10 @@
       ravineActivationThreshold: 0.9,
     },
     // Limit new chunk generation per update to avoid frame spikes while moving/jumping.
-    chunkCreationBudgetPerTick: 1,
+    chunkCreationBudgetPerTick: 2,
     chunkCreationBudgetOnForceUpdate: 5,
     // Max chunk mesh rebuilds processed per frame from the remesh queue.
-    meshRebuildBudgetPerFrame: 1,
+    meshRebuildBudgetPerFrame: 2,
     // Tick-limiting caps to prevent chain-reaction lag spikes.
     blockUpdatesPerTickMax: 60,
     fluidUpdatesPerTickMax: 40,
@@ -231,7 +231,7 @@
     COPPER_AXE: getAssetPath('textures/item/tool/axe/copper_axe.png'),
     IRON_AXE: getAssetPath('textures/item/tool/axe/iron_axe.png'),
     DIAMOND_AXE: getAssetPath('textures/item/tool/axe/diamond_axe.png'),
-    EMERALD_AXE: getAssetPath('textures/item/tool/axe/emerald_axe.png'),
+    EMERALD_AXE: getAssetPath('textures/item/tool/axe/default_tool_emeraldaxe.png'),
 
     /*Daggers*/
     WOOD_DAGGER: getAssetPath('textures/item/tool/dagger/wood_dagger.png'),
@@ -275,12 +275,12 @@
     //slice
     PUMPKIN_SLICE:getAssetPath('textures/item/glistering_melon_slice.png'),
     MELON_SLICE: getAssetPath('textures/item/melon_slice.png'),
-    BUCKET: makeInlineSvgIcon(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges"><rect width="16" height="16" fill="none"/><path d="M4 3h8v1H4zm1 1h6v2h1v6H4V6h1z" fill="#d0d5db"/><path d="M5 12h6v1H5z" fill="#7b8794"/><path d="M5 6h1v5H5zm5 0h1v5h-1z" fill="#eef2f6"/></svg>`),
-    WATER_BUCKET: makeInlineSvgIcon(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges"><rect width="16" height="16" fill="none"/><path d="M4 3h8v1H4zm1 1h6v2h1v6H4V6h1z" fill="#d0d5db"/><path d="M5 7h6v5H5z" fill="#4aa8ff"/><path d="M5 12h6v1H5z" fill="#7b8794"/></svg>`),
-    LAVA_BUCKET: makeInlineSvgIcon(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges"><rect width="16" height="16" fill="none"/><path d="M4 3h8v1H4zm1 1h6v2h1v6H4V6h1z" fill="#d0d5db"/><path d="M5 7h6v5H5z" fill="#ff7a1a"/><path d="M5 12h6v1H5z" fill="#7b8794"/></svg>`),
-    GLOWSTONE: makeInlineSvgIcon(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges"><rect width="16" height="16" fill="#c88d37"/><rect x="1" y="1" width="5" height="5" fill="#ffe792"/><rect x="7" y="1" width="4" height="4" fill="#ffd166"/><rect x="11" y="2" width="3" height="5" fill="#ffbf52"/><rect x="2" y="8" width="4" height="4" fill="#ffd978"/><rect x="8" y="7" width="6" height="6" fill="#ffea9b"/><rect x="5" y="12" width="5" height="2" fill="#ffb347"/></svg>`),
-    GLOWSTONE_DUST: makeInlineSvgIcon(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges"><rect width="16" height="16" fill="none"/><rect x="4" y="5" width="2" height="2" fill="#ffe792"/><rect x="7" y="4" width="2" height="2" fill="#ffd166"/><rect x="9" y="6" width="2" height="2" fill="#ffbf52"/><rect x="5" y="8" width="2" height="2" fill="#ffd978"/><rect x="8" y="9" width="2" height="2" fill="#ffea9b"/></svg>`),
-  };
+    BUCKET: getAssetPath('textures/item/bucket.png'),
+    WATER_BUCKET: getAssetPath('textures/item/water_bucket.png'),
+    LAVA_BUCKET: getAssetPath('textures/item/lava_bucket'),
+    GLOWSTONE: getAssetPath('textures/glowstone.png'),
+    GLOWSTONE_DUST: getAssetPath('textures/item/glowstone_dust.png'),
+    BONE: getAssetPath('textures/item/bone.png'),
 
   const baseBlockMaterials = {
     
@@ -696,7 +696,7 @@
     89: { name: 'Raw Porkchop', id: 89, textured: true, textureKey: 'PORKCHOP_RAW' },
     90: { name: 'Cooked Porkchop', id: 90, textured: true, textureKey: 'PORKCHOP_COOKED' },
     92: { name: 'Rotten Flesh', id: 92, textured: true, textureKey: 'ROTTEN_FLESH' },
-    95: { name: 'Bone', id: 95, textured: false, color: 0xe7e6dd },
+    95: { name: 'Bone', id: 95, textured: true, textureKey: 'BONE' },
     99: { name: 'Bamboo Shoot', id: 99, textured: true, textureKey: 'BAMBOO_STAGE0', transparent: true, opacity: 1 },
     100: { name: 'Bamboo Young', id: 100, textured: true, textureKey: 'BAMBOO_STAGE0', transparent: true, opacity: 1 },
     101: { name: 'Bamboo Stalk', id: 101, textured: true, textureKey: 'BAMBOO_STALK', transparent: true, opacity: 1 },
