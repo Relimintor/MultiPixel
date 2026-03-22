@@ -793,6 +793,7 @@ window.perlin = perlinInstance;
         let pandaMob = null;
         let villagerMob = null;
         let glowstonePortalDimension1 = null;
+        let dimension1WorldController = null;
         remeshOptimizations = window.SingleplayerChunkRemeshOptimizations?.create?.({
             getChunkKey: chunkKeyFromCoords,
             getChunk: (key) => chunks.get(key),
@@ -1827,6 +1828,7 @@ window.perlin = perlinInstance;
             initChatSystem();
             installMultiplayerBridge();
             setInitialPlayerPosition();
+            dimension1WorldController?.init?.();
             if (IS_1D4P_MULTIPLAYER) {
                 window.addEventListener('beforeunload', () => flushDirtyPersistedChunks(true));
             }
@@ -1902,6 +1904,17 @@ window.perlin = perlinInstance;
             glowstonePortalDimension1 = window.SingleplayerDimension1GlowstonePortal?.create?.({
                 getRenderer: () => renderer,
                 getCamera: () => camera,
+                holdDurationSec: 7,
+                onPortalCharged: () => dimension1WorldController?.onPortalCharged?.(),
+            }) || null;
+            dimension1WorldController = window.SingleplayerDimension1World?.create?.({
+                portalBlockZId: GLOWSTONE_PORTAL_Z_ID,
+                portalBlockXId: GLOWSTONE_PORTAL_X_ID,
+                glowstoneId: 119,
+                dirtId: 1,
+                teleportToCoordinates,
+                setBlock: (x, y, z, type) => setBlockTypeRaw(x, y, z, type, true),
+                showGameMessage,
             }) || null;
             setupEatingOverlay();
             

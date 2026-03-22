@@ -6,11 +6,16 @@
   function create({
     getRenderer,
     getCamera,
+    onPortalCharged = null,
+    holdDurationSec = 7,
   }) {
     let nauseaLevel = 0;
     let phase = 0;
+    let holdSec = 0;
+    let cooldownSec = 0;
     const RAMP_UP_PER_SEC = 1.25;
     const RAMP_DOWN_PER_SEC = 0.75;
+    const requiredHold = Math.max(1, Number(holdDurationSec) || 7);
 
     function applyVisualState() {
       const renderer = getRenderer?.();
@@ -52,16 +57,26 @@
     function update({ deltaMs, inPortalBlock, portalIgnited = true }) {
       const dt = Math.max(0.001, Math.min(0.12, (Number(deltaMs) || 0) / 1000));
       const active = Boolean(inPortalBlock && portalIgnited);
+      cooldownSec = Math.max(0, cooldownSec - dt);
       if (active) {
         nauseaLevel = Math.min(1, nauseaLevel + dt * RAMP_UP_PER_SEC);
+        holdSec += dt;
+        if (holdSec >= requiredHold && cooldownSec <= 0) {
+          holdSec = 0;
+          cooldownSec = 2.5;
+          if (typeof onPortalCharged === 'function') onPortalCharged();
+        }
       } else {
         nauseaLevel = Math.max(0, nauseaLevel - dt * RAMP_DOWN_PER_SEC);
+        holdSec = 0;
       }
       applyVisualState();
     }
 
     function reset() {
       nauseaLevel = 0;
+      holdSec = 0;
+      cooldownSec = 0;
       applyVisualState();
     }
 
