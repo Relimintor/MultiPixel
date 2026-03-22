@@ -68,6 +68,8 @@
       applyHitFeedback,
       tickMobHitFeedback,
       showGameMessage,
+      canSpawnMob,
+      despawnDistance = 70,
     }) {
       const entities = [];
       const pigMobDef = window.SingleplayerMobData?.categories?.passive?.pig || null;
@@ -133,6 +135,7 @@
       }
 
       function spawnAt(wx, wz, heightBlocks = null) {
+        if (canSpawnMob && !canSpawnMob()) return false;
         const y = getSurfaceYForEntity(wx, wz);
         if (y < 62 || y > 86) return false;
         const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
@@ -233,7 +236,14 @@
         const yawObject = getYawObject?.();
         if (!yawObject) return;
 
-        for (const pig of entities) {
+        for (let i = entities.length - 1; i >= 0; i--) {
+          const pig = entities[i];
+          const distToPlayer = pig.root.position.distanceTo(yawObject.position);
+          if (distToPlayer > despawnDistance) {
+            entities.splice(i, 1);
+            getScene?.()?.remove(pig.root);
+            continue;
+          }
           if (!isEntityActiveAt(pig.root.position)) continue;
           tickMobHitFeedback(pig, deltaMs);
           pig.changeDirMs -= deltaMs;

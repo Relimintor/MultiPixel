@@ -751,6 +751,8 @@ window.perlin = perlinInstance;
         // Backward-compatible alias for code paths that still reference the old name.
         let effectiveChunkLoadRadius = currentChunkLoadRadius;
         const ENTITY_ACTIVATION_RANGE = Math.max(24, Number(worldGenSettings.entityActivationRange) || 72);
+        const MAX_MOB_COUNT = 50;
+        const MOB_DESPAWN_DISTANCE = 70;
         const ENTITY_ACTIVATION_RANGE_SQ = ENTITY_ACTIVATION_RANGE * ENTITY_ACTIVATION_RANGE;
         const CHUNK_UPDATE_INTERVAL_MS = Math.max(1, Number(renderOptimizationSettings.chunkUpdateIntervalMs) || 90);
         const FRUSTUM_CULL_INTERVAL_MS = Math.max(1, Number(renderOptimizationSettings.frustumCullIntervalMs) || 60);
@@ -845,6 +847,8 @@ window.perlin = perlinInstance;
             applyHitFeedback,
             tickMobHitFeedback,
             showGameMessage,
+            canSpawnMob: canSpawnMoreMobs,
+            despawnDistance: MOB_DESPAWN_DISTANCE,
         }) || null;
         zombieMob = window.SingleplayerZombieMob?.create?.({
             THREE,
@@ -866,6 +870,8 @@ window.perlin = perlinInstance;
             takeDamage,
             addToInventory,
             showGameMessage,
+            canSpawnMob: canSpawnMoreMobs,
+            despawnDistance: MOB_DESPAWN_DISTANCE,
         }) || null;
         wolfMob = window.SingleplayerWolfMob?.create?.({
             THREE,
@@ -878,6 +884,8 @@ window.perlin = perlinInstance;
             applyMobCommandHeight,
             applyHitFeedback,
             showGameMessage,
+            canSpawnMob: canSpawnMoreMobs,
+            despawnDistance: MOB_DESPAWN_DISTANCE,
             getPigEntities: () => pigMob?.getEntities?.() || [],
             getZombieEntities: () => zombieMob?.getEntities?.() || [],
             hurtPig: (pig, amount, source, sourcePos, extraKnockback) => pigMob?.hurt?.(pig, amount, source, sourcePos, extraKnockback),
@@ -897,6 +905,8 @@ window.perlin = perlinInstance;
             showGameMessage,
             addToInventory,
             takeDamage,
+            canSpawnMob: canSpawnMoreMobs,
+            despawnDistance: MOB_DESPAWN_DISTANCE,
         }) || null;
         villagerMob = window.SingleplayerVillagerMob?.create?.({
             THREE,
@@ -915,6 +925,8 @@ window.perlin = perlinInstance;
             getZombieEntities: () => zombieMob?.getEntities?.() || [],
             createStevePartMesh,
             getSkinPartRects,
+            canSpawnMob: canSpawnMoreMobs,
+            despawnDistance: MOB_DESPAWN_DISTANCE,
         }) || null;
         let yawObject, pitchObject; 
         let currentPlayerHeight = playerRuntime.currentPlayerHeight;
@@ -984,6 +996,7 @@ window.perlin = perlinInstance;
                 villagerEntities: villagerMob?.getEntities?.() || [],
                 gnomeEntities,
                 mobCollisionRadius: MOB_COLLISION_RADIUS,
+                isColliding,
             });
         }
 
@@ -2483,6 +2496,18 @@ window.perlin = perlinInstance;
             if (!Number.isFinite(parsed) || parsed <= 0) return;
             const scale = parsed / (defaultHeight || parsed);
             root.scale.setScalar(scale);
+        }
+
+        function getTotalMobCount() {
+            return (pigMob?.getEntities?.()?.length || 0)
+                + (wolfMob?.getEntities?.()?.length || 0)
+                + (pandaMob?.getEntities?.()?.length || 0)
+                + (zombieMob?.getEntities?.()?.length || 0)
+                + (villagerMob?.getEntities?.()?.length || 0);
+        }
+
+        function canSpawnMoreMobs() {
+            return getTotalMobCount() < MAX_MOB_COUNT;
         }
 
         function spawnMobById(mobId, amount = 1, heightBlocks = null) {
@@ -4408,9 +4433,13 @@ window.perlin = perlinInstance;
                     const dx = yawObject.position.x - Number(sourcePos.x || 0);
                     const dz = yawObject.position.z - Number(sourcePos.z || 0);
                     const dist = Math.hypot(dx, dz) || 1;
-                    const strength = Math.max(0.12, Math.min(0.4, Number(options?.knockbackStrength) || 0.24));
-                    yawObject.position.x += (dx / dist) * strength;
-                    yawObject.position.z += (dz / dist) * strength;
+                    const strength = Math.max(0.12, Math.min(0.65, Number(options?.knockbackStrength) || 0.24));
+                    const pushX = (dx / dist) * strength;
+                    const pushZ = (dz / dist) * strength;
+                    yawObject.position.x += pushX;
+                    if (isColliding()) yawObject.position.x -= pushX;
+                    yawObject.position.z += pushZ;
+                    if (isColliding()) yawObject.position.z -= pushZ;
                 }
             }
             player.health -= amount;

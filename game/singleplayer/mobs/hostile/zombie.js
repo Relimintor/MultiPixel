@@ -57,6 +57,8 @@
       takeDamage,
       addToInventory,
       showGameMessage,
+      canSpawnMob,
+      despawnDistance = 70,
     }) {
       const entities = [];
       let zombieTexture = null;
@@ -172,6 +174,7 @@
       }
 
       function spawnAt(wx, wz, heightBlocks = null) {
+        if (canSpawnMob && !canSpawnMob()) return false;
         const y = findSpawnY(wx, wz);
         if (y <= 0) return false;
         const under = getBlockType(Math.floor(wx), y - 1, Math.floor(wz));
@@ -257,6 +260,12 @@
 
         for (let i = entities.length - 1; i >= 0; i--) {
           const z = entities[i];
+          const distToPlayer = z.root.position.distanceTo(playerPos);
+          if (distToPlayer > despawnDistance) {
+            entities.splice(i, 1);
+            getScene?.()?.remove(z.root);
+            continue;
+          }
           if (!isEntityActiveAt(z.root.position)) continue;
           tickMobHitFeedback(z, deltaMs);
           const toPlayerFlat = new THREE.Vector3(playerPos.x - z.root.position.x, 0, playerPos.z - z.root.position.z);
@@ -296,7 +305,7 @@
           z.attackCooldownMs = Math.max(0, z.attackCooldownMs - deltaMs);
           if (dist3D < (z.attackReach || 1.35) && z.attackCooldownMs <= 0) {
             z.attackCooldownMs = 2000;
-            takeDamage?.(3, { source: 'mob', sourcePos: z.root.position, knockbackStrength: 0.28 });
+            takeDamage?.(3, { source: 'mob', sourcePos: z.root.position, knockbackStrength: 0.5 });
           }
 
           const zx = Math.floor(z.root.position.x);

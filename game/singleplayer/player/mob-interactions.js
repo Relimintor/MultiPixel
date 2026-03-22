@@ -74,7 +74,7 @@
         return { nx, nz, push };
     }
 
-    function resolveMobEntityPushing({ yawObject, PLAYER_RADIUS, pigEntities, wolfEntities, pandaEntities, zombieEntities, villagerEntities, gnomeEntities, mobCollisionRadius }) {
+    function resolveMobEntityPushing({ yawObject, PLAYER_RADIUS, pigEntities, wolfEntities, pandaEntities, zombieEntities, villagerEntities, gnomeEntities, mobCollisionRadius, isColliding }) {
         const colliders = [];
         for (const pig of pigEntities) colliders.push({ kind: 'pig', ref: pig, pos: pig.root.position, radius: mobCollisionRadius.pig });
         for (const wolf of wolfEntities) colliders.push({ kind: 'wolf', ref: wolf, pos: wolf.root.position, radius: mobCollisionRadius.wolf });
@@ -87,8 +87,12 @@
             const overlap = resolveCircleOverlap(yawObject.position.x, yawObject.position.z, PLAYER_RADIUS, c.pos.x, c.pos.z, c.radius);
             if (!overlap) continue;
             const pushHalf = overlap.push * 0.5 + 0.001;
-            yawObject.position.x -= overlap.nx * pushHalf;
-            yawObject.position.z -= overlap.nz * pushHalf;
+            const pushX = -overlap.nx * pushHalf;
+            const pushZ = -overlap.nz * pushHalf;
+            yawObject.position.x += pushX;
+            if (isColliding?.()) yawObject.position.x -= pushX;
+            yawObject.position.z += pushZ;
+            if (isColliding?.()) yawObject.position.z -= pushZ;
             c.pos.x += overlap.nx * pushHalf;
             c.pos.z += overlap.nz * pushHalf;
         }

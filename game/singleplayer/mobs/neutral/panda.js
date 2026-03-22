@@ -51,6 +51,8 @@
       showGameMessage,
       addToInventory,
       takeDamage,
+      canSpawnMob,
+      despawnDistance = 70,
     }) {
       const entities = [];
       let pandaTexture = null;
@@ -125,6 +127,7 @@
       }
 
       function spawnAt(wx, wz, heightBlocks = null) {
+        if (canSpawnMob && !canSpawnMob()) return false;
         const y = getSurfaceYForEntity(wx, wz);
         if (y <= 0) return false;
         return spawnAtExact(wx, y, wz, heightBlocks);
@@ -212,6 +215,12 @@
         const playerPos = yawObject.position;
         for (let i = entities.length - 1; i >= 0; i--) {
           const panda = entities[i];
+          const distToPlayer = panda.root.position.distanceTo(playerPos);
+          if (distToPlayer > despawnDistance) {
+            entities.splice(i, 1);
+            getScene?.()?.remove(panda.root);
+            continue;
+          }
           if (!isEntityActiveAt(panda.root.position)) continue;
           tickMobHitFeedback(panda, deltaMs);
           panda.changeDirMs -= deltaMs;
