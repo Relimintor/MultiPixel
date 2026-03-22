@@ -751,6 +751,8 @@ window.perlin = perlinInstance;
         const pendingNetworkBlockUpdates = new Map();
         let remotePlayerMaterial = null;
         let remotePlayerGeometry = null;
+        let onlinePlayersOverlayEl = null;
+        let isSneaking = false;
         let bambooGrowthTimerMs = 0;
         let eatOverlayEl = playerRuntime.eatOverlayEl;
         let eatItemEl = playerRuntime.eatItemEl;
@@ -862,6 +864,43 @@ window.perlin = perlinInstance;
                 entry.label.style.left = `${x}px`;
                 entry.label.style.top = `${y}px`;
             });
+        }
+
+        function ensureOnlinePlayersOverlay() {
+            if (onlinePlayersOverlayEl || typeof document === 'undefined') return;
+            onlinePlayersOverlayEl = document.createElement('div');
+            onlinePlayersOverlayEl.id = 'online-players-overlay';
+            onlinePlayersOverlayEl.className = 'online-players-overlay hidden';
+            document.body.appendChild(onlinePlayersOverlayEl);
+        }
+
+        function getOnlinePlayerSummaryLines() {
+            const lines = ['Online'];
+            lines.push('You');
+            const ids = Array.from(remotePlayers.keys()).sort();
+            ids.forEach((id) => lines.push(`Player ${String(id).slice(0, 6)}`));
+            lines.push(`Total: ${1 + ids.length}`);
+            return lines;
+        }
+
+        function renderOnlinePlayersOverlay() {
+            ensureOnlinePlayersOverlay();
+            if (!onlinePlayersOverlayEl) return;
+            if (!isSneaking || isInventoryOpen) {
+                onlinePlayersOverlayEl.classList.add('hidden');
+                return;
+            }
+            const lines = getOnlinePlayerSummaryLines();
+            onlinePlayersOverlayEl.innerHTML = lines.map((line) => `<div>${line}</div>`).join('');
+            onlinePlayersOverlayEl.classList.remove('hidden');
+        }
+
+        function canSneakStepAt(nextX, nextZ) {
+            const feetY = yawObject?.position?.y;
+            if (!Number.isFinite(nextX) || !Number.isFinite(nextZ) || !Number.isFinite(feetY)) return true;
+            const supportTop = findSupportingBlockTop(nextX, feetY, nextZ);
+            if (supportTop === null) return false;
+            return supportTop >= feetY - 0.35;
         }
 
         function getLocalMultiplayerState() {
@@ -3782,6 +3821,8 @@ window.perlin = perlinInstance;
             const isSprinting = isMoving && (player.keys['e'] || mobileControls.sprint);
             const speedBoostMultiplier = (isSprinting && playerPrivileges.speed) ? 1.85 : 1;
             const isFlying = playerPrivileges.fly && isFlyActive;
+            const isGroundSneaking = !!player.keys['shift'] && !isFlying && !isSwimming;
+            isSneaking = isGroundSneaking;
             if (window.HungerSystem && !isFlying) {
                 window.HungerSystem.update(performance.now(), { isMoving, isSprinting, isJumping: player.isJumping });
             }
@@ -3835,12 +3876,18 @@ window.perlin = perlinInstance;
 
 
            
-            yawObject.position.x += player.velocity.x;
-            if (isColliding()) yawObject.position.x -= player.velocity.x;
+            const nextX = yawObject.position.x + player.velocity.x;
+            if (!(isGroundSneaking && player.velocity.x !== 0 && !canSneakStepAt(nextX, yawObject.position.z))) {
+                yawObject.position.x = nextX;
+                if (isColliding()) yawObject.position.x -= player.velocity.x;
+            }
 
            
-            yawObject.position.z += player.velocity.z;
-            if (isColliding()) yawObject.position.z -= player.velocity.z;
+            const nextZ = yawObject.position.z + player.velocity.z;
+            if (!(isGroundSneaking && player.velocity.z !== 0 && !canSneakStepAt(yawObject.position.x, nextZ))) {
+                yawObject.position.z = nextZ;
+                if (isColliding()) yawObject.position.z -= player.velocity.z;
+            }
 
             yawObject.position.y += player.velocity.y;
             
@@ -4445,7 +4492,13 @@ window.perlin = perlinInstance;
                     }
                 }
             });
-            document.addEventListener('keyup', e => player.keys[e.key.toLowerCase()] = false);
+            document.addEventListener('keyup', e => {
+                player.keys[e.key.toLowerCase()] = false;
+                if (e.key.toLowerCase() === 'shift') {
+                    isSneaking = false;
+                    renderOnlinePlayersOverlay();
+                }
+            });
         }
 
 
@@ -6962,6 +7015,7 @@ window.perlin = perlinInstance;
             waypointsMod?.update?.(time, delta);
             flushPendingNetworkBlockChanges();
             refreshRemotePlayerLabels();
+            renderOnlinePlayersOverlay();
             renderer.render(scene, camera);
         }
         
