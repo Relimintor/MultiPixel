@@ -661,6 +661,8 @@ window.perlin = perlinInstance;
         let lavaParticleTexture = null;
         const activeWorldParticles = [];
         const particleSpritePool = [];
+        const droppedWorldItems = [];
+        const droppedItemMeshMaterialCache = new Map();
         const particleMaterials = { break: null, lava: null };
         let lavaParticleScanMs = 0;
         let lastPhysicsTickMs = 0;
@@ -2004,6 +2006,83 @@ window.perlin = perlinInstance;
 
         function getCameraFov() {
             return Number(camera?.fov || 90);
+        }
+
+        function toggleRenderDistanceBoost() {
+            const current = Math.max(1, Math.floor(Number(currentChunkLoadRadius) || 1));
+            const boosting = current <= Math.floor(baseChunkRenderDistance * 1.5);
+            const next = boosting ? Math.min(WORLD_RADIUS, current * 2) : Math.max(1, Math.floor(current / 2));
+            if (!setRenderDistance(next)) return false;
+            showGameMessage(`Render distance ${boosting ? 'boosted' : 'reduced'}: ${next}`);
+            return true;
+        }
+
+        function getDroppedItemMeshMaterial(itemId) {
+            if (droppedItemMeshMaterialCache.has(itemId)) return droppedItemMeshMaterialCache.get(itemId);
+            const matDef = blockMaterials[itemId] || {};
+            const sourceMat = matDef.textureKey ? materials[matDef.textureKey] : null;
+            const dropMat = new THREE.MeshStandardMaterial({
+                map: sourceMat?.map || null,
+                color: matDef.textured ? 0xffffff : (matDef.color || 0xbcbcbc),
+                roughness: 0.75,
+                metalness: 0.02,
+                transparent: Boolean(matDef.transparent),
+                opacity: Number.isFinite(matDef.opacity) ? matDef.opacity : 1,
+            });
+            droppedItemMeshMaterialCache.set(itemId, dropMat);
+            return dropMat;
+        }
+
+        function spawnDroppedItem(itemId, count = 1) {
+            if (!scene || !yawObject || !Number.isFinite(itemId) || itemId <= 0 || count <= 0) return false;
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.26, 0.26), getDroppedItemMeshMaterial(itemId));
+            const angle = yawObject.rotation.y || 0;
+            const spawnX = yawObject.position.x + Math.sin(angle) * 0.9;
+            const spawnZ = yawObject.position.z + Math.cos(angle) * 0.9;
+            const spawnY = yawObject.position.y + 0.52;
+            mesh.position.set(spawnX, spawnY, spawnZ);
+            scene.add(mesh);
+            droppedWorldItems.push({
+                mesh,
+                itemId,
+                count,
+                spawnedAt: performance.now(),
+                bobPhase: Math.random() * Math.PI * 2,
+                baseY: spawnY,
+            });
+            return true;
+        }
+
+        function dropSelectedHotbarItem() {
+            if (isInventoryOpen || window.SingleplayerChat?.isOpen?.()) return false;
+            const held = inventory[selectedHotbarIndex];
+            if (!held || held.count <= 0) return false;
+            const itemId = held.id;
+            if (!consumeSelectedItem()) return false;
+            return spawnDroppedItem(itemId, 1);
+        }
+
+        function updateDroppedItems(time, deltaMs) {
+            if (!droppedWorldItems.length || !yawObject) return;
+            const now = performance.now();
+            for (let i = droppedWorldItems.length - 1; i >= 0; i--) {
+                const drop = droppedWorldItems[i];
+                if (!drop?.mesh) {
+                    droppedWorldItems.splice(i, 1);
+                    continue;
+                }
+                drop.mesh.position.y = drop.baseY + Math.sin(time * 0.004 + drop.bobPhase) * 0.08;
+                drop.mesh.rotation.y += (deltaMs / 1000) * 1.8;
+                const dx = drop.mesh.position.x - yawObject.position.x;
+                const dy = (drop.mesh.position.y + 0.1) - yawObject.position.y;
+                const dz = drop.mesh.position.z - yawObject.position.z;
+                const distSq = dx * dx + dy * dy + dz * dz;
+                if ((now - drop.spawnedAt) < 400 || distSq > 1.21) continue;
+                const picked = addToInventory(drop.itemId, drop.count);
+                if (!picked) continue;
+                scene.remove(drop.mesh);
+                droppedWorldItems.splice(i, 1);
+            }
         }
 
         function getMaxStackSize(itemId) {
@@ -5144,6 +5223,16 @@ window.perlin = perlinInstance;
                     window.SingleplayerChat?.toggle?.();
                     return;
                 }
+                if (k === 'r' && !window.SingleplayerChat?.isOpen?.()) {
+                    e.preventDefault();
+                    toggleRenderDistanceBoost();
+                    return;
+                }
+                if (k === 'q' && !window.SingleplayerChat?.isOpen?.()) {
+                    e.preventDefault();
+                    dropSelectedHotbarItem();
+                    return;
+                }
                 if (k === ' ' && playerPrivileges.fly && !isInventoryOpen && !window.SingleplayerChat?.isOpen?.() && !e.repeat) {
                     const now = Date.now();
                     if (now - lastSpaceTapAt <= 280) {
@@ -7796,6 +7885,7 @@ window.perlin = perlinInstance;
             waypointsMod?.update?.(time, delta);
             updatePortalAnimation(delta);
             flushPendingNetworkBlockChanges();
+            updateDroppedItems(time, delta);
             if (IS_1D4P_MULTIPLAYER) {
                 persistedWorldFlushTimerMs += delta;
                 if (persistedWorldFlushTimerMs >= PERSISTED_WORLD_FLUSH_MS) {
