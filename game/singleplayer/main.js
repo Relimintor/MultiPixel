@@ -1188,6 +1188,10 @@ window.perlin = perlinInstance;
         }
 
         async function init() {
+            if (IS_1D4P_MULTIPLAYER && window.MultiPixelAuth?.ensureAuth) {
+                await window.MultiPixelAuth.ensureAuth();
+            }
+
             await applySelectedTexturePackOverrides();
             await loadAssets(); // Load all textures and materials first!
             await loadIglooStructure();

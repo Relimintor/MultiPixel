@@ -1,6 +1,4 @@
 (function () {
-  const SERVER_URL = 'https://multipixel-yzoq.onrender.com';
-  const USERNAME_STORAGE_KEY = 'multipixel.1d4p.username';
   const EMIT_INTERVAL_MS = 50;
 
   let socket = null;
@@ -8,53 +6,10 @@
   let isConnected = false;
   let flushTimer = null;
   const pendingBlockUpdates = [];
-  let username = null;
+  let auth = null;
 
   function getBridge() {
     return window.MultiPixelMultiplayerBridge || null;
-  }
-
-  function getSavedUsername() {
-    return String(localStorage.getItem(USERNAME_STORAGE_KEY) || '').trim().toLowerCase();
-  }
-
-  function normalizeUsername(raw) {
-    return String(raw || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 24);
-  }
-
-  function ensureUsername() {
-    const existing = normalizeUsername(getSavedUsername());
-    if (existing) return Promise.resolve(existing);
-
-    return new Promise((resolve) => {
-      const overlay = document.createElement('div');
-      overlay.style.cssText = 'position:fixed;inset:0;background:#7a7a7a;z-index:999999;display:flex;align-items:center;justify-content:center;font-family:monospace;';
-      overlay.innerHTML = `
-        <form id="mp-username-form" style="width:min(92vw,430px);background:#d9d9d9;border:3px solid #333;padding:16px;color:#111;display:flex;flex-direction:column;gap:8px;">
-          <h2 style="margin:0;">Choose username</h2>
-          <input id="mp-username-input" placeholder="username" minlength="3" maxlength="24" required />
-          <button type="submit">Join</button>
-          <div id="mp-username-error" style="min-height:18px;color:#8b0000;font-size:12px;"></div>
-        </form>
-      `;
-      document.body.appendChild(overlay);
-
-      const form = overlay.querySelector('#mp-username-form');
-      const input = overlay.querySelector('#mp-username-input');
-      const errorEl = overlay.querySelector('#mp-username-error');
-
-      form.addEventListener('submit', (event) => {
-        event.preventDefault();
-        const value = normalizeUsername(input.value);
-        if (value.length < 3) {
-          errorEl.textContent = 'Username must be at least 3 chars (a-z, 0-9, _).';
-          return;
-        }
-        localStorage.setItem(USERNAME_STORAGE_KEY, value);
-        overlay.remove();
-        resolve(value);
-      });
-    });
   }
 
   function updateOtherPlayer(playerData) {
@@ -95,6 +50,7 @@
     socket.emit('blockUpdate', { x, y, z, type });
     return true;
   }
+
 
   function applyIncomingBlockUpdate(payload) {
     const bridge = getBridge();
@@ -195,15 +151,22 @@
       return;
     }
 
-    username = await ensureUsername();
+    auth = await window.MultiPixelAuth?.ensureAuth?.();
+    if (!auth?.token || !auth?.username) {
+      console.warn('[Multiplayer] auth missing.');
+      return;
+    }
 
-    socket = window.io(SERVER_URL, {
+    const serverUrl = auth.serverUrl || window.MultiPixelAuth?.getServerUrl?.() || window.location.origin;
+
+    socket = window.io(serverUrl, {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
       auth: {
-        username,
+        token: auth.token,
+        username: auth.username,
       },
     });
 
