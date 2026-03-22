@@ -520,6 +520,21 @@
     26: { name: 'Glass', id: 26, textured: true, textureKey: 'GLASS_BLOCK', transparent: true, opacity: 0.8 },
     79: { name: 'Black Glass', id: 79, textured: true, textureKey: 'BLACK_STAINED_GLASS', transparent: true, opacity: 0.8 },
     80: { name: 'Green Glass', id: 80, textured: true, textureKey: 'GREEN_STAINED_GLASS', transparent: true, opacity: 0.8 },
+    145: { name: 'White Glass', id: 145, textured: true, textureKey: 'WHITE_STAINED_GLASS', transparent: true, opacity: 0.8 },
+    146: { name: 'Pink Glass', id: 146, textured: true, textureKey: 'PINK_STAINED_GLASS', transparent: true, opacity: 0.8 },
+    147: { name: 'Yellow Glass', id: 147, textured: true, textureKey: 'YELLOW_STAINED_GLASS', transparent: true, opacity: 0.8 },
+    148: { name: 'Red Glass', id: 148, textured: true, textureKey: 'RED_STAINED_GLASS', transparent: true, opacity: 0.8 },
+    149: { name: 'Purple Glass', id: 149, textured: true, textureKey: 'PURPLE_STAINED_GLASS', transparent: true, opacity: 0.8 },
+    150: { name: 'Light Blue Glass', id: 150, textured: true, textureKey: 'LIGHT_BLUE_STAINED_GLASS', transparent: true, opacity: 0.8 },
+    151: { name: 'Blue Glass', id: 151, textured: true, textureKey: 'BLUE_STAINED_GLASS', transparent: true, opacity: 0.8 },
+    152: { name: 'Lime Glass', id: 152, textured: true, textureKey: 'LIME_STAINED_GLASS', transparent: true, opacity: 0.8 },
+    153: { name: 'Orange Glass', id: 153, textured: true, textureKey: 'ORANGE_STAINED_GLASS', transparent: true, opacity: 0.8 },
+    154: { name: 'Magenta Glass', id: 154, textured: true, textureKey: 'MAGENTA_STAINED_GLASS', transparent: true, opacity: 0.8 },
+    155: { name: 'Cyan Glass', id: 155, textured: true, textureKey: 'CYAN_STAINED_GLASS', transparent: true, opacity: 0.8 },
+    156: { name: 'Gray Glass', id: 156, textured: true, textureKey: 'GRAY_STAINED_GLASS', transparent: true, opacity: 0.8 },
+    157: { name: 'Light Gray Glass', id: 157, textured: true, textureKey: 'LIGHT_GRAY_STAINED_GLASS', transparent: true, opacity: 0.8 },
+    158: { name: 'Brown Glass', id: 158, textured: true, textureKey: 'BROWN_STAINED_GLASS', transparent: true, opacity: 0.8 },
+    
     
     /*Important later*/
     39: { name: 'Obsidian Block', id: 39, textured: true, textureKey: 'OBSIDIAN_BLOCK' },
