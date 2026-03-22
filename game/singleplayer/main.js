@@ -44,6 +44,8 @@
         const GLOWSTONE_PORTAL_Z_ID = Number(window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_Z_ID) || 147;
         const GLOWSTONE_PORTAL_X_ID = Number(window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_X_ID) || 148;
         const portalAnimationState = { frameMs: 120, frameIndex: 0, elapsedMs: 0 };
+        const WATER_FRAME_KEYS = ['WATER_FRAME_0', 'WATER_FRAME_1', 'WATER_FRAME_2', 'WATER_FRAME_3'];
+        const waterAnimationState = { frameMs: 140, frameIndex: 0, elapsedMs: 0 };
         console.info('[Singleplayer build]', window.__SINGLEPLAYER_BUILD__);
 
         const TerrainModules = {
@@ -1592,6 +1594,23 @@ window.perlin = perlinInstance;
             if (portalMaterial.map !== frameMaterial.map) {
                 portalMaterial.map = frameMaterial.map;
                 portalMaterial.needsUpdate = true;
+            }
+        }
+
+        function updateWaterAnimation(deltaMs) {
+            if (!Number.isFinite(deltaMs) || deltaMs <= 0) return;
+            const waterMaterial = materials.WATER;
+            if (!waterMaterial) return;
+            waterAnimationState.elapsedMs += deltaMs;
+            if (waterAnimationState.elapsedMs < waterAnimationState.frameMs) return;
+            waterAnimationState.elapsedMs = 0;
+            waterAnimationState.frameIndex = (waterAnimationState.frameIndex + 1) % WATER_FRAME_KEYS.length;
+            const frameKey = WATER_FRAME_KEYS[waterAnimationState.frameIndex];
+            const frameMaterial = materials[frameKey];
+            if (!frameMaterial?.map) return;
+            if (waterMaterial.map !== frameMaterial.map) {
+                waterMaterial.map = frameMaterial.map;
+                waterMaterial.needsUpdate = true;
             }
         }
         
@@ -4290,7 +4309,7 @@ window.perlin = perlinInstance;
                             const z = (i * 7 + y * 3) % CHUNK_SIZE;
                             const idx = x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
                             const type = data[idx];
-                            const isWater = type === 4 || (type >= 47 && type <= 53);
+                            const isWater = type === 4 || (type >= 47 && type <= 53); // legacy 47-53 kept for migration
                             const isLava = type === 33 || (type >= 60 && type <= 66);
                             const isFluid = isWater || isLava;
                             const isSandLike = type === 7;
@@ -5775,7 +5794,7 @@ window.perlin = perlinInstance;
             const OPPOSITE_DIR = { N: 'S', S: 'N', E: 'W', W: 'E' };
 
             function isWaterType(t) {
-                return t === 4 || t === 47 || t === 48;
+                return t === 4 || (t >= 47 && t <= 53);
             }
 
             function setSurfaceBlock(wx, wz, blockId) {
@@ -6841,6 +6860,14 @@ window.perlin = perlinInstance;
                 { name: 'posZ', dir: [0,0,1], corners: [[0,0.5,1],[0,0,1],[1,0,1],[1,0.5,1]], uv: [0,0.5, 0,0, 1,0, 1,0.5] },
                 { name: 'negZ', dir: [0,0,-1], corners: [[1,0.5,0],[1,0,0],[0,0,0],[0,0.5,0]], uv: [0,0.5, 0,0, 1,0, 1,0.5] }
             ];
+            const waterFaces = [
+                { name: 'posX', dir: [1,0,0], corners: [[1,0.875,1],[1,0,1],[1,0,0],[1,0.875,0]], uv: [0,0.875, 0,0, 1,0, 1,0.875] },
+                { name: 'negX', dir: [-1,0,0], corners: [[0,0.875,0],[0,0,0],[0,0,1],[0,0.875,1]], uv: [0,0.875, 0,0, 1,0, 1,0.875] },
+                { name: 'top', dir: [0,1,0], corners: [[0,0.875,1],[1,0.875,1],[1,0.875,0],[0,0.875,0]], uv: [0,1, 0,0, 1,0, 1,1] },
+                { name: 'bottom', dir: [0,-1,0], corners: [[0,0,0],[1,0,0],[1,0,1],[0,0,1]], uv: [0,1, 0,0, 1,0, 1,1] },
+                { name: 'posZ', dir: [0,0,1], corners: [[0,0.875,1],[0,0,1],[1,0,1],[1,0.875,1]], uv: [0,0.875, 0,0, 1,0, 1,0.875] },
+                { name: 'negZ', dir: [0,0,-1], corners: [[1,0.875,0],[1,0,0],[0,0,0],[0,0.875,0]], uv: [0,0.875, 0,0, 1,0, 1,0.875] }
+            ];
             const torchFaces = [
                 { name: 'posX', dir: [1,0,0], corners: [[0.5625,0.8,0.5625],[0.5625,0.05,0.5625],[0.5625,0.05,0.4375],[0.5625,0.8,0.4375]], uv: [0,1,0,0,1,0,1,1] },
                 { name: 'negX', dir: [-1,0,0], corners: [[0.4375,0.8,0.4375],[0.4375,0.05,0.4375],[0.4375,0.05,0.5625],[0.4375,0.8,0.5625]], uv: [0,1,0,0,1,0,1,1] },
@@ -7202,6 +7229,7 @@ window.perlin = perlinInstance;
                         const isBambooStage = id === 99 || id === 100;
                         const isBambooStalk = id === 101;
                         const isSlab = mat.shape === 'slab';
+                        const isWater = id === 4 || (id >= 47 && id <= 53);
                         const sideRenderMode = getSideRenderMode(id);
                         const isSideRenderBlock = Boolean(sideRenderMode);
                         const isGlowstonePortalPlane = id === (window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_Z_ID || 147);
@@ -7209,7 +7237,7 @@ window.perlin = perlinInstance;
                         if (isTorch) torchPositions.push({ x: x + cx * CS, y, z: z + cz * CS });
                         if (id === 119) glowstonePositions.push({ x: x + cx * CS, y, z: z + cz * CS, id });
                         const isTrans = mat.transparent || (mat.textured && mat.textureKey === 'LEAVES');
-                        if (!isTorch && !isBambooStage && !isBambooStalk && !isSlab && !isSideRenderBlock && !isTrans) continue;
+                        if (!isTorch && !isBambooStage && !isBambooStalk && !isSlab && !isWater && !isSideRenderBlock && !isTrans) continue;
                         let activeFaces;
                         if (isSideRenderBlock) {
                             if (isGlowstonePortalPlane) activeFaces = fullPlaneFaces;
@@ -7225,6 +7253,8 @@ window.perlin = perlinInstance;
                             activeFaces = bambooStageFaces;
                         } else if (isSlab) {
                             activeFaces = slabFaces;
+                        } else if (isWater) {
+                            activeFaces = waterFaces;
                         } else {
                             activeFaces = faces;
                         }
@@ -7233,7 +7263,7 @@ window.perlin = perlinInstance;
                             const f = activeFaces[i];
                             const nid = get(x + f.dir[0], y + f.dir[1], z + f.dir[2]);
                             let draw = false;
-                            if (isTorch || isBambooStage || isBambooStalk || isSlab || isSideRenderBlock) draw = true;
+                            if (isTorch || isBambooStage || isBambooStalk || isSlab || isWater || isSideRenderBlock) draw = true;
                             else if (shouldDrawFace(id, nid)) draw = true;
                             if (!draw) continue;
 
@@ -7243,7 +7273,7 @@ window.perlin = perlinInstance;
                             const wx = x + cx * CS;
                             const wz = z + cz * CS;
                             const corners = f.corners.map((c) => [wx + c[0], y + c[1], wz + c[2]]);
-                            emitQuad(id, materialKey, f.dir, corners, uvInfo.uv, !(isTorch || isBambooStage || isBambooStalk || isSideRenderBlock));
+                            emitQuad(id, materialKey, f.dir, corners, uvInfo.uv, !(isTorch || isBambooStage || isBambooStalk || isWater || isSideRenderBlock));
                         }
                     }
                 }
@@ -7897,6 +7927,7 @@ window.perlin = perlinInstance;
             updateCoordinatesUI(time);
             waypointsMod?.update?.(time, delta);
             updatePortalAnimation(delta);
+            updateWaterAnimation(delta);
             flushPendingNetworkBlockChanges();
             updateDroppedItems(time, delta);
             if (IS_1D4P_MULTIPLAYER) {
