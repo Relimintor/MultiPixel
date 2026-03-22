@@ -37,6 +37,11 @@
         window.__SINGLEPLAYER_BUILD__ = 'sp-2026-03-01-06';
         const MULTIPLAYER_WORLD_SEED = 1311652885;
         const IS_1D4P_MULTIPLAYER = /(?:^|\/)1d4p\.html$/i.test(window.location?.pathname || '');
+        const GLOWSTONE_PORTAL_TEXTURE_KEY = window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_TEXTURE_KEY || 'GLOWSTONE_PORTAL';
+        const GLOWSTONE_PORTAL_FRAME_KEYS = Array.isArray(window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_FRAME_KEYS)
+            ? window.SingleplayerSideConfig.GLOWSTONE_PORTAL_FRAME_KEYS
+            : [];
+        const portalAnimationState = { frameMs: 120, frameIndex: 0, elapsedMs: 0 };
         console.info('[Singleplayer build]', window.__SINGLEPLAYER_BUILD__);
 
         const TerrainModules = {
@@ -1218,6 +1223,72 @@ window.perlin = perlinInstance;
 
             console.info('[TexturePack] applied', selectedPackId);
         }
+
+        const mpmetaTextureCache = new Map();
+
+        function parseMpmetaRequest(path) {
+            const raw = String(path || '');
+            if (!raw.includes('.mpmeta')) return null;
+            const [basePath, hash = ''] = raw.split('#');
+            let frame = 0;
+            const match = hash.match(/frame=(\d+)/i);
+            if (match) frame = Math.max(0, Math.floor(Number(match[1]) || 0));
+            return { basePath, frame };
+        }
+
+        function renderProceduralPortalFrame(meta, frame = 0) {
+            const width = Math.max(8, Math.min(128, Number(meta?.width) || 16));
+            const height = Math.max(8, Math.min(128, Number(meta?.height) || 16));
+            const palette = meta?.palette || {};
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return '';
+            const image = ctx.createImageData(width, height);
+            const data = image.data;
+            const baseR = Number.isFinite(palette.baseR) ? Number(palette.baseR) : 90;
+            const baseG = Number.isFinite(palette.baseG) ? Number(palette.baseG) : 30;
+            const baseB = Number.isFinite(palette.baseB) ? Number(palette.baseB) : 170;
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const nx = (x - (width - 1) * 0.5) / ((width - 1) * 0.5);
+                    const ny = (y - (height - 1) * 0.5) / ((height - 1) * 0.5);
+                    const radiusSq = nx * nx + ny * ny;
+                    const glow = Math.max(0, 1 - radiusSq);
+                    const band = ((x * 2 + y * 3 + frame * 5) % 16);
+                    const idx = (x + y * width) * 4;
+                    data[idx] = Math.min(255, baseR + Math.floor(95 * glow) + band * 2);
+                    data[idx + 1] = Math.min(255, baseG + Math.floor(45 * glow) + band);
+                    data[idx + 2] = Math.min(255, baseB + Math.floor(75 * glow) + band * 3);
+                    let alpha = 38 + Math.floor(132 * glow);
+                    if ((x + y + frame * 2) % 5 === 0) alpha = Math.min(220, alpha + 24);
+                    if (radiusSq > 1.06) alpha = 0;
+                    data[idx + 3] = alpha;
+                }
+            }
+            ctx.putImageData(image, 0, 0);
+            return canvas.toDataURL('image/png');
+        }
+
+        async function resolveMpmetaTexturePath(path) {
+            const req = parseMpmetaRequest(path);
+            if (!req) return path;
+            const cacheKey = `${req.basePath}#${req.frame}`;
+            if (mpmetaTextureCache.has(cacheKey)) return mpmetaTextureCache.get(cacheKey);
+
+            let meta = mpmetaTextureCache.get(req.basePath);
+            if (!meta) {
+                const response = await fetch(req.basePath, { cache: 'no-store' });
+                if (!response.ok) throw new Error(`mpmeta load failed (${response.status})`);
+                meta = await response.json();
+                mpmetaTextureCache.set(req.basePath, meta);
+            }
+
+            const dataUrl = renderProceduralPortalFrame(meta, req.frame);
+            mpmetaTextureCache.set(cacheKey, dataUrl);
+            return dataUrl || path;
+        }
         
         async function loadAssets() {
             const loader = new THREE.TextureLoader();
@@ -1230,12 +1301,19 @@ window.perlin = perlinInstance;
 
                 const path = ASSET_FILEPATHS[key];
                 
-                const promise = new Promise((resolve) => {
+                const promise = (async () => {
+                    let resolvedPath = path;
+                    try {
+                        resolvedPath = await resolveMpmetaTexturePath(path);
+                    } catch (err) {
+                        console.warn('[mpmeta] falling back to literal asset path', path, err);
+                    }
+                    return new Promise((resolve) => {
                     const matId = getMaterialIdByTextureKey(key);
                     const matCfg = matId >= 0 ? blockMaterials[matId] : {};
                     const isDoubleSidedCutout = key === 'LEAVES' || matCfg.renderAs === 'cross' || matCfg.renderAs === 'plane' || matCfg.renderAs === 'plane_x';
                     loader.load(
-                        path, // <-- DIRECTLY using the calculated path
+                        resolvedPath,
                         (texture) => {
                             texture.magFilter = THREE.NearestFilter; // Sharp pixel look
                             texture.minFilter = THREE.NearestMipmapNearestFilter;
@@ -1276,6 +1354,7 @@ window.perlin = perlinInstance;
                         }
                     );
                 });
+                })();
                 texturePromises.push(promise);
             }
             
@@ -1301,6 +1380,25 @@ window.perlin = perlinInstance;
 
             await Promise.all(texturePromises);
             console.log("Assets loading attempted with specified relative paths.");
+        }
+
+        function updatePortalAnimation(deltaMs) {
+            if (!GLOWSTONE_PORTAL_FRAME_KEYS.length || !Number.isFinite(deltaMs) || deltaMs <= 0) return;
+            const portalMaterial = materials[GLOWSTONE_PORTAL_TEXTURE_KEY];
+            if (!portalMaterial) return;
+
+            portalAnimationState.elapsedMs += deltaMs;
+            if (portalAnimationState.elapsedMs < portalAnimationState.frameMs) return;
+            portalAnimationState.elapsedMs = 0;
+            portalAnimationState.frameIndex = (portalAnimationState.frameIndex + 1) % GLOWSTONE_PORTAL_FRAME_KEYS.length;
+
+            const frameKey = GLOWSTONE_PORTAL_FRAME_KEYS[portalAnimationState.frameIndex];
+            const frameMaterial = materials[frameKey];
+            if (!frameMaterial?.map) return;
+            if (portalMaterial.map !== frameMaterial.map) {
+                portalMaterial.map = frameMaterial.map;
+                portalMaterial.needsUpdate = true;
+            }
         }
         
         function getMaterialIdByTextureKey(key) {
@@ -3648,6 +3746,7 @@ window.perlin = perlinInstance;
             if (oldType === newType) return false;
             chunkData[index] = newType;
             markChunkForPersistence(cx, cz, true);
+            pendingNetworkBlockUpdates.delete(getNetworkBlockKey(wx, wy, wz));
 
             // Chunk meshing rebuild triggers:
             // - block changes
@@ -3809,12 +3908,14 @@ window.perlin = perlinInstance;
                 }
                 chunkData[index] = 0;
                 markChunkForPersistence(cx, cz, true);
+                pendingNetworkBlockUpdates.delete(getNetworkBlockKey(wx, wy, wz));
                 emitBreakParticles(wx, wy, wz, 14, true);
             } else {
                 if (!forceApply && oldType !== 0 && oldType !== 4) return false;
                 if (oldType === newType) return false;
                 chunkData[index] = newType;
                 markChunkForPersistence(cx, cz, true);
+                pendingNetworkBlockUpdates.delete(getNetworkBlockKey(wx, wy, wz));
             }
 
             updateChunkHeightmapColumn(group, lx, lz);
@@ -7193,6 +7294,7 @@ window.perlin = perlinInstance;
             updateAdaptiveCrosshair();
             updateCoordinatesUI();
             waypointsMod?.update?.(time, delta);
+            updatePortalAnimation(delta);
             flushPendingNetworkBlockChanges();
             if (IS_1D4P_MULTIPLAYER) {
                 persistedWorldFlushTimerMs += delta;

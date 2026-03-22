@@ -1,0 +1,13 @@
+{
+  "format": "multipixel-mpmeta-v1",
+  "kind": "procedural-portal",
+  "width": 16,
+  "height": 16,
+  "frames": 4,
+  "frametime": 3,
+  "palette": {
+    "baseR": 92,
+    "baseG": 26,
+    "baseB": 168
+  }
+}
