@@ -51,6 +51,8 @@
       getZombieEntities,
       createStevePartMesh,
       getSkinPartRects,
+      canSpawnMob,
+      despawnDistance = 70,
     }) {
       const entities = [];
       const villagerMobDef = window.SingleplayerMobData?.categories?.passive?.villager || null;
@@ -102,6 +104,7 @@
       }
 
       function spawnAtExact(wx, y, wz, homeCenter = null, villageCenter = null, poiTargets = null, heightBlocks = null) {
+        if (canSpawnMob && !canSpawnMob()) return false;
         const root = createMesh();
         applyMobCommandHeight(root, heightBlocks, 1.8);
         root.position.set(Math.floor(wx) + 0.5, y, Math.floor(wz) + 0.5);
@@ -234,7 +237,14 @@
         const yawObject = getYawObject?.();
         if (!yawObject) return;
 
-        for (const villager of entities) {
+        for (let i = entities.length - 1; i >= 0; i--) {
+          const villager = entities[i];
+          const distToPlayer = villager.root.position.distanceTo(yawObject.position);
+          if (distToPlayer > despawnDistance) {
+            entities.splice(i, 1);
+            getScene?.()?.remove(villager.root);
+            continue;
+          }
           if (!isEntityActiveAt(villager.root.position)) continue;
           tickMobHitFeedback(villager, deltaMs);
           villager.changeDirMs -= deltaMs;

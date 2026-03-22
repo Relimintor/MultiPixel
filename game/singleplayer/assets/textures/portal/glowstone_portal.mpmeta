@@ -1,0 +1,18 @@
+{
+  "format": "multipixel-mpmeta-v1",
+  "kind": "texture-strip",
+  "texture": "glowstone_portal_strip.png",
+  "direction": "vertical",
+  "frameWidth": 16,
+  "frameHeight": 16,
+  "frames": 4,
+  "frametime": 3,
+  "fallback": {
+    "kind": "procedural-portal",
+    "palette": {
+      "baseR": 92,
+      "baseG": 26,
+      "baseB": 168
+    }
+  }
+}

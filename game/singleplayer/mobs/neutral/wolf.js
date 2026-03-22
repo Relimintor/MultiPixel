@@ -26,6 +26,8 @@
       getZombieEntities,
       hurtPig,
       hurtZombie,
+      canSpawnMob,
+      despawnDistance = 70,
     }) {
       const entities = [];
 
@@ -73,6 +75,7 @@
       }
 
       function spawnAt(wx, wz, heightBlocks = null) {
+        if (canSpawnMob && !canSpawnMob()) return false;
         const y = getSurfaceYForEntity(wx, wz);
         if (y <= 0) return false;
         return spawnAtExact(wx, y, wz, heightBlocks);
@@ -176,6 +179,12 @@
 
         for (let i = entities.length - 1; i >= 0; i--) {
           const wolf = entities[i];
+          const distToPlayer = wolf.root.position.distanceTo(playerPos);
+          if (distToPlayer > despawnDistance) {
+            entities.splice(i, 1);
+            getScene?.()?.remove(wolf.root);
+            continue;
+          }
           wolf.attackCooldownMs = Math.max(0, wolf.attackCooldownMs - deltaMs);
           wolf.changeDirMs -= deltaMs;
           wolf.retargetMs -= deltaMs;

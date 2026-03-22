@@ -189,8 +189,11 @@
         mobileControls.lastLookX = e.clientX;
         mobileControls.lastLookY = e.clientY;
 
-        yawObject.rotation.y -= dx * player.rotationSpeed * 0.85;
-        pitchObject.rotation.x -= dy * player.rotationSpeed * 0.85;
+        const lookRotationSpeed = Number.isFinite(Number(mobileControls?.lookRotationSpeed))
+          ? Number(mobileControls.lookRotationSpeed)
+          : player.rotationSpeed;
+        yawObject.rotation.y -= dx * lookRotationSpeed * 0.85;
+        pitchObject.rotation.x -= dy * lookRotationSpeed * 0.85;
         pitchObject.rotation.x = Math.max(-1.5, Math.min(1.5, pitchObject.rotation.x));
       }, { passive: true });
 
