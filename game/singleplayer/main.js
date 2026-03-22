@@ -6307,39 +6307,93 @@ window.perlin = perlinInstance;
             function placeRuinAt(coreX, coreZ, biomeKey) {
                 const def = rg.getBiomeDefinition(biomeKey);
                 if (!def) return false;
-                const columns = [
-                    { x: 0, z: 0, h: 4 },
-                    { x: 1, z: 0, h: 3 }, { x: 2, z: 0, h: 2 }, { x: 3, z: 0, h: 1 },
-                    { x: 0, z: 1, h: 3 }, { x: 0, z: 2, h: 2 }, { x: 0, z: 3, h: 1 },
-                    { x: -1, z: 0, h: 3 }, { x: -2, z: 0, h: 2 }, { x: -3, z: 0, h: 1 },
-                    { x: 0, z: -1, h: 3 }, { x: 0, z: -2, h: 2 }, { x: 0, z: -3, h: 1 },
-                ];
-                const fillerOffsets = [
-                    { x: 1, z: 1 }, { x: -1, z: -1 }, { x: 1, z: -1 }, { x: -1, z: 1 },
-                    { x: 2, z: 1 }, { x: 1, z: 2 }, { x: -2, z: -1 }, { x: -1, z: -2 },
-                ];
+                // Build a decayed courtyard + fragmented walls so ruins look less like a plus sign.
+                const radius = 3;
+                for (let ox = -radius; ox <= radius; ox++) {
+                    for (let oz = -radius; oz <= radius; oz++) {
+                        const wx = coreX + ox;
+                        const wz = coreZ + oz;
+                        const edge = Math.max(Math.abs(ox), Math.abs(oz)) === radius;
+                        const inside = Math.max(Math.abs(ox), Math.abs(oz)) <= 2;
+                        const decayRoll = hashRand2D(wx * 2, wz * 3, 42500);
 
-                columns.forEach((column, index) => placeColumn(coreX + column.x, coreZ + column.z, column.h, def.blocks, coreX, coreZ, index + 1));
-                fillerOffsets.forEach((offset, index) => {
-                    const roll = hashRand2D(coreX + offset.x * 3, coreZ + offset.z * 5, 42500 + index);
-                    if (roll > 0.62) return;
-                    const height = 1 + Math.floor(hashRand2D(coreX - offset.x * 7, coreZ + offset.z * 11, 42600 + index) * 2);
-                    placeColumn(coreX + offset.x, coreZ + offset.z, height, def.blocks, coreX, coreZ, 30 + index);
+                        if (inside && decayRoll < 0.82) {
+                            // Uneven floor patches.
+                            const floorY = getGroundYAt(wx, wz);
+                            if (Number.isFinite(floorY)) {
+                                placeSolid(wx, floorY, wz, choosePaletteBlock(def.blocks, coreX, coreZ, 100 + ox * 7 + oz * 11));
+                            }
+                        }
+
+                        if (edge && decayRoll < 0.68) {
+                            const wallH = 1 + Math.floor(hashRand2D(wx, wz, 42501) * 3);
+                            placeColumn(wx, wz, wallH, def.blocks, coreX, coreZ, 120 + ox * 5 + oz * 7);
+                        }
+                    }
+                }
+
+                // Corner pillars with varied heights.
+                const pillarOffsets = [
+                    { x: -radius, z: -radius },
+                    { x: -radius, z: radius },
+                    { x: radius, z: -radius },
+                    { x: radius, z: radius },
+                ];
+                pillarOffsets.forEach((off, i) => {
+                    const h = 3 + Math.floor(hashRand2D(coreX + off.x, coreZ + off.z, 42520 + i) * 3);
+                    placeColumn(coreX + off.x, coreZ + off.z, h, def.blocks, coreX, coreZ, 160 + i);
                 });
 
-                const chestRoll = hashRand2D(coreX, coreZ, 42700);
-                if (chestRoll < 0.20) {
-                    const chestOffsets = [{ x: 1, z: 1 }, { x: -1, z: -1 }, { x: 1, z: -1 }, { x: -1, z: 1 }];
-                    const chosen = chestOffsets[Math.floor(hashRand2D(coreX, coreZ, 42701) * chestOffsets.length) % chestOffsets.length];
-                    const chestX = coreX + chosen.x;
-                    const chestZ = coreZ + chosen.z;
+                // Central broken arch / standing remnant.
+                const centerSpokes = [
+                    { x: 0, z: 0, h: 3 },
+                    { x: 1, z: 0, h: 2 },
+                    { x: -1, z: 0, h: 2 },
+                    { x: 0, z: 1, h: 2 },
+                    { x: 0, z: -1, h: 2 },
+                ];
+                centerSpokes.forEach((spoke, i) => {
+                    const keep = hashRand2D(coreX + spoke.x * 13, coreZ + spoke.z * 17, 42540 + i);
+                    if (keep < 0.2) return;
+                    placeColumn(coreX + spoke.x, coreZ + spoke.z, spoke.h, def.blocks, coreX, coreZ, 190 + i);
+                });
+
+                // Scatter rubble around the ruin.
+                for (let i = 0; i < 14; i++) {
+                    const ox = Math.floor(hashRand2D(coreX, coreZ, 42560 + i) * 9) - 4;
+                    const oz = Math.floor(hashRand2D(coreX, coreZ, 42590 + i) * 9) - 4;
+                    const wx = coreX + ox;
+                    const wz = coreZ + oz;
+                    const rubbleRoll = hashRand2D(wx * 5, wz * 7, 42620 + i);
+                    if (rubbleRoll > 0.65) continue;
+                    const height = rubbleRoll > 0.2 ? 1 : 2;
+                    placeColumn(wx, wz, height, def.blocks, coreX, coreZ, 220 + i);
+                }
+
+                // Guarantee one chest whenever a valid location exists.
+                const chestOffsets = [
+                    { x: 1, z: 1 }, { x: -1, z: -1 }, { x: 1, z: -1 }, { x: -1, z: 1 },
+                    { x: 2, z: 0 }, { x: -2, z: 0 }, { x: 0, z: 2 }, { x: 0, z: -2 },
+                    { x: 0, z: 0 },
+                ];
+                const orderShift = Math.floor(hashRand2D(coreX, coreZ, 42701) * chestOffsets.length) % chestOffsets.length;
+                let chestPlaced = false;
+                for (let i = 0; i < chestOffsets.length; i++) {
+                    const pick = chestOffsets[(i + orderShift) % chestOffsets.length];
+                    const chestX = coreX + pick.x;
+                    const chestZ = coreZ + pick.z;
                     const groundY = getGroundYAt(chestX, chestZ);
-                    if (Number.isFinite(groundY) && placeSolid(chestX, groundY + 1, chestZ, 82)) {
-                        placeSolid(chestX, groundY, chestZ, def.chestBaseBlockId);
-                        const chestKey = `${chestX},${groundY + 1},${chestZ}`;
-                        const loot = window.RuinsChestLoot?.generateLoot?.({ hashRand2D, seedX: coreX, seedZ: coreZ, biomeKey }) || [];
-                        seedChestStateWithLoot(chestKey, loot);
-                    }
+                    if (!Number.isFinite(groundY)) continue;
+                    if (!placeSolid(chestX, groundY + 1, chestZ, 82)) continue;
+                    placeSolid(chestX, groundY, chestZ, def.chestBaseBlockId);
+                    const chestKey = `${chestX},${groundY + 1},${chestZ}`;
+                    const loot = window.RuinsChestLoot?.generateLoot?.({ hashRand2D, seedX: coreX, seedZ: coreZ, biomeKey }) || [];
+                    seedChestStateWithLoot(chestKey, loot);
+                    chestPlaced = true;
+                    break;
+                }
+                if (!chestPlaced) {
+                    console.warn('[Ruins] Could not place chest at ruin', coreX, coreZ, biomeKey);
                 }
 
                 return true;
