@@ -37,6 +37,11 @@
         window.__SINGLEPLAYER_BUILD__ = 'sp-2026-03-01-06';
         const MULTIPLAYER_WORLD_SEED = 1311652885;
         const IS_1D4P_MULTIPLAYER = /(?:^|\/)1d4p\.html$/i.test(window.location?.pathname || '');
+        const GLOWSTONE_PORTAL_TEXTURE_KEY = window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_TEXTURE_KEY || 'GLOWSTONE_PORTAL';
+        const GLOWSTONE_PORTAL_FRAME_KEYS = Array.isArray(window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_FRAME_KEYS)
+            ? window.SingleplayerSideConfig.GLOWSTONE_PORTAL_FRAME_KEYS
+            : [];
+        const portalAnimationState = { frameMs: 120, frameIndex: 0, elapsedMs: 0 };
         console.info('[Singleplayer build]', window.__SINGLEPLAYER_BUILD__);
 
         const TerrainModules = {
@@ -279,13 +284,176 @@ const perlinInstance = new PerlinNoise(worldSeed);
 // Make it globally accessible for biomes
 window.perlin = perlinInstance;
 
+        const PERSISTED_WORLD_NAMESPACE = 'singleplayer.1d4p.persist.v1';
+        const PERSISTED_WORLD_MAX_CHUNKS = 180;
+        const PERSISTED_WORLD_FLUSH_MS = 2200;
+        let persistedWorldManifest = { chunkKeys: [], touched: {}, modified: {} };
+        const dirtyPersistedChunkKeys = new Set();
+        let persistedWorldFlushTimerMs = 0;
+
+        function getPersistedWorldPrefix() {
+            return `${PERSISTED_WORLD_NAMESPACE}.${worldSeed}`;
+        }
+
+        function getPersistedManifestKey() {
+            return `${getPersistedWorldPrefix()}:manifest`;
+        }
+
+        function getPersistedChunkStorageKey(chunkKey) {
+            return `${getPersistedWorldPrefix()}:chunk:${chunkKey}`;
+        }
+
+        function encodeChunkDataToBase64(chunkData) {
+            if (!Array.isArray(chunkData) || !chunkData.length) return '';
+            const bytes = new Uint8Array(chunkData.length * 2);
+            for (let i = 0; i < chunkData.length; i++) {
+                const value = Number(chunkData[i]) & 0xffff;
+                const offset = i * 2;
+                bytes[offset] = value & 0xff;
+                bytes[offset + 1] = (value >> 8) & 0xff;
+            }
+            let binary = '';
+            const batchSize = 0x8000;
+            for (let i = 0; i < bytes.length; i += batchSize) {
+                binary += String.fromCharCode(...bytes.subarray(i, i + batchSize));
+            }
+            return btoa(binary);
+        }
+
+        function decodeChunkDataFromBase64(encoded) {
+            if (!encoded || typeof encoded !== 'string') return null;
+            const binary = atob(encoded);
+            if (!binary.length || binary.length % 2 !== 0) return null;
+            const out = new Array(binary.length / 2);
+            for (let i = 0; i < out.length; i++) {
+                const offset = i * 2;
+                out[i] = binary.charCodeAt(offset) | (binary.charCodeAt(offset + 1) << 8);
+            }
+            return out;
+        }
+
+        function loadPersistedWorldManifest() {
+            if (!IS_1D4P_MULTIPLAYER || typeof localStorage === 'undefined') return;
+            try {
+                const raw = localStorage.getItem(getPersistedManifestKey());
+                if (!raw) {
+                    persistedWorldManifest = { chunkKeys: [], touched: {}, modified: {} };
+                    return;
+                }
+                const parsed = JSON.parse(raw);
+                persistedWorldManifest = {
+                    chunkKeys: Array.isArray(parsed?.chunkKeys) ? parsed.chunkKeys.filter((entry) => typeof entry === 'string') : [],
+                    touched: parsed?.touched && typeof parsed.touched === 'object' ? parsed.touched : {},
+                    modified: parsed?.modified && typeof parsed.modified === 'object' ? parsed.modified : {},
+                };
+            } catch (err) {
+                console.warn('[1d4p persist] failed to parse manifest, resetting.', err);
+                persistedWorldManifest = { chunkKeys: [], touched: {}, modified: {} };
+            }
+        }
+
+        function persistWorldManifest() {
+            if (!IS_1D4P_MULTIPLAYER || typeof localStorage === 'undefined') return;
+            localStorage.setItem(getPersistedManifestKey(), JSON.stringify(persistedWorldManifest));
+        }
+
+        function trimPersistedChunksToBudget() {
+            const keys = Array.isArray(persistedWorldManifest.chunkKeys) ? [...persistedWorldManifest.chunkKeys] : [];
+            if (keys.length <= PERSISTED_WORLD_MAX_CHUNKS) return;
+            keys.sort((a, b) => {
+                const aMod = Number(persistedWorldManifest.modified?.[a]) || 0;
+                const bMod = Number(persistedWorldManifest.modified?.[b]) || 0;
+                if (aMod !== bMod) return aMod - bMod;
+                const aTs = Number(persistedWorldManifest.touched?.[a]) || 0;
+                const bTs = Number(persistedWorldManifest.touched?.[b]) || 0;
+                return aTs - bTs;
+            });
+            const removeCount = Math.max(0, keys.length - PERSISTED_WORLD_MAX_CHUNKS);
+            for (let i = 0; i < removeCount; i++) {
+                const chunkKey = keys[i];
+                try {
+                    localStorage.removeItem(getPersistedChunkStorageKey(chunkKey));
+                } catch {}
+                delete persistedWorldManifest.touched[chunkKey];
+                delete persistedWorldManifest.modified[chunkKey];
+            }
+            persistedWorldManifest.chunkKeys = keys.slice(removeCount);
+        }
+
+        function markChunkForPersistence(cx, cz, isModified = false) {
+            if (!IS_1D4P_MULTIPLAYER) return;
+            const chunkKey = `${cx},${cz}`;
+            dirtyPersistedChunkKeys.add(chunkKey);
+            if (!persistedWorldManifest.chunkKeys.includes(chunkKey)) persistedWorldManifest.chunkKeys.push(chunkKey);
+            persistedWorldManifest.touched[chunkKey] = Date.now();
+            if (isModified) persistedWorldManifest.modified[chunkKey] = 1;
+        }
+
+        function flushDirtyPersistedChunks(force = false) {
+            if (!IS_1D4P_MULTIPLAYER || typeof localStorage === 'undefined') return;
+            if (!dirtyPersistedChunkKeys.size && !force) return;
+            const keys = dirtyPersistedChunkKeys.size ? Array.from(dirtyPersistedChunkKeys) : (persistedWorldManifest.chunkKeys || []);
+            for (const chunkKey of keys) {
+                const group = chunks.get(chunkKey);
+                if (!group?.userData?.chunkData) continue;
+                try {
+                    const encoded = encodeChunkDataToBase64(group.userData.chunkData);
+                    if (encoded) localStorage.setItem(getPersistedChunkStorageKey(chunkKey), encoded);
+                } catch (err) {
+                    console.warn('[1d4p persist] failed saving chunk', chunkKey, err);
+                }
+                dirtyPersistedChunkKeys.delete(chunkKey);
+            }
+            trimPersistedChunksToBudget();
+            try {
+                persistWorldManifest();
+            } catch (err) {
+                console.warn('[1d4p persist] failed saving manifest', err);
+            }
+        }
+
+        function loadPersistedChunkData(cx, cz) {
+            if (!IS_1D4P_MULTIPLAYER || typeof localStorage === 'undefined') return null;
+            const chunkKey = `${cx},${cz}`;
+            if (!persistedWorldManifest.chunkKeys.includes(chunkKey)) return null;
+            try {
+                const encoded = localStorage.getItem(getPersistedChunkStorageKey(chunkKey));
+                const decoded = decodeChunkDataFromBase64(encoded);
+                if (!decoded || decoded.length !== CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE) return null;
+                persistedWorldManifest.touched[chunkKey] = Date.now();
+                return decoded;
+            } catch (err) {
+                console.warn('[1d4p persist] failed loading chunk', chunkKey, err);
+                return null;
+            }
+        }
+
+        function persistChunkGroupData(chunkKey, chunkData) {
+            if (!IS_1D4P_MULTIPLAYER || typeof localStorage === 'undefined') return;
+            if (!chunkKey || !Array.isArray(chunkData) || !chunkData.length) return;
+            try {
+                const encoded = encodeChunkDataToBase64(chunkData);
+                if (!encoded) return;
+                localStorage.setItem(getPersistedChunkStorageKey(chunkKey), encoded);
+                if (!persistedWorldManifest.chunkKeys.includes(chunkKey)) persistedWorldManifest.chunkKeys.push(chunkKey);
+                persistedWorldManifest.touched[chunkKey] = Date.now();
+                trimPersistedChunksToBudget();
+                persistWorldManifest();
+                dirtyPersistedChunkKeys.delete(chunkKey);
+            } catch (err) {
+                console.warn('[1d4p persist] failed saving chunk snapshot', chunkKey, err);
+            }
+        }
+
         // --- 2. GAME STATE & THREE.JS SETUP ---
 
         function setSensitivity(amount) {
             const parsed = Number(amount);
             if (!Number.isFinite(parsed) || parsed <= 0) return false;
             currentLookSensitivity = parsed;
-            player.rotationSpeed = DEFAULT_PLAYER.rotationSpeed * (parsed / DEFAULT_LOOK_SENSITIVITY);
+            const sensitivityScale = parsed / DEFAULT_LOOK_SENSITIVITY;
+            player.rotationSpeed = DEFAULT_PLAYER.rotationSpeed * sensitivityScale;
+            if (mobileControls) mobileControls.lookRotationSpeed = player.rotationSpeed;
             return true;
         }
 
@@ -303,6 +471,39 @@ window.perlin = perlinInstance;
 
         function getReach() {
             return currentInteractionReach;
+        }
+
+        async function loadFurnaceMpmeta() {
+            const repoPrefix = window.SingleplayerConfig?.REPO_BASE_PREFIX || '';
+            const metaPath = `${repoPrefix}/game/singleplayer/assets/textures/furnace/furnace.mpmeta`;
+            try {
+                const response = await fetch(metaPath, { cache: 'no-store' });
+                if (!response.ok) return false;
+                const meta = await response.json();
+                const states = meta?.states || {};
+                const offState = states.off || {};
+                const onState = states.on || {};
+                const offFrontKey = String(offState.frontTextureKey || 'FURNACE_FRONT');
+                const onFrontKey = String(onState.frontTextureKey || 'FURNACE_FRONT_LIT');
+                const lightLevel = Math.max(0, Math.min(15, Number(onState.lightLevel) || 13));
+                const lightRadius = Number.isFinite(Number(onState.lightRadius)) ? Number(onState.lightRadius) : lightLevel;
+                const lightIntensity = Number.isFinite(Number(onState.lightIntensity)) ? Number(onState.lightIntensity) : 1.15;
+                const emissiveHex = Number.isFinite(Number(onState.emissiveHex)) ? Number(onState.emissiveHex) : 0xffb347;
+
+                const offDef = blockMaterials[23];
+                if (offDef?.textureByFace) offDef.textureByFace.posX = offFrontKey;
+
+                const litDef = blockMaterials[71] || { ...offDef, id: 71, name: 'Lit Furnace' };
+                litDef.textureByFace = { ...(offDef?.textureByFace || {}), ...(litDef.textureByFace || {}), posX: onFrontKey };
+                litDef.emissive = emissiveHex;
+                litDef.lightRadius = lightRadius;
+                litDef.lightIntensity = lightIntensity;
+                blockMaterials[71] = litDef;
+                return true;
+            } catch (err) {
+                console.warn('[Furnace mpmeta] load failed, using defaults.', err);
+                return false;
+            }
         }
 
         function prepareCrosshairRaycast() {
@@ -374,7 +575,7 @@ window.perlin = perlinInstance;
             if (miningState.active) return 'mining';
             const target = getTargetBlockFromCrosshair();
             if (!target) return 'idle';
-            if (target.blockId === 9 || target.blockId === 23 || target.blockId === 82) return 'interact';
+            if (target.blockId === 9 || target.blockId === 23 || target.blockId === 71 || target.blockId === 82) return 'interact';
             const miningInfo = getMiningDurationMs(target.blockId);
             if (!Number.isFinite(miningInfo?.durationMs)) return 'blocked';
             if (miningInfo?.reason === 'tool_too_weak') return 'blocked';
@@ -749,8 +950,8 @@ window.perlin = perlinInstance;
         const gnomeEntities = [];
         const remotePlayers = new Map();
         const pendingNetworkBlockUpdates = new Map();
-        let remotePlayerMaterial = null;
-        let remotePlayerGeometry = null;
+        let onlinePlayersOverlayEl = null;
+        let isSneaking = false;
         let bambooGrowthTimerMs = 0;
         let eatOverlayEl = playerRuntime.eatOverlayEl;
         let eatItemEl = playerRuntime.eatItemEl;
@@ -785,21 +986,41 @@ window.perlin = perlinInstance;
             });
         }
 
-        function ensureRemotePlayerAssets() {
-            if (!remotePlayerGeometry) {
-                remotePlayerGeometry = new THREE.BoxGeometry(0.7, 1.8, 0.55);
-            }
-            if (!remotePlayerMaterial) {
-                remotePlayerMaterial = new THREE.MeshStandardMaterial({ color: 0x40c9ff, emissive: 0x06263a });
-            }
-        }
-
         function createRemotePlayerMesh() {
-            ensureRemotePlayerAssets();
-            const mesh = new THREE.Mesh(remotePlayerGeometry, remotePlayerMaterial.clone());
-            mesh.castShadow = false;
-            mesh.receiveShadow = false;
-            return mesh;
+            const avatar = new THREE.Group();
+            const U = 1 / 16;
+            const head = createStevePartMesh([8 * U, 8 * U, 8 * U], getSkinPartRects('head', false), getSkinPartRects('head', true));
+            head.position.y = 28 * U;
+            const body = createStevePartMesh([8 * U, 12 * U, 4 * U], getSkinPartRects('body', false), getSkinPartRects('body', true));
+            body.position.y = 18 * U;
+
+            const rightArmPivot = new THREE.Group();
+            rightArmPivot.position.set(6 * U, 24 * U, 0);
+            const rightArm = createStevePartMesh([4 * U, 12 * U, 4 * U], getSkinPartRects('rightArm', false), getSkinPartRects('rightArm', true));
+            rightArm.position.set(0, -6 * U, 0);
+            rightArmPivot.add(rightArm);
+
+            const leftArmPivot = new THREE.Group();
+            leftArmPivot.position.set(-6 * U, 24 * U, 0);
+            const leftArm = createStevePartMesh([4 * U, 12 * U, 4 * U], getSkinPartRects('leftArm', false), getSkinPartRects('leftArm', true));
+            leftArm.position.set(0, -6 * U, 0);
+            leftArmPivot.add(leftArm);
+
+            const rightLegPivot = new THREE.Group();
+            rightLegPivot.position.set(2 * U, 12 * U, 0);
+            const rightLeg = createStevePartMesh([4 * U, 12 * U, 4 * U], getSkinPartRects('rightLeg', false), getSkinPartRects('rightLeg', true));
+            rightLeg.position.set(0, -6 * U, 0);
+            rightLegPivot.add(rightLeg);
+
+            const leftLegPivot = new THREE.Group();
+            leftLegPivot.position.set(-2 * U, 12 * U, 0);
+            const leftLeg = createStevePartMesh([4 * U, 12 * U, 4 * U], getSkinPartRects('leftLeg', false), getSkinPartRects('leftLeg', true));
+            leftLeg.position.set(0, -6 * U, 0);
+            leftLegPivot.add(leftLeg);
+
+            avatar.add(body, head, leftArmPivot, rightArmPivot, leftLegPivot, rightLegPivot);
+            avatar.userData.remoteRig = { leftArmPivot, rightArmPivot, leftLegPivot, rightLegPivot };
+            return avatar;
         }
 
         function updateRemotePlayerState(payload) {
@@ -810,6 +1031,8 @@ window.perlin = perlinInstance;
                 entry = {
                     mesh: createRemotePlayerMesh(),
                     label: document.createElement('div'),
+                    isMining: false,
+                    isMoving: false,
                 };
                 entry.label.className = 'chat-row chat-info';
                 entry.label.style.position = 'fixed';
@@ -827,8 +1050,10 @@ window.perlin = perlinInstance;
             const z = Number(payload.z);
             const rot = Number(payload.rot);
             if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return;
-            entry.mesh.position.set(x, y + 0.9, z);
+            entry.mesh.position.set(x, y, z);
             if (Number.isFinite(rot)) entry.mesh.rotation.y = rot;
+            entry.isMining = Boolean(payload.mining);
+            entry.isMoving = Boolean(payload.moving);
         }
 
         function removeRemotePlayer(id) {
@@ -837,9 +1062,6 @@ window.perlin = perlinInstance;
             const entry = remotePlayers.get(key);
             if (!entry) return;
             scene?.remove(entry.mesh);
-            if (entry.mesh?.material && entry.mesh.material !== remotePlayerMaterial) {
-                entry.mesh.material.dispose?.();
-            }
             entry.label?.remove?.();
             remotePlayers.delete(key);
         }
@@ -864,6 +1086,43 @@ window.perlin = perlinInstance;
             });
         }
 
+        function ensureOnlinePlayersOverlay() {
+            if (onlinePlayersOverlayEl || typeof document === 'undefined') return;
+            onlinePlayersOverlayEl = document.createElement('div');
+            onlinePlayersOverlayEl.id = 'online-players-overlay';
+            onlinePlayersOverlayEl.className = 'online-players-overlay hidden';
+            document.body.appendChild(onlinePlayersOverlayEl);
+        }
+
+        function getOnlinePlayerSummaryLines() {
+            const lines = ['Online'];
+            lines.push('You');
+            const ids = Array.from(remotePlayers.keys()).sort();
+            ids.forEach((id) => lines.push(`Player ${String(id).slice(0, 6)}`));
+            lines.push(`Total: ${1 + ids.length}`);
+            return lines;
+        }
+
+        function renderOnlinePlayersOverlay() {
+            ensureOnlinePlayersOverlay();
+            if (!onlinePlayersOverlayEl) return;
+            if (!isSneaking || isInventoryOpen) {
+                onlinePlayersOverlayEl.classList.add('hidden');
+                return;
+            }
+            const lines = getOnlinePlayerSummaryLines();
+            onlinePlayersOverlayEl.innerHTML = lines.map((line) => `<div>${line}</div>`).join('');
+            onlinePlayersOverlayEl.classList.remove('hidden');
+        }
+
+        function canSneakStepAt(nextX, nextZ) {
+            const feetY = yawObject?.position?.y;
+            if (!Number.isFinite(nextX) || !Number.isFinite(nextZ) || !Number.isFinite(feetY)) return true;
+            const supportTop = findSupportingBlockTop(nextX, feetY, nextZ);
+            if (supportTop === null) return false;
+            return supportTop >= feetY - 0.35;
+        }
+
         function getLocalMultiplayerState() {
             if (!yawObject) return null;
             return {
@@ -871,7 +1130,22 @@ window.perlin = perlinInstance;
                 y: yawObject.position.y,
                 z: yawObject.position.z,
                 rot: yawObject.rotation.y,
+                moving: Boolean(player.isMoving),
+                mining: Boolean(miningState?.active),
             };
+        }
+
+        function updateRemotePlayerAnimations(time) {
+            remotePlayers.forEach((entry) => {
+                const rig = entry?.mesh?.userData?.remoteRig;
+                if (!rig) return;
+                const moveSwing = entry.isMoving ? Math.sin(time * 0.015) * 0.7 : 0;
+                const mineStroke = entry.isMining ? (Math.sin(time * 0.04) * 1.1 - 0.55) : 0;
+                rig.leftLegPivot.rotation.x = moveSwing;
+                rig.rightLegPivot.rotation.x = -moveSwing;
+                rig.leftArmPivot.rotation.x = -moveSwing * 0.75;
+                rig.rightArmPivot.rotation.x = moveSwing * 0.6 + mineStroke;
+            });
         }
 
         function getNetworkBlockKey(x, y, z) {
@@ -1018,6 +1292,127 @@ window.perlin = perlinInstance;
 
             console.info('[TexturePack] applied', selectedPackId);
         }
+
+        const mpmetaTextureCache = new Map();
+
+        function parseMpmetaRequest(path) {
+            const raw = String(path || '');
+            if (!raw.includes('.mpmeta')) return null;
+            const [basePath, hash = ''] = raw.split('#');
+            let frame = 0;
+            const match = hash.match(/frame=(\d+)/i);
+            if (match) frame = Math.max(0, Math.floor(Number(match[1]) || 0));
+            return { basePath, frame };
+        }
+
+        function renderProceduralPortalFrame(meta, frame = 0) {
+            const width = Math.max(8, Math.min(128, Number(meta?.width) || 16));
+            const height = Math.max(8, Math.min(128, Number(meta?.height) || 16));
+            const palette = meta?.palette || meta?.fallback?.palette || {};
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return '';
+            const image = ctx.createImageData(width, height);
+            const data = image.data;
+            const baseR = Number.isFinite(palette.baseR) ? Number(palette.baseR) : 90;
+            const baseG = Number.isFinite(palette.baseG) ? Number(palette.baseG) : 30;
+            const baseB = Number.isFinite(palette.baseB) ? Number(palette.baseB) : 170;
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const nx = (x - (width - 1) * 0.5) / ((width - 1) * 0.5);
+                    const ny = (y - (height - 1) * 0.5) / ((height - 1) * 0.5);
+                    const radiusSq = nx * nx + ny * ny;
+                    const glow = Math.max(0, 1 - radiusSq);
+                    const band = ((x * 2 + y * 3 + frame * 5) % 16);
+                    const idx = (x + y * width) * 4;
+                    data[idx] = Math.min(255, baseR + Math.floor(95 * glow) + band * 2);
+                    data[idx + 1] = Math.min(255, baseG + Math.floor(45 * glow) + band);
+                    data[idx + 2] = Math.min(255, baseB + Math.floor(75 * glow) + band * 3);
+                    let alpha = 38 + Math.floor(132 * glow);
+                    if ((x + y + frame * 2) % 5 === 0) alpha = Math.min(220, alpha + 24);
+                    if (radiusSq > 1.06) alpha = 0;
+                    data[idx + 3] = alpha;
+                }
+            }
+            ctx.putImageData(image, 0, 0);
+            return canvas.toDataURL('image/png');
+        }
+
+        function resolveMpmetaRelativePath(mpmetaPath, rawRelativePath) {
+            const rel = String(rawRelativePath || '').trim();
+            if (!rel) return '';
+            if (/^(?:https?:)?\/\//i.test(rel) || rel.startsWith('/')) return rel;
+            const base = String(mpmetaPath || '');
+            const cut = base.lastIndexOf('/');
+            if (cut < 0) return rel;
+            return `${base.slice(0, cut + 1)}${rel}`;
+        }
+
+        function loadImageFromPath(path) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = () => reject(new Error(`Failed loading image: ${path}`));
+                img.src = path;
+            });
+        }
+
+        function renderPortalStripFrame(meta, frame, stripImage) {
+            const frameWidth = Math.max(1, Math.floor(Number(meta?.frameWidth) || 16));
+            const frameHeight = Math.max(1, Math.floor(Number(meta?.frameHeight) || 16));
+            const direction = String(meta?.direction || 'vertical').toLowerCase() === 'horizontal' ? 'horizontal' : 'vertical';
+            const frames = Math.max(1, Math.floor(Number(meta?.frames) || 4));
+            const frameIdx = ((Math.floor(frame) % frames) + frames) % frames;
+            const sx = direction === 'horizontal' ? frameIdx * frameWidth : 0;
+            const sy = direction === 'vertical' ? frameIdx * frameHeight : 0;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = frameWidth;
+            canvas.height = frameHeight;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return '';
+            ctx.clearRect(0, 0, frameWidth, frameHeight);
+            ctx.drawImage(stripImage, sx, sy, frameWidth, frameHeight, 0, 0, frameWidth, frameHeight);
+            return canvas.toDataURL('image/png');
+        }
+
+        async function resolveMpmetaTexturePath(path) {
+            const req = parseMpmetaRequest(path);
+            if (!req) return path;
+            const cacheKey = `${req.basePath}#${req.frame}`;
+            if (mpmetaTextureCache.has(cacheKey)) return mpmetaTextureCache.get(cacheKey);
+
+            let meta = mpmetaTextureCache.get(req.basePath);
+            if (!meta) {
+                const response = await fetch(req.basePath, { cache: 'no-store' });
+                if (!response.ok) throw new Error(`mpmeta load failed (${response.status})`);
+                meta = await response.json();
+                mpmetaTextureCache.set(req.basePath, meta);
+                const frameTime = Number(meta?.frametime);
+                if (Number.isFinite(frameTime) && frameTime > 0) {
+                    portalAnimationState.frameMs = Math.max(40, Math.min(1000, Math.floor(frameTime * 50)));
+                }
+            }
+
+            let dataUrl = '';
+            if (String(meta?.kind || '').toLowerCase() === 'texture-strip') {
+                const stripPath = resolveMpmetaRelativePath(req.basePath, meta?.stripTexture || meta?.texture || '');
+                if (stripPath) {
+                    const imageCacheKey = `${req.basePath}#strip-image`;
+                    let stripImage = mpmetaTextureCache.get(imageCacheKey);
+                    if (!stripImage) {
+                        stripImage = await loadImageFromPath(stripPath);
+                        mpmetaTextureCache.set(imageCacheKey, stripImage);
+                    }
+                    dataUrl = renderPortalStripFrame(meta, req.frame, stripImage);
+                }
+            }
+            if (!dataUrl) dataUrl = renderProceduralPortalFrame(meta, req.frame);
+            mpmetaTextureCache.set(cacheKey, dataUrl);
+            return dataUrl || path;
+        }
         
         async function loadAssets() {
             const loader = new THREE.TextureLoader();
@@ -1030,12 +1425,19 @@ window.perlin = perlinInstance;
 
                 const path = ASSET_FILEPATHS[key];
                 
-                const promise = new Promise((resolve) => {
+                const promise = (async () => {
+                    let resolvedPath = path;
+                    try {
+                        resolvedPath = await resolveMpmetaTexturePath(path);
+                    } catch (err) {
+                        console.warn('[mpmeta] falling back to literal asset path', path, err);
+                    }
+                    return new Promise((resolve) => {
                     const matId = getMaterialIdByTextureKey(key);
                     const matCfg = matId >= 0 ? blockMaterials[matId] : {};
                     const isDoubleSidedCutout = key === 'LEAVES' || matCfg.renderAs === 'cross' || matCfg.renderAs === 'plane' || matCfg.renderAs === 'plane_x';
                     loader.load(
-                        path, // <-- DIRECTLY using the calculated path
+                        resolvedPath,
                         (texture) => {
                             texture.magFilter = THREE.NearestFilter; // Sharp pixel look
                             texture.minFilter = THREE.NearestMipmapNearestFilter;
@@ -1076,6 +1478,7 @@ window.perlin = perlinInstance;
                         }
                     );
                 });
+                })();
                 texturePromises.push(promise);
             }
             
@@ -1101,6 +1504,25 @@ window.perlin = perlinInstance;
 
             await Promise.all(texturePromises);
             console.log("Assets loading attempted with specified relative paths.");
+        }
+
+        function updatePortalAnimation(deltaMs) {
+            if (!GLOWSTONE_PORTAL_FRAME_KEYS.length || !Number.isFinite(deltaMs) || deltaMs <= 0) return;
+            const portalMaterial = materials[GLOWSTONE_PORTAL_TEXTURE_KEY];
+            if (!portalMaterial) return;
+
+            portalAnimationState.elapsedMs += deltaMs;
+            if (portalAnimationState.elapsedMs < portalAnimationState.frameMs) return;
+            portalAnimationState.elapsedMs = 0;
+            portalAnimationState.frameIndex = (portalAnimationState.frameIndex + 1) % GLOWSTONE_PORTAL_FRAME_KEYS.length;
+
+            const frameKey = GLOWSTONE_PORTAL_FRAME_KEYS[portalAnimationState.frameIndex];
+            const frameMaterial = materials[frameKey];
+            if (!frameMaterial?.map) return;
+            if (portalMaterial.map !== frameMaterial.map) {
+                portalMaterial.map = frameMaterial.map;
+                portalMaterial.needsUpdate = true;
+            }
         }
         
         function getMaterialIdByTextureKey(key) {
@@ -1176,6 +1598,7 @@ window.perlin = perlinInstance;
         async function init() {
             
             await applySelectedTexturePackOverrides();
+            await loadFurnaceMpmeta();
             await loadAssets(); // Load all textures and materials first!
             await loadIglooStructure();
             await loadVillageTemplates();
@@ -1189,6 +1612,7 @@ window.perlin = perlinInstance;
             if (typeof PerlinNoise !== 'undefined') {
                 worldSeed = resolveWorldSeed();
                 perlin = new PerlinNoise(worldSeed);
+                loadPersistedWorldManifest();
                 // Intentionally avoid worldgen/* runtime and use terrain/* + noise/* flow.
                 worldGenerator = null;
                 const spawnBiomePool = ['Snowy Plains', 'Plains', 'Forest', 'Desert'];
@@ -1247,6 +1671,9 @@ window.perlin = perlinInstance;
             initChatSystem();
             installMultiplayerBridge();
             setInitialPlayerPosition();
+            if (IS_1D4P_MULTIPLAYER) {
+                window.addEventListener('beforeunload', () => flushDirtyPersistedChunks(true));
+            }
             
           
             renderHearts();
@@ -2395,6 +2822,27 @@ window.perlin = perlinInstance;
             return furnaceStates.get(key);
         }
 
+        function parseWorldKeyToCoords(key) {
+            const parts = String(key || '').split(',');
+            if (parts.length !== 3) return null;
+            const x = Math.floor(Number(parts[0]));
+            const y = Math.floor(Number(parts[1]));
+            const z = Math.floor(Number(parts[2]));
+            if (![x, y, z].every(Number.isFinite)) return null;
+            return { x, y, z };
+        }
+
+        function syncFurnaceVisualState(furnaceKey, state) {
+            const coords = parseWorldKeyToCoords(furnaceKey);
+            if (!coords) return;
+            const current = getBlockType(coords.x, coords.y, coords.z);
+            if (current !== 23 && current !== 71) return;
+            const shouldBeLit = Number(state?.burnTime) > 0;
+            const desired = shouldBeLit ? 71 : 23;
+            if (current === desired) return;
+            setBlockTypeRaw(coords.x, coords.y, coords.z, desired, true);
+        }
+
         function getFurnaceSlotRef(slotType) {
             const state = getOrCreateFurnaceState(activeFurnaceKey);
             if (!state) return null;
@@ -3314,7 +3762,7 @@ window.perlin = perlinInstance;
                 toggleInventory(true);
                 return;
             }
-            if (targetBlockId === 23) {
+            if (targetBlockId === 23 || targetBlockId === 71) {
                 openFurnaceScreen(`${wx},${wy},${wz}`);
                 return;
             }
@@ -3443,6 +3891,8 @@ window.perlin = perlinInstance;
             const oldType = chunkData[index];
             if (oldType === newType) return false;
             chunkData[index] = newType;
+            markChunkForPersistence(cx, cz, true);
+            pendingNetworkBlockUpdates.delete(getNetworkBlockKey(wx, wy, wz));
 
             // Chunk meshing rebuild triggers:
             // - block changes
@@ -3603,11 +4053,15 @@ window.perlin = perlinInstance;
                     if (drop && drop.id > 0 && drop.count > 0) addToInventory(drop.id, drop.count);
                 }
                 chunkData[index] = 0;
+                markChunkForPersistence(cx, cz, true);
+                pendingNetworkBlockUpdates.delete(getNetworkBlockKey(wx, wy, wz));
                 emitBreakParticles(wx, wy, wz, 14, true);
             } else {
                 if (!forceApply && oldType !== 0 && oldType !== 4) return false;
                 if (oldType === newType) return false;
                 chunkData[index] = newType;
+                markChunkForPersistence(cx, cz, true);
+                pendingNetworkBlockUpdates.delete(getNetworkBlockKey(wx, wy, wz));
             }
 
             updateChunkHeightmapColumn(group, lx, lz);
@@ -3782,6 +4236,8 @@ window.perlin = perlinInstance;
             const isSprinting = isMoving && (player.keys['e'] || mobileControls.sprint);
             const speedBoostMultiplier = (isSprinting && playerPrivileges.speed) ? 1.85 : 1;
             const isFlying = playerPrivileges.fly && isFlyActive;
+            const isGroundSneaking = !!player.keys['shift'] && !isFlying && !isSwimming;
+            isSneaking = isGroundSneaking;
             if (window.HungerSystem && !isFlying) {
                 window.HungerSystem.update(performance.now(), { isMoving, isSprinting, isJumping: player.isJumping });
             }
@@ -3835,12 +4291,18 @@ window.perlin = perlinInstance;
 
 
            
-            yawObject.position.x += player.velocity.x;
-            if (isColliding()) yawObject.position.x -= player.velocity.x;
+            const nextX = yawObject.position.x + player.velocity.x;
+            if (!(isGroundSneaking && player.velocity.x !== 0 && !canSneakStepAt(nextX, yawObject.position.z))) {
+                yawObject.position.x = nextX;
+                if (isColliding()) yawObject.position.x -= player.velocity.x;
+            }
 
            
-            yawObject.position.z += player.velocity.z;
-            if (isColliding()) yawObject.position.z -= player.velocity.z;
+            const nextZ = yawObject.position.z + player.velocity.z;
+            if (!(isGroundSneaking && player.velocity.z !== 0 && !canSneakStepAt(yawObject.position.x, nextZ))) {
+                yawObject.position.z = nextZ;
+                if (isColliding()) yawObject.position.z -= player.velocity.z;
+            }
 
             yawObject.position.y += player.velocity.y;
             
@@ -4445,7 +4907,13 @@ window.perlin = perlinInstance;
                     }
                 }
             });
-            document.addEventListener('keyup', e => player.keys[e.key.toLowerCase()] = false);
+            document.addEventListener('keyup', e => {
+                player.keys[e.key.toLowerCase()] = false;
+                if (e.key.toLowerCase() === 'shift') {
+                    isSneaking = false;
+                    renderOnlinePlayersOverlay();
+                }
+            });
         }
 
 
@@ -5709,8 +6177,16 @@ window.perlin = perlinInstance;
         }
 
         function createChunk(cx, cz) {
-
-            const generated = generateChunkData(cx, cz);
+            const persistedData = loadPersistedChunkData(cx, cz);
+            const generated = persistedData ? {
+                data: persistedData,
+                heightmap: buildChunkHeightmap(persistedData),
+                spawnedGnomes: [],
+                spawnedPigs: [],
+                spawnedWolves: [],
+                spawnedPandas: [],
+                spawnedVillagers: [],
+            } : generateChunkData(cx, cz);
             const data = generated.data;
             const heightmap = generated.heightmap || buildChunkHeightmap(data);
             const chunkKey = `${cx},${cz}`;
@@ -5724,6 +6200,7 @@ window.perlin = perlinInstance;
             const group = new THREE.Group();
             group.userData = { chunkData: data, heightmap, cx, cz, meshHash: null, frustumRadius: Math.sqrt((CHUNK_SIZE*CHUNK_SIZE)*0.5 + (CHUNK_HEIGHT*CHUNK_HEIGHT)*0.25) };
             chunks.set(chunkKey, group);
+            markChunkForPersistence(cx, cz, false);
             requestChunkRemesh(cx, cz, 'load');
             worldGroup.add(group);
             if (generated.spawnedGnomes && generated.spawnedGnomes.length) {
@@ -5750,6 +6227,9 @@ window.perlin = perlinInstance;
         function disposeLoadedChunkByKey(chunkKey) {
             const chunkGroup = chunks.get(chunkKey);
             if (!chunkGroup || !chunkGroup.userData) return;
+            if (IS_1D4P_MULTIPLAYER && dirtyPersistedChunkKeys.has(chunkKey)) {
+                persistChunkGroupData(chunkKey, chunkGroup.userData.chunkData);
+            }
             removeTorchLightsForChunk(chunkKey);
             worldGroup.remove(chunkGroup);
             if (chunkGroup.children) {
@@ -5981,6 +6461,12 @@ window.perlin = perlinInstance;
             ];
             const singlePlaneFacesX = [
                 { name: 'posX', dir: [1, 0, 0], corners: [[0.5,1,0.15],[0.5,0,0.15],[0.5,0,0.85],[0.5,1,0.85]], uv: [0,1,0,0,1,0,1,1] },
+            ];
+            const fullPlaneFaces = [
+                { name: 'posZ', dir: [0, 0, 1], corners: [[0,1,0.5],[0,0,0.5],[1,0,0.5],[1,1,0.5]], uv: [0,1,0,0,1,0,1,1] },
+            ];
+            const fullPlaneFacesX = [
+                { name: 'posX', dir: [1, 0, 0], corners: [[0.5,1,0],[0.5,0,0],[0.5,0,1],[0.5,1,1]], uv: [0,1,0,0,1,0,1,1] },
             ];
 
 
@@ -6296,15 +6782,30 @@ window.perlin = perlinInstance;
                         const isSlab = mat.shape === 'slab';
                         const sideRenderMode = getSideRenderMode(id);
                         const isSideRenderBlock = Boolean(sideRenderMode);
+                        const isGlowstonePortalPlane = id === (window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_Z_ID || 147);
+                        const isGlowstonePortalPlaneX = id === (window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_X_ID || 148);
                         if (isTorch) torchPositions.push({ x: x + cx * CS, y, z: z + cz * CS });
                         if (id === 119) glowstonePositions.push({ x: x + cx * CS, y, z: z + cz * CS, id });
                         const isTrans = mat.transparent || (mat.textured && mat.textureKey === 'LEAVES');
                         if (!isTorch && !isBambooStage && !isBambooStalk && !isSlab && !isSideRenderBlock && !isTrans) continue;
-                        const activeFaces = isSideRenderBlock
-                            ? (sideRenderMode === 'plane'
-                                ? singlePlaneFaces
-                                : (sideRenderMode === 'plane_x' ? singlePlaneFacesX : crossPlantFaces))
-                            : (isTorch ? torchFaces : (isBambooStalk ? bambooStalkFaces : (isBambooStage ? bambooStageFaces : (isSlab ? slabFaces : faces))));
+                        let activeFaces;
+                        if (isSideRenderBlock) {
+                            if (isGlowstonePortalPlane) activeFaces = fullPlaneFaces;
+                            else if (isGlowstonePortalPlaneX) activeFaces = fullPlaneFacesX;
+                            else if (sideRenderMode === 'plane') activeFaces = singlePlaneFaces;
+                            else if (sideRenderMode === 'plane_x') activeFaces = singlePlaneFacesX;
+                            else activeFaces = crossPlantFaces;
+                        } else if (isTorch) {
+                            activeFaces = torchFaces;
+                        } else if (isBambooStalk) {
+                            activeFaces = bambooStalkFaces;
+                        } else if (isBambooStage) {
+                            activeFaces = bambooStageFaces;
+                        } else if (isSlab) {
+                            activeFaces = slabFaces;
+                        } else {
+                            activeFaces = faces;
+                        }
 
                         for (let i = 0; i < activeFaces.length; i++) {
                             const f = activeFaces[i];
@@ -6933,7 +7434,10 @@ window.perlin = perlinInstance;
                 processMeshUpdateQueue();
                 const dtSec = delta / 1000;
                 if (window.FurnaceSystem) {
-                    for (const state of furnaceStates.values()) window.FurnaceSystem.updateState(state, dtSec);
+                    for (const [furnaceKey, state] of furnaceStates.entries()) {
+                        window.FurnaceSystem.updateState(state, dtSec);
+                        syncFurnaceVisualState(furnaceKey, state);
+                    }
                     if (isInventoryOpen && isFurnaceOpen) renderInventoryScreen();
                 }
             } else {
@@ -6960,8 +7464,18 @@ window.perlin = perlinInstance;
             updateAdaptiveCrosshair();
             updateCoordinatesUI();
             waypointsMod?.update?.(time, delta);
+            updatePortalAnimation(delta);
             flushPendingNetworkBlockChanges();
+            if (IS_1D4P_MULTIPLAYER) {
+                persistedWorldFlushTimerMs += delta;
+                if (persistedWorldFlushTimerMs >= PERSISTED_WORLD_FLUSH_MS) {
+                    flushDirtyPersistedChunks();
+                    persistedWorldFlushTimerMs = 0;
+                }
+            }
+            updateRemotePlayerAnimations(time);
             refreshRemotePlayerLabels();
+            renderOnlinePlayersOverlay();
             renderer.render(scene, camera);
         }
         

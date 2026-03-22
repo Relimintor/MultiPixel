@@ -79,6 +79,8 @@ io.on('connection', (socket) => {
     y: 27,
     z: 0,
     rot: 0,
+    moving: false,
+    mining: false,
     updatedAt: Date.now()
   });
 
@@ -94,7 +96,9 @@ io.on('connection', (socket) => {
     x: 0,
     y: 27,
     z: 0,
-    rot: 0
+    rot: 0,
+    moving: false,
+    mining: false,
   });
 
   socket.on('move', (payload) => {
@@ -105,6 +109,8 @@ io.on('connection', (socket) => {
     const nextY = Number(payload.y);
     const nextZ = Number(payload.z);
     const nextRot = Number(payload.rot);
+    const moving = Boolean(payload?.moving);
+    const mining = Boolean(payload?.mining);
 
     if (![nextX, nextY, nextZ, nextRot].every(Number.isFinite)) return;
 
@@ -114,6 +120,8 @@ io.on('connection', (socket) => {
       y: nextY,
       z: nextZ,
       rot: nextRot,
+      moving,
+      mining,
       updatedAt: Date.now()
     };
 

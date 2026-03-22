@@ -28,6 +28,8 @@
       y: localState.y,
       z: localState.z,
       rot: localState.rot,
+      moving: !!localState.moving,
+      mining: !!localState.mining,
     });
   }
 
