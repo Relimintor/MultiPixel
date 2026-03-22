@@ -748,6 +748,7 @@ window.perlin = perlinInstance;
         const villageTemplatesByBiomeKey = new Map();
         const gnomeEntities = [];
         const remotePlayers = new Map();
+        const pendingNetworkBlockUpdates = new Map();
         let remotePlayerMaterial = null;
         let remotePlayerGeometry = null;
         let bambooGrowthTimerMs = 0;
@@ -873,17 +874,54 @@ window.perlin = perlinInstance;
             };
         }
 
-        function applyNetworkBlockChange(payload) {
-            const wx = Number(payload?.x);
-            const wy = Number(payload?.y);
-            const wz = Number(payload?.z);
+        function getNetworkBlockKey(x, y, z) {
+            return `${x},${y},${z}`;
+        }
+
+        function queueNetworkBlockChange(payload) {
+            const x = Math.floor(Number(payload?.x));
+            const y = Math.floor(Number(payload?.y));
+            const z = Math.floor(Number(payload?.z));
             const type = Number(payload?.type);
-            if (![wx, wy, wz, type].every(Number.isFinite)) return false;
-            return modifyWorld(new THREE.Vector3(wx, wy, wz), type, {
+            if (![x, y, z, type].every(Number.isFinite)) return false;
+            pendingNetworkBlockUpdates.set(getNetworkBlockKey(x, y, z), { x, y, z, type });
+            return true;
+        }
+
+        function applyNetworkBlockChange(payload) {
+            const x = Math.floor(Number(payload?.x));
+            const y = Math.floor(Number(payload?.y));
+            const z = Math.floor(Number(payload?.z));
+            const type = Number(payload?.type);
+            if (![x, y, z, type].every(Number.isFinite)) return false;
+
+            const applied = modifyWorld(new THREE.Vector3(x, y, z), type, {
                 dropItems: false,
                 skipNetwork: true,
                 force: true,
             });
+            if (!applied) {
+                pendingNetworkBlockUpdates.set(getNetworkBlockKey(x, y, z), { x, y, z, type });
+                return false;
+            }
+            pendingNetworkBlockUpdates.delete(getNetworkBlockKey(x, y, z));
+            return true;
+        }
+
+        function flushPendingNetworkBlockChanges(limit = 64) {
+            if (!pendingNetworkBlockUpdates.size) return;
+            let appliedCount = 0;
+            for (const [key, pending] of pendingNetworkBlockUpdates) {
+                const applied = modifyWorld(new THREE.Vector3(pending.x, pending.y, pending.z), pending.type, {
+                    dropItems: false,
+                    skipNetwork: true,
+                    force: true,
+                });
+                if (!applied) continue;
+                pendingNetworkBlockUpdates.delete(key);
+                appliedCount++;
+                if (appliedCount >= limit) break;
+            }
         }
 
         function installMultiplayerBridge() {
@@ -895,6 +933,7 @@ window.perlin = perlinInstance;
                     window.SingleplayerChat?.receiveNetworkMessage?.(payload);
                 },
                 applyNetworkBlockChange,
+                queueNetworkBlockChange,
             };
         }
 
@@ -6921,6 +6960,7 @@ window.perlin = perlinInstance;
             updateAdaptiveCrosshair();
             updateCoordinatesUI();
             waypointsMod?.update?.(time, delta);
+            flushPendingNetworkBlockChanges();
             refreshRemotePlayerLabels();
             renderer.render(scene, camera);
         }

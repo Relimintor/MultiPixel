@@ -5,6 +5,8 @@
   let socket = null;
   let moveInterval = null;
   let isConnected = false;
+  let flushTimer = null;
+  const pendingBlockUpdates = [];
 
   function getBridge() {
     return window.MultiPixelMultiplayerBridge || null;
@@ -49,6 +51,33 @@
     return true;
   }
 
+
+  function applyIncomingBlockUpdate(payload) {
+    const bridge = getBridge();
+    if (bridge?.applyNetworkBlockChange) {
+      const ok = bridge.applyNetworkBlockChange(payload);
+      if (ok) return true;
+    }
+    pendingBlockUpdates.push(payload);
+    return false;
+  }
+
+  function flushPendingBlockUpdates(limit = 120) {
+    const bridge = getBridge();
+    if (!bridge?.applyNetworkBlockChange || !pendingBlockUpdates.length) return;
+
+    let applied = 0;
+    while (pendingBlockUpdates.length && applied < limit) {
+      const payload = pendingBlockUpdates.shift();
+      const ok = bridge.applyNetworkBlockChange(payload);
+      if (!ok) {
+        pendingBlockUpdates.push(payload);
+        break;
+      }
+      applied++;
+    }
+  }
+
   function attachSocketEvents() {
     socket.on('connect', () => {
       isConnected = true;
@@ -72,8 +101,9 @@
 
       const blocks = Array.isArray(payload?.blocks) ? payload.blocks : [];
       blocks.forEach((entry) => {
-        getBridge()?.applyNetworkBlockChange?.(entry);
+        applyIncomingBlockUpdate(entry);
       });
+      flushPendingBlockUpdates();
 
       const chat = Array.isArray(payload?.chat) ? payload.chat : [];
       chat.forEach((message) => {
@@ -99,7 +129,8 @@
     });
 
     socket.on('blockUpdate', (payload) => {
-      getBridge()?.applyNetworkBlockChange?.(payload);
+      applyIncomingBlockUpdate(payload);
+      flushPendingBlockUpdates();
     });
 
     socket.on('chat', (message) => {
@@ -125,6 +156,7 @@
     });
 
     attachSocketEvents();
+    if (!flushTimer) flushTimer = setInterval(() => flushPendingBlockUpdates(), 250);
   }
 
   window.MultiPixelMultiplayerClient = {
