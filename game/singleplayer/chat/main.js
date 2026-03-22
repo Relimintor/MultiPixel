@@ -144,7 +144,12 @@
             return;
         }
 
-        pushMessage(`Player: ${rawInput}`, 'chat-player');
+        if (context?.onSendMessage) {
+            const sent = context.onSendMessage(rawInput);
+            if (!sent) pushMessage(`Player: ${rawInput}`, 'chat-player');
+        } else {
+            pushMessage(`Player: ${rawInput}`, 'chat-player');
+        }
         inputEl.value = '';
     }
 
@@ -234,6 +239,16 @@
         }
     }
 
+
+
+    function receiveNetworkMessage(payload) {
+        const text = String(payload?.text || '').trim();
+        if (!text) return;
+        const fromSelf = Boolean(payload?.fromSelf);
+        const name = payload?.name || (fromSelf ? 'You' : 'Player');
+        pushMessage(`${name}: ${text}`, fromSelf ? 'chat-system-ok' : 'chat-player');
+    }
+
     function init(initContext) {
         context = initContext || {};
         buildUI();
@@ -247,6 +262,7 @@
         close,
         toggle,
         openCommandHelp,
+        receiveNetworkMessage,
         isOpen: () => isOpen
     };
 })();
