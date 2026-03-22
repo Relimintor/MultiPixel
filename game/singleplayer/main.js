@@ -41,6 +41,8 @@
         const GLOWSTONE_PORTAL_FRAME_KEYS = Array.isArray(window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_FRAME_KEYS)
             ? window.SingleplayerSideConfig.GLOWSTONE_PORTAL_FRAME_KEYS
             : [];
+        const GLOWSTONE_PORTAL_Z_ID = Number(window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_Z_ID) || 147;
+        const GLOWSTONE_PORTAL_X_ID = Number(window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_X_ID) || 148;
         const portalAnimationState = { frameMs: 120, frameIndex: 0, elapsedMs: 0 };
         console.info('[Singleplayer build]', window.__SINGLEPLAYER_BUILD__);
 
@@ -782,6 +784,7 @@ window.perlin = perlinInstance;
         let wolfMob = null;
         let pandaMob = null;
         let villagerMob = null;
+        let glowstonePortalDimension1 = null;
         remeshOptimizations = window.SingleplayerChunkRemeshOptimizations?.create?.({
             getChunkKey: chunkKeyFromCoords,
             getChunk: (key) => chunks.get(key),
@@ -966,6 +969,22 @@ window.perlin = perlinInstance;
         let isSneaking = false;
         let bambooGrowthTimerMs = 0;
         let lastMobHitAtMs = -Infinity;
+        let coordinatesDisplayEl = null;
+        let lastCoordinateUpdateMs = -Infinity;
+        let lastCoordinateX = Number.NaN;
+        let lastCoordinateY = Number.NaN;
+        let lastCoordinateZ = Number.NaN;
+        let lastRemoteLabelRefreshMs = -Infinity;
+        let lastOnlineOverlayRenderMs = -Infinity;
+        let lastOnlineOverlayHtml = '';
+        const remoteLabelProjectionPos = new THREE.Vector3();
+        let frameTimeEmaMs = 16.67;
+        let lastAdaptiveQualityTickMs = -Infinity;
+        let caveLightingBlend = 1;
+        let lastCaveLightingProbeMs = -Infinity;
+        let cachedCaveSkyExposure = 1;
+        let inventoryEffectsEl = null;
+        const activeCommandEffects = new Map();
         let eatOverlayEl = playerRuntime.eatOverlayEl;
         let eatItemEl = playerRuntime.eatItemEl;
         let eatingAnimState = playerRuntime.eatingAnimState;
@@ -976,6 +995,14 @@ window.perlin = perlinInstance;
         
 
         const PlayerMobInteractions = window.SingleplayerPlayerMobInteractions;
+        const COORDINATES_UPDATE_INTERVAL_MS = 100;
+        const REMOTE_LABEL_UPDATE_INTERVAL_MS = 34;
+        const ONLINE_OVERLAY_UPDATE_INTERVAL_MS = 180;
+        const ADAPTIVE_QUALITY_TICK_MS = 1400;
+        const ADAPTIVE_QUALITY_LOW_FPS = IS_1D4P_MULTIPLAYER ? 45 : 42;
+        const ADAPTIVE_QUALITY_HIGH_FPS = IS_1D4P_MULTIPLAYER ? 58 : 56;
+        const CAVE_LIGHT_PROBE_INTERVAL_MS = 140;
+        const CAVE_LIGHT_BLEND_SPEED = 0.11;
 
         function applyHitFeedback(entity, sourcePos = null, amount = 4, extraKnockback = 0) {
             PlayerMobInteractions.applyHitFeedback({ entity, sourcePos, amount, extraKnockback, yawObject, THREE });
@@ -1094,7 +1121,7 @@ window.perlin = perlinInstance;
             if (!camera || !renderer) return;
             remotePlayers.forEach((entry) => {
                 if (!entry?.mesh || !entry?.label) return;
-                const world = entry.mesh.position.clone();
+                const world = remoteLabelProjectionPos.copy(entry.mesh.position);
                 world.y += 1.1;
                 world.project(camera);
                 const isBehind = world.z > 1;
@@ -1131,11 +1158,17 @@ window.perlin = perlinInstance;
             ensureOnlinePlayersOverlay();
             if (!onlinePlayersOverlayEl) return;
             if (!isSneaking || isInventoryOpen) {
-                onlinePlayersOverlayEl.classList.add('hidden');
+                if (!onlinePlayersOverlayEl.classList.contains('hidden')) {
+                    onlinePlayersOverlayEl.classList.add('hidden');
+                }
                 return;
             }
             const lines = getOnlinePlayerSummaryLines();
-            onlinePlayersOverlayEl.innerHTML = lines.map((line) => `<div>${line}</div>`).join('');
+            const nextHtml = lines.map((line) => `<div>${line}</div>`).join('');
+            if (nextHtml !== lastOnlineOverlayHtml) {
+                onlinePlayersOverlayEl.innerHTML = nextHtml;
+                lastOnlineOverlayHtml = nextHtml;
+            }
             onlinePlayersOverlayEl.classList.remove('hidden');
         }
 
@@ -1727,6 +1760,8 @@ window.perlin = perlinInstance;
             if (closeIcon) closeIcon.src = closeIconPath;
             if (furnaceCloseIcon) furnaceCloseIcon.src = closeIconPath;
             if (chestCloseIcon) chestCloseIcon.src = closeIconPath;
+            coordinatesDisplayEl = document.getElementById('coordinates-display');
+            inventoryEffectsEl = document.getElementById('inventory-effects-list');
             defaultPlayerSkin?.initSkinUi?.();
             const creativeCloseIcon = document.getElementById('creative-close-icon');
             const creativeInventoryIcon = document.getElementById('creative-inventory-icon');
@@ -1772,6 +1807,10 @@ window.perlin = perlinInstance;
             targetRenderPixelRatio = computeRenderPixelRatio();
             renderer.setPixelRatio(targetRenderPixelRatio);
             document.body.appendChild(renderer.domElement);
+            glowstonePortalDimension1 = window.SingleplayerDimension1GlowstonePortal?.create?.({
+                getRenderer: () => renderer,
+                getCamera: () => camera,
+            }) || null;
             setupEatingOverlay();
             
             window.addEventListener('resize', onWindowResize);
@@ -1822,6 +1861,124 @@ window.perlin = perlinInstance;
 
         function updateSkyAndSun() {
             dayNightCycle?.updateSkyAndSun?.();
+        }
+
+        function samplePlayerSkyExposure() {
+            if (!yawObject) return 1;
+            const px = Math.floor(yawObject.position.x);
+            const py = Math.floor(yawObject.position.y + 0.25);
+            const pz = Math.floor(yawObject.position.z);
+            if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) return 1;
+
+            const probes = [
+                [0, 0],
+                [1, 0],
+                [-1, 0],
+                [0, 1],
+                [0, -1],
+            ];
+            let openColumns = 0;
+            for (const [ox, oz] of probes) {
+                if (lightingSystem?.isOpenToSky?.(px + ox, py, pz + oz)) openColumns++;
+            }
+            const rawExposure = openColumns / probes.length;
+            return Math.max(0, Math.min(1, rawExposure));
+        }
+
+        function applyCaveLighting(time) {
+            if (!ambientLight || !hemiLight || !dirLight || !moonLight) return;
+            if ((time - lastCaveLightingProbeMs) >= CAVE_LIGHT_PROBE_INTERVAL_MS) {
+                cachedCaveSkyExposure = samplePlayerSkyExposure();
+                lastCaveLightingProbeMs = time;
+            }
+            const indoorBlend = 0.18 + cachedCaveSkyExposure * 0.82;
+            caveLightingBlend += (indoorBlend - caveLightingBlend) * CAVE_LIGHT_BLEND_SPEED;
+            const blend = Math.max(0.18, Math.min(1, caveLightingBlend));
+            ambientLight.intensity *= blend;
+            hemiLight.intensity *= blend;
+            dirLight.intensity *= (0.35 + blend * 0.65);
+            moonLight.intensity *= (0.4 + blend * 0.6);
+        }
+
+        function applyPlayerEffect(effectName, durationSeconds, options = {}) {
+            const key = String(effectName || '').toLowerCase().trim();
+            if (key !== 'nausea') return false;
+            const seconds = Number(durationSeconds);
+            if (!Number.isFinite(seconds) || seconds <= 0) return false;
+            const durationMs = Math.max(1000, Math.floor(seconds * 1000));
+            const now = performance.now();
+            activeCommandEffects.set(key, {
+                key,
+                source: options.source || 'command',
+                expiresAt: now + durationMs,
+                durationMs,
+                startedAt: now,
+            });
+            if (isInventoryOpen) renderEffectStatusPanel(now);
+            return true;
+        }
+
+        function getEffectRemainingMs(effectName, now = performance.now()) {
+            const key = String(effectName || '').toLowerCase().trim();
+            const effect = activeCommandEffects.get(key);
+            if (!effect) return 0;
+            return Math.max(0, effect.expiresAt - now);
+        }
+
+        function hasActiveCommandEffect(effectName, now = performance.now()) {
+            return getEffectRemainingMs(effectName, now) > 0;
+        }
+
+        function tickCommandEffects(now = performance.now()) {
+            let removed = false;
+            for (const [key, effect] of activeCommandEffects.entries()) {
+                if (!effect || effect.expiresAt <= now) {
+                    activeCommandEffects.delete(key);
+                    removed = true;
+                }
+            }
+            if (removed && isInventoryOpen) renderEffectStatusPanel(now);
+        }
+
+        function formatEffectDuration(ms) {
+            const totalSec = Math.max(0, Math.ceil(ms / 1000));
+            const min = Math.floor(totalSec / 60);
+            const sec = totalSec % 60;
+            if (min <= 0) return `${sec}s`;
+            return `${min}m ${String(sec).padStart(2, '0')}s`;
+        }
+
+        function renderEffectStatusPanel(now = performance.now()) {
+            if (!inventoryEffectsEl) return;
+            const entries = [];
+            activeCommandEffects.forEach((effect) => {
+                const remainingMs = Math.max(0, effect.expiresAt - now);
+                if (remainingMs <= 0) return;
+                entries.push({ key: effect.key, remainingMs });
+            });
+            entries.sort((a, b) => a.remainingMs - b.remainingMs);
+
+            if (!entries.length) {
+                inventoryEffectsEl.innerHTML = '<div class="inv-effects-empty">No active effects</div>';
+                return;
+            }
+            inventoryEffectsEl.innerHTML = entries
+                .map((entry) => `<div class="inv-effect-row"><span class="inv-effect-name">${entry.key}</span><span class="inv-effect-time">${formatEffectDuration(entry.remainingMs)}</span></div>`)
+                .join('');
+        }
+
+        function isPlayerInsideGlowstonePortal() {
+            if (!yawObject) return false;
+            const px = Math.floor(yawObject.position.x);
+            const pz = Math.floor(yawObject.position.z);
+            const feetY = Math.floor(yawObject.position.y);
+            const torsoY = Math.floor(yawObject.position.y + 0.8);
+            const footId = getBlockType(px, feetY, pz);
+            const torsoId = getBlockType(px, torsoY, pz);
+            return footId === GLOWSTONE_PORTAL_Z_ID ||
+                footId === GLOWSTONE_PORTAL_X_ID ||
+                torsoId === GLOWSTONE_PORTAL_Z_ID ||
+                torsoId === GLOWSTONE_PORTAL_X_ID;
         }
 
         function setRenderDistance(amount) {
@@ -2613,6 +2770,7 @@ window.perlin = perlinInstance;
                 getReach,
                 setPlayerHeight,
                 getPlayerHeight,
+                applyPlayerEffect,
                 setGameMode,
                 openCreativeMenu,
                 closeCreativeMenu,
@@ -2795,13 +2953,40 @@ window.perlin = perlinInstance;
         }
 
 
-        function updateCoordinatesUI() {
-            const el = document.getElementById('coordinates-display');
+        function updateCoordinatesUI(nowMs = performance.now()) {
+            const el = coordinatesDisplayEl || document.getElementById('coordinates-display');
             if (!el || !yawObject) return;
+            if ((nowMs - lastCoordinateUpdateMs) < COORDINATES_UPDATE_INTERVAL_MS) return;
             const x = Math.floor(yawObject.position.x);
             const y = Math.floor(yawObject.position.y);
             const z = Math.floor(yawObject.position.z);
+            if (x === lastCoordinateX && y === lastCoordinateY && z === lastCoordinateZ) return;
+            lastCoordinateUpdateMs = nowMs;
+            lastCoordinateX = x;
+            lastCoordinateY = y;
+            lastCoordinateZ = z;
             el.textContent = `XYZ: ${x}, ${y}, ${z}`;
+        }
+
+        function maybeApplyAdaptiveQuality(nowMs) {
+            if (!renderer || !Number.isFinite(frameTimeEmaMs)) return;
+            if ((nowMs - lastAdaptiveQualityTickMs) < ADAPTIVE_QUALITY_TICK_MS) return;
+            lastAdaptiveQualityTickMs = nowMs;
+            const fpsEstimate = 1000 / Math.max(0.001, frameTimeEmaMs);
+            const minRatio = isLowEndDevice ? 0.68 : 0.74;
+            const maxRatio = computeRenderPixelRatio();
+            let nextRatio = targetRenderPixelRatio;
+
+            if (fpsEstimate < ADAPTIVE_QUALITY_LOW_FPS && targetRenderPixelRatio > minRatio) {
+                nextRatio = Math.max(minRatio, targetRenderPixelRatio - 0.06);
+            } else if (fpsEstimate > ADAPTIVE_QUALITY_HIGH_FPS && targetRenderPixelRatio < maxRatio) {
+                nextRatio = Math.min(maxRatio, targetRenderPixelRatio + 0.04);
+            }
+
+            if (Math.abs(nextRatio - targetRenderPixelRatio) > 0.009) {
+                targetRenderPixelRatio = Number(nextRatio.toFixed(3));
+                renderer.setPixelRatio(targetRenderPixelRatio);
+            }
         }
 
         function updateHotbarUI() {
@@ -3197,6 +3382,7 @@ window.perlin = perlinInstance;
 
             const waypointMenuEnabled = isInventoryOpen && !usingFurnaceScreen && !usingChestScreen && !isCreativeMenuOpen;
             waypointsMod?.renderWaypointUi?.({ enabled: waypointMenuEnabled });
+            renderEffectStatusPanel();
 
             mainGrid.innerHTML = '';
             hotbarGrid.innerHTML = '';
@@ -7476,10 +7662,20 @@ window.perlin = perlinInstance;
         function animate(time) {
 
             requestAnimationFrame(animate);
-            const delta = lastTime ? (time - lastTime) : 0;
+            const deltaRaw = lastTime ? (time - lastTime) : 0;
+            const delta = Math.min(66, Math.max(0, deltaRaw));
             lastTime = time;
+            frameTimeEmaMs = frameTimeEmaMs * 0.9 + delta * 0.1;
+            maybeApplyAdaptiveQuality(time);
 
             dayNightCycle?.tick?.(delta);
+            applyCaveLighting(time);
+            tickCommandEffects(time);
+            glowstonePortalDimension1?.update?.({
+                deltaMs: delta,
+                inPortalBlock: isPlayerInsideGlowstonePortal() || hasActiveCommandEffect('nausea', time),
+                portalIgnited: true,
+            });
 
             const liquidState = getPlayerLiquidState();
             updateBreathing(delta / 1000, liquidState.isUnderLiquid);
@@ -7536,7 +7732,7 @@ window.perlin = perlinInstance;
                 updateBreakingOverlay();
             }
             updateAdaptiveCrosshair();
-            updateCoordinatesUI();
+            updateCoordinatesUI(time);
             waypointsMod?.update?.(time, delta);
             updatePortalAnimation(delta);
             flushPendingNetworkBlockChanges();
@@ -7548,8 +7744,14 @@ window.perlin = perlinInstance;
                 }
             }
             updateRemotePlayerAnimations(time, delta);
-            refreshRemotePlayerLabels();
-            renderOnlinePlayersOverlay();
+            if ((time - lastRemoteLabelRefreshMs) >= REMOTE_LABEL_UPDATE_INTERVAL_MS) {
+                refreshRemotePlayerLabels();
+                lastRemoteLabelRefreshMs = time;
+            }
+            if ((time - lastOnlineOverlayRenderMs) >= ONLINE_OVERLAY_UPDATE_INTERVAL_MS) {
+                renderOnlinePlayersOverlay();
+                lastOnlineOverlayRenderMs = time;
+            }
             renderer.render(scene, camera);
         }
         
