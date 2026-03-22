@@ -537,7 +537,7 @@
     145: { name: 'White Glass', id: 145, textured: true, textureKey: 'WHITE_STAINED_GLASS', transparent: true, opacity: 0.8 },
     146: { name: 'Pink Glass', id: 146, textured: true, textureKey: 'PINK_STAINED_GLASS', transparent: true, opacity: 0.8 },
     147: { name: 'Yellow Glass', id: 147, textured: true, textureKey: 'YELLOW_STAINED_GLASS', transparent: true, opacity: 0.8 },
-    148: { name: 'Red Glass', id: 148, textured: true, textureKey: 'RED_STAINED_GLASS', transparent: true, opacity: 0.8 },
+    159: { name: 'Red Glass', id: 148, textured: true, textureKey: 'RED_STAINED_GLASS', transparent: true, opacity: 0.8 },
     149: { name: 'Purple Glass', id: 149, textured: true, textureKey: 'PURPLE_STAINED_GLASS', transparent: true, opacity: 0.8 },
     150: { name: 'Light Blue Glass', id: 150, textured: true, textureKey: 'LIGHT_BLUE_STAINED_GLASS', transparent: true, opacity: 0.8 },
     151: { name: 'Blue Glass', id: 151, textured: true, textureKey: 'BLUE_STAINED_GLASS', transparent: true, opacity: 0.8 },
@@ -783,7 +783,7 @@
     ...(sideConfig.SIDE_BLOCK_MATERIALS || sideConfig.FLOWER_BLOCK_MATERIALS || {}),
   };
 
-  const solidBlocks = [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 108, 110, 113, 114, 119, 222, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 156, 157, 158 ];
+  const solidBlocks = [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 108, 110, 113, 114, 119, 222, 145, 146, 147, 149, 150, 151, 152, 153, 154, 156, 157, 158, 159 ];
 
   window.SingleplayerConfig = {
     CHUNK_SIZE, CHUNK_HEIGHT, WORLD_RADIUS, BLOCK_SIZE, SEA_LEVEL, BASE_LAND_Y, ISLAND_RADIUS,
