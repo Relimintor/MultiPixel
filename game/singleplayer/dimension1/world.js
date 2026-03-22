@@ -66,7 +66,7 @@
     function teleportToDimension(next) {
       const toDimension1 = next === 'dimension1';
       const destination = toDimension1 ? DIMENSION1_ANCHOR : OVERWORLD_ANCHOR;
-      const result = teleportToCoordinates?.(destination.x + 4.5, destination.y + 2, destination.z + 0.5);
+      const result = teleportToCoordinates?.(destination.x + 0.5, destination.y + 2, destination.z + 0.5);
       if (result && result.ok === false) {
         showGameMessage?.(`Portal link failed: ${result.message || 'teleport unavailable'}`);
         return;

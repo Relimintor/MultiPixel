@@ -5265,10 +5265,6 @@ window.perlin = perlinInstance;
                 return group.userData.chunkData[lx + wy * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT];
             }
             if (sparseAirChunkKeys.has(id)) return 0;
-            if (dimension1WorldController?.getCurrentDimension?.() === 'dimension1') {
-                if (wy === 0) return 14;
-                return 0;
-            }
             
             // For blocks outside loaded chunks but inside the boundary, use noise (Fallback)
             const biome = getBiome(wx, wz); // Calculate biome for fallback
@@ -6762,40 +6758,17 @@ window.perlin = perlinInstance;
             return chunkStreamOptimizations?.isChunkAllAir?.(data) || false;
         }
 
-        function generateDimension1ChunkData() {
-            const size = CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE;
-            const data = new Array(size).fill(0);
-            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
-            for (let z = 0; z < CHUNK_SIZE; z++) {
-                for (let x = 0; x < CHUNK_SIZE; x++) {
-                    data[idx(x, 0, z)] = 14; // bedrock floor
-                }
-            }
-            return {
-                data,
-                heightmap: buildChunkHeightmap(data),
+        function createChunk(cx, cz) {
+            const persistedData = loadPersistedChunkData(cx, cz);
+            const generated = persistedData ? {
+                data: persistedData,
+                heightmap: buildChunkHeightmap(persistedData),
                 spawnedGnomes: [],
                 spawnedPigs: [],
                 spawnedWolves: [],
                 spawnedPandas: [],
                 spawnedVillagers: [],
-            };
-        }
-
-        function createChunk(cx, cz) {
-            const inDimension1 = dimension1WorldController?.getCurrentDimension?.() === 'dimension1';
-            const persistedData = inDimension1 ? null : loadPersistedChunkData(cx, cz);
-            const generated = inDimension1
-                ? generateDimension1ChunkData(cx, cz)
-                : (persistedData ? {
-                    data: persistedData,
-                    heightmap: buildChunkHeightmap(persistedData),
-                    spawnedGnomes: [],
-                    spawnedPigs: [],
-                    spawnedWolves: [],
-                    spawnedPandas: [],
-                    spawnedVillagers: [],
-                } : generateChunkData(cx, cz));
+            } : generateChunkData(cx, cz);
             const data = generated.data;
             const heightmap = generated.heightmap || buildChunkHeightmap(data);
             const chunkKey = `${cx},${cz}`;
