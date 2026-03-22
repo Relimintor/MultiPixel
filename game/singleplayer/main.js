@@ -4741,7 +4741,12 @@ window.perlin = perlinInstance;
             let h = lerp(blendedHeight, selectedBiomeHeight, dominantBlend);
 
             const mountainWeight = Number(weights['Mountains'] || 0);
-            h += detailNoise * (0.36 + mountainWeight * 0.64);
+            const terrainBoost = 1.28;
+            h += detailNoise * (0.42 + mountainWeight * 0.78) * terrainBoost;
+            const macroTerrainNoise = octaveNoise2D(wx, wz, 4, 0.52, 2.0, 0.0068, 940, -530);
+            const ridgeTerrainNoise = Math.abs(octaveNoise2D(wx, wz, 3, 0.48, 2.16, 0.0115, -1210, 880));
+            h += macroTerrainNoise * 2.15;
+            h += (ridgeTerrainNoise - 0.5) * (1.1 + mountainWeight * 2.5);
 
             const riverInfluence = getRiverMask(wx, wz);
             h = TerrainModules['river'].applyHeight({ height: h, riverInfluence, SEA_LEVEL });
