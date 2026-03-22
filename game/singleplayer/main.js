@@ -279,6 +279,167 @@ const perlinInstance = new PerlinNoise(worldSeed);
 // Make it globally accessible for biomes
 window.perlin = perlinInstance;
 
+        const PERSISTED_WORLD_NAMESPACE = 'singleplayer.1d4p.persist.v1';
+        const PERSISTED_WORLD_MAX_CHUNKS = 180;
+        const PERSISTED_WORLD_FLUSH_MS = 2200;
+        let persistedWorldManifest = { chunkKeys: [], touched: {}, modified: {} };
+        const dirtyPersistedChunkKeys = new Set();
+        let persistedWorldFlushTimerMs = 0;
+
+        function getPersistedWorldPrefix() {
+            return `${PERSISTED_WORLD_NAMESPACE}.${worldSeed}`;
+        }
+
+        function getPersistedManifestKey() {
+            return `${getPersistedWorldPrefix()}:manifest`;
+        }
+
+        function getPersistedChunkStorageKey(chunkKey) {
+            return `${getPersistedWorldPrefix()}:chunk:${chunkKey}`;
+        }
+
+        function encodeChunkDataToBase64(chunkData) {
+            if (!Array.isArray(chunkData) || !chunkData.length) return '';
+            const bytes = new Uint8Array(chunkData.length * 2);
+            for (let i = 0; i < chunkData.length; i++) {
+                const value = Number(chunkData[i]) & 0xffff;
+                const offset = i * 2;
+                bytes[offset] = value & 0xff;
+                bytes[offset + 1] = (value >> 8) & 0xff;
+            }
+            let binary = '';
+            const batchSize = 0x8000;
+            for (let i = 0; i < bytes.length; i += batchSize) {
+                binary += String.fromCharCode(...bytes.subarray(i, i + batchSize));
+            }
+            return btoa(binary);
+        }
+
+        function decodeChunkDataFromBase64(encoded) {
+            if (!encoded || typeof encoded !== 'string') return null;
+            const binary = atob(encoded);
+            if (!binary.length || binary.length % 2 !== 0) return null;
+            const out = new Array(binary.length / 2);
+            for (let i = 0; i < out.length; i++) {
+                const offset = i * 2;
+                out[i] = binary.charCodeAt(offset) | (binary.charCodeAt(offset + 1) << 8);
+            }
+            return out;
+        }
+
+        function loadPersistedWorldManifest() {
+            if (!IS_1D4P_MULTIPLAYER || typeof localStorage === 'undefined') return;
+            try {
+                const raw = localStorage.getItem(getPersistedManifestKey());
+                if (!raw) {
+                    persistedWorldManifest = { chunkKeys: [], touched: {}, modified: {} };
+                    return;
+                }
+                const parsed = JSON.parse(raw);
+                persistedWorldManifest = {
+                    chunkKeys: Array.isArray(parsed?.chunkKeys) ? parsed.chunkKeys.filter((entry) => typeof entry === 'string') : [],
+                    touched: parsed?.touched && typeof parsed.touched === 'object' ? parsed.touched : {},
+                    modified: parsed?.modified && typeof parsed.modified === 'object' ? parsed.modified : {},
+                };
+            } catch (err) {
+                console.warn('[1d4p persist] failed to parse manifest, resetting.', err);
+                persistedWorldManifest = { chunkKeys: [], touched: {}, modified: {} };
+            }
+        }
+
+        function persistWorldManifest() {
+            if (!IS_1D4P_MULTIPLAYER || typeof localStorage === 'undefined') return;
+            localStorage.setItem(getPersistedManifestKey(), JSON.stringify(persistedWorldManifest));
+        }
+
+        function trimPersistedChunksToBudget() {
+            const keys = Array.isArray(persistedWorldManifest.chunkKeys) ? [...persistedWorldManifest.chunkKeys] : [];
+            if (keys.length <= PERSISTED_WORLD_MAX_CHUNKS) return;
+            keys.sort((a, b) => {
+                const aMod = Number(persistedWorldManifest.modified?.[a]) || 0;
+                const bMod = Number(persistedWorldManifest.modified?.[b]) || 0;
+                if (aMod !== bMod) return aMod - bMod;
+                const aTs = Number(persistedWorldManifest.touched?.[a]) || 0;
+                const bTs = Number(persistedWorldManifest.touched?.[b]) || 0;
+                return aTs - bTs;
+            });
+            const removeCount = Math.max(0, keys.length - PERSISTED_WORLD_MAX_CHUNKS);
+            for (let i = 0; i < removeCount; i++) {
+                const chunkKey = keys[i];
+                try {
+                    localStorage.removeItem(getPersistedChunkStorageKey(chunkKey));
+                } catch {}
+                delete persistedWorldManifest.touched[chunkKey];
+                delete persistedWorldManifest.modified[chunkKey];
+            }
+            persistedWorldManifest.chunkKeys = keys.slice(removeCount);
+        }
+
+        function markChunkForPersistence(cx, cz, isModified = false) {
+            if (!IS_1D4P_MULTIPLAYER) return;
+            const chunkKey = `${cx},${cz}`;
+            dirtyPersistedChunkKeys.add(chunkKey);
+            if (!persistedWorldManifest.chunkKeys.includes(chunkKey)) persistedWorldManifest.chunkKeys.push(chunkKey);
+            persistedWorldManifest.touched[chunkKey] = Date.now();
+            if (isModified) persistedWorldManifest.modified[chunkKey] = 1;
+        }
+
+        function flushDirtyPersistedChunks(force = false) {
+            if (!IS_1D4P_MULTIPLAYER || typeof localStorage === 'undefined') return;
+            if (!dirtyPersistedChunkKeys.size && !force) return;
+            const keys = dirtyPersistedChunkKeys.size ? Array.from(dirtyPersistedChunkKeys) : (persistedWorldManifest.chunkKeys || []);
+            for (const chunkKey of keys) {
+                const group = chunks.get(chunkKey);
+                if (!group?.userData?.chunkData) continue;
+                try {
+                    const encoded = encodeChunkDataToBase64(group.userData.chunkData);
+                    if (encoded) localStorage.setItem(getPersistedChunkStorageKey(chunkKey), encoded);
+                } catch (err) {
+                    console.warn('[1d4p persist] failed saving chunk', chunkKey, err);
+                }
+                dirtyPersistedChunkKeys.delete(chunkKey);
+            }
+            trimPersistedChunksToBudget();
+            try {
+                persistWorldManifest();
+            } catch (err) {
+                console.warn('[1d4p persist] failed saving manifest', err);
+            }
+        }
+
+        function loadPersistedChunkData(cx, cz) {
+            if (!IS_1D4P_MULTIPLAYER || typeof localStorage === 'undefined') return null;
+            const chunkKey = `${cx},${cz}`;
+            if (!persistedWorldManifest.chunkKeys.includes(chunkKey)) return null;
+            try {
+                const encoded = localStorage.getItem(getPersistedChunkStorageKey(chunkKey));
+                const decoded = decodeChunkDataFromBase64(encoded);
+                if (!decoded || decoded.length !== CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE) return null;
+                persistedWorldManifest.touched[chunkKey] = Date.now();
+                return decoded;
+            } catch (err) {
+                console.warn('[1d4p persist] failed loading chunk', chunkKey, err);
+                return null;
+            }
+        }
+
+        function persistChunkGroupData(chunkKey, chunkData) {
+            if (!IS_1D4P_MULTIPLAYER || typeof localStorage === 'undefined') return;
+            if (!chunkKey || !Array.isArray(chunkData) || !chunkData.length) return;
+            try {
+                const encoded = encodeChunkDataToBase64(chunkData);
+                if (!encoded) return;
+                localStorage.setItem(getPersistedChunkStorageKey(chunkKey), encoded);
+                if (!persistedWorldManifest.chunkKeys.includes(chunkKey)) persistedWorldManifest.chunkKeys.push(chunkKey);
+                persistedWorldManifest.touched[chunkKey] = Date.now();
+                trimPersistedChunksToBudget();
+                persistWorldManifest();
+                dirtyPersistedChunkKeys.delete(chunkKey);
+            } catch (err) {
+                console.warn('[1d4p persist] failed saving chunk snapshot', chunkKey, err);
+            }
+        }
+
         // --- 2. GAME STATE & THREE.JS SETUP ---
 
         function setSensitivity(amount) {
@@ -1228,6 +1389,7 @@ window.perlin = perlinInstance;
             if (typeof PerlinNoise !== 'undefined') {
                 worldSeed = resolveWorldSeed();
                 perlin = new PerlinNoise(worldSeed);
+                loadPersistedWorldManifest();
                 // Intentionally avoid worldgen/* runtime and use terrain/* + noise/* flow.
                 worldGenerator = null;
                 const spawnBiomePool = ['Snowy Plains', 'Plains', 'Forest', 'Desert'];
@@ -1286,6 +1448,9 @@ window.perlin = perlinInstance;
             initChatSystem();
             installMultiplayerBridge();
             setInitialPlayerPosition();
+            if (IS_1D4P_MULTIPLAYER) {
+                window.addEventListener('beforeunload', () => flushDirtyPersistedChunks(true));
+            }
             
           
             renderHearts();
@@ -3482,6 +3647,7 @@ window.perlin = perlinInstance;
             const oldType = chunkData[index];
             if (oldType === newType) return false;
             chunkData[index] = newType;
+            markChunkForPersistence(cx, cz, true);
 
             // Chunk meshing rebuild triggers:
             // - block changes
@@ -3642,11 +3808,13 @@ window.perlin = perlinInstance;
                     if (drop && drop.id > 0 && drop.count > 0) addToInventory(drop.id, drop.count);
                 }
                 chunkData[index] = 0;
+                markChunkForPersistence(cx, cz, true);
                 emitBreakParticles(wx, wy, wz, 14, true);
             } else {
                 if (!forceApply && oldType !== 0 && oldType !== 4) return false;
                 if (oldType === newType) return false;
                 chunkData[index] = newType;
+                markChunkForPersistence(cx, cz, true);
             }
 
             updateChunkHeightmapColumn(group, lx, lz);
@@ -5762,8 +5930,16 @@ window.perlin = perlinInstance;
         }
 
         function createChunk(cx, cz) {
-
-            const generated = generateChunkData(cx, cz);
+            const persistedData = loadPersistedChunkData(cx, cz);
+            const generated = persistedData ? {
+                data: persistedData,
+                heightmap: buildChunkHeightmap(persistedData),
+                spawnedGnomes: [],
+                spawnedPigs: [],
+                spawnedWolves: [],
+                spawnedPandas: [],
+                spawnedVillagers: [],
+            } : generateChunkData(cx, cz);
             const data = generated.data;
             const heightmap = generated.heightmap || buildChunkHeightmap(data);
             const chunkKey = `${cx},${cz}`;
@@ -5777,6 +5953,7 @@ window.perlin = perlinInstance;
             const group = new THREE.Group();
             group.userData = { chunkData: data, heightmap, cx, cz, meshHash: null, frustumRadius: Math.sqrt((CHUNK_SIZE*CHUNK_SIZE)*0.5 + (CHUNK_HEIGHT*CHUNK_HEIGHT)*0.25) };
             chunks.set(chunkKey, group);
+            markChunkForPersistence(cx, cz, false);
             requestChunkRemesh(cx, cz, 'load');
             worldGroup.add(group);
             if (generated.spawnedGnomes && generated.spawnedGnomes.length) {
@@ -5803,6 +5980,9 @@ window.perlin = perlinInstance;
         function disposeLoadedChunkByKey(chunkKey) {
             const chunkGroup = chunks.get(chunkKey);
             if (!chunkGroup || !chunkGroup.userData) return;
+            if (IS_1D4P_MULTIPLAYER && dirtyPersistedChunkKeys.has(chunkKey)) {
+                persistChunkGroupData(chunkKey, chunkGroup.userData.chunkData);
+            }
             removeTorchLightsForChunk(chunkKey);
             worldGroup.remove(chunkGroup);
             if (chunkGroup.children) {
@@ -7014,6 +7194,13 @@ window.perlin = perlinInstance;
             updateCoordinatesUI();
             waypointsMod?.update?.(time, delta);
             flushPendingNetworkBlockChanges();
+            if (IS_1D4P_MULTIPLAYER) {
+                persistedWorldFlushTimerMs += delta;
+                if (persistedWorldFlushTimerMs >= PERSISTED_WORLD_FLUSH_MS) {
+                    flushDirtyPersistedChunks();
+                    persistedWorldFlushTimerMs = 0;
+                }
+            }
             refreshRemotePlayerLabels();
             renderOnlinePlayersOverlay();
             renderer.render(scene, camera);
