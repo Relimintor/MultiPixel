@@ -281,6 +281,7 @@
     GLOWSTONE: getAssetPath('textures/glowstone.png'),
     GLOWSTONE_DUST: getAssetPath('textures/item/glowstone_dust.png'),
     BONE: getAssetPath('textures/item/bone.png'),
+  };
 
   const baseBlockMaterials = {
     
