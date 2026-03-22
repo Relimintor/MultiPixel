@@ -816,7 +816,7 @@ window.perlin = perlinInstance;
                 entry.label.style.pointerEvents = 'none';
                 entry.label.style.fontSize = '12px';
                 entry.label.style.zIndex = '190';
-                entry.label.textContent = String(payload?.name || id.slice(0, 6));
+                entry.label.textContent = id.slice(0, 6);
                 document.body.appendChild(entry.label);
                 scene.add(entry.mesh);
                 remotePlayers.set(id, entry);
@@ -829,7 +829,6 @@ window.perlin = perlinInstance;
             if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return;
             entry.mesh.position.set(x, y + 0.9, z);
             if (Number.isFinite(rot)) entry.mesh.rotation.y = rot;
-            if (payload?.name) entry.label.textContent = String(payload.name);
         }
 
         function removeRemotePlayer(id) {
@@ -925,22 +924,9 @@ window.perlin = perlinInstance;
             }
         }
 
-        function setLocalPlayerState(payload) {
-            if (!yawObject) return false;
-            const x = Number(payload?.x);
-            const y = Number(payload?.y);
-            const z = Number(payload?.z);
-            const rot = Number(payload?.rot);
-            if (![x, y, z].every(Number.isFinite)) return false;
-            yawObject.position.set(x, y, z);
-            if (Number.isFinite(rot)) yawObject.rotation.y = rot;
-            return true;
-        }
-
         function installMultiplayerBridge() {
             window.MultiPixelMultiplayerBridge = {
                 getLocalPlayerState: getLocalMultiplayerState,
-                setLocalPlayerState,
                 updateOtherPlayer: updateRemotePlayerState,
                 removeOtherPlayer: removeRemotePlayer,
                 pushNetworkChatMessage(payload) {
