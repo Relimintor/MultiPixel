@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MultiPixel - 1d4p</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+        <link rel="stylesheet" href="./style.css">
+        <script src="side_config.js?v=1"></script>
+        <script src="config.js?v=11"></script>
+    <script src="noise/perlin.js?v=10"></script>
+    <script src="terrain/ocean/biome.js?v=10"></script>
+    <script src="terrain/river/biome.js?v=10"></script>
+    <script src="terrain/oak_forest/biome.js?v=10"></script>
+    <script src="terrain/desert/biome.js?v=10"></script>
+    <script src="terrain/plains/biome.js?v=10"></script>
+    <script src="terrain/mountains/biome.js?v=10"></script>
+    <script src="terrain/snowy_plains/biome.js?v=10"></script>
+    <script src="terrain/jungle_forest/biome.js?v=1"></script>
+    <script src="terrain/jungle_forest/dec_config.js?v=1"></script>
+    <script src="worldgen/desert/generation.js?v=1"></script>
+    <script src="worldgen/oak_forest/generation.js?v=1"></script>
+    <script src="worldgen/snowy_plains/generation.js?v=1"></script>
+    <script src="worldgen/jungle_forest/generation.js?v=1"></script>
+    <script src="feature/flower.js?v=1"></script>
+    <script src="worldgen/underground/caves.js?v=1"></script>
+    <script src="worldgen/underground/ravines.js?v=1"></script>
+    <script src="worldgen/underground/ores.js?v=1"></script>
+    <script src="worldgen/underground/geodes.js?v=1"></script>
+    <script src="crafting/recipes.js?v=10"></script>
+    <script src="crafting/furnace.js?v=10"></script>
+    <script src="tools/blocks/hardness.js?v=1"></script>
+    <script src="tools/blocks/breakable.js?v=1"></script>
+    <script src="tools/pickaxes.js?v=10"></script>
+    <script src="lighting/spawn_lighting.js?v=10"></script>
+    <script src="ui/hunger.js?v=10"></script>
+    <script src="BlockPhysics/water.js?v=10"></script>
+    <script src="BlockPhysics/sand.js?v=10"></script>
+    <script src="BlockPhysics/lava.js?v=10"></script>
+    <script src="skin/init.js?v=1"></script>
+    <script src="structures/villages/main.js?v=1"></script>
+    <script src="structures/ruins/main.js?v=1"></script>
+    <script src="structures/ruins/desert/main.js?v=1"></script>
+    <script src="structures/ruins/plains/main.js?v=1"></script>
+    <script src="structures/ruins/jungle/main.js?v=1"></script>
+    <script src="structures/ruins/chest.js?v=1"></script>
+    <script src="mobs/passive/pig.js?v=1"></script>
+    <script src="mobs/passive/villager.js?v=1"></script>
+    <script src="mobs/neutral/wolf.js?v=1"></script>
+    <script src="mobs/neutral/panda.js?v=1"></script>
+    <script src="mobs/hostile/zombie.js?v=1"></script>
+    <script src="chat/commands/mobs/config.js?v=1"></script>
+    <script src="chat/commands/give/main.js?v=1"></script>
+    <script src="chat/commands/spawn/main.js?v=1"></script>
+    <script src="chat/commands/tp/main.js?v=1"></script>
+    <script src="chat/commands/time/main.js?v=1"></script>
+    <script src="chat/commands/help/main.js?v=1"></script>
+    <script src="chat/commands/height/main.js?v=1"></script>
+    <script src="chat/commands/set/reach.js?v=1"></script>
+    <script src="chat/commands/set/sensitivity.js?v=1"></script>
+    <script src="chat/commands/set/main.js?v=4"></script>
+    <script src="chat/commands/gamemode/main.js?v=1"></script>
+    <script src="chat/commands/grantme/main.js?v=1"></script>
+    <script src="chat/commands/ungrantme/main.js?v=1"></script>
+    <script src="chat/commands/enchant/main.js?v=1"></script>
+    <script src="chat/commands/commands.js?v=8"></script>
+    <script src="chat/main.js?v=8"></script>
+    <script src="trees/oak/default_oak.js?v=1"></script>
+    <script src="trees/oak/small_oak.js?v=1"></script>
+    <script src="trees/oak/large_oak.js?v=1"></script>
+    <script src="trees/jungle/small.js?v=1"></script>
+    <script src="trees/jungle/large.js?v=1"></script>
+    <script src="trees/oak/main.js?v=1"></script>
+    <script src="player/core.js?v=1"></script>
+    <script src="player/def-skin.js?v=1"></script>
+    <script src="player/mob-interactions.js?v=1"></script>
+    <script src="device/mobile/main.js?v=1"></script>
+    <script src="device/pc/main.js?v=1"></script>
+    <script src="mod/adapt_crosshair/main.js?v=2"></script>
+    <script src="mod/waypoints/main.js?v=1"></script>
+    <script src="loop/d-n_cycle.js?v=1"></script>
+    <script src="loop/d-to-g.js?v=1"></script>
+    <script src="loop/buckets/water.js?v=1"></script>
+    <script src="loop/buckets/lava.js?v=1"></script>
+    <script src="optimiations/render_budget.js?v=1"></script>
+    <script src="optimiations/chunk_remesh.js?v=1"></script>
+    <script src="optimiations/frustum_culling.js?v=1"></script>
+    <script src="optimiations/chunk_streaming.js?v=1"></script>
+
+    <script src="main.js?v=27"></script>
+    <script src="multiplayer/client.js?v=1"></script>
+    <!-- Removed external script links to ensure functionality in this single-file preview -->
+</head>
+<body>
+    <div id="info-panel">
+        <p><strong>MultiPixel 0.2.0 pre-classic</strong></p>
+        <a href="https://relimintor.github.io/MultiPixel-wiki/"
+            target="_blank"
+            class="text-blue-400 underline hover:text-blue-300">
+            MultiPixel wiki
+        </a>
+        <p><span id="fps-counter"></span></p>
+    </div>
+    <div id="hud" class="absolute inset-0 pointer-events-none z-20 flex flex-col justify-end items-center pb-2">
+        <div id="coordinates-display" class="absolute top-3 right-3 text-white text-sm font-mono px-2 py-1 rounded bg-black/55">XYZ: 0, 0, 0</div>
+        <div id="status-bars" class="flex items-end space-x-3 mb-2">
+            <div id="health-container" class="flex space-x-1"></div>
+            <div class="flex flex-col items-start space-y-1">
+                <div id="air-container" class="flex space-x-1" style="display: none;"></div>
+                <div id="hunger-container" class="flex space-x-1"></div>
+            </div>
+        </div>
+        <div id="hotbar" class="flex space-x-1 p-1 bg-black/40 rounded-lg pointer-events-auto">
+        </div>
+        <div id="game-message" class="absolute bottom-24 text-white font-bold text-shadow-md opacity-0 transition-opacity duration-1000"></div>
+    </div>
+    <div id="instructions" class="font-mono">
+        <p class="text-xl font-bold mb-2 text-yellow-400">Survival Mode</p>
+        <p>Movement: <span class="text-neon-green">W A S D</span></p>
+        <p>Jump: <span class="text-neon-green">SPACE</span></p>
+        <p>Sprint: <span class="text-neon-green">E + WASD</span></p>
+        <p>Break: <span class="text-neon-green">LMB</span> | Place: <span class="text-neon-green">RMB</span></p>
+        <p>Inventory: <span class="text-neon-green">Y</span> or <span class="text-neon-green">I</span></p>
+        <p>Scroll/1-9: <span class="text-neon-green">Select Item</span></p>
+        <p class="mt-3 text-sm text-gray-300">Choose controls:</p>
+        <div id="input-mode-buttons" class="mt-2 flex justify-center gap-3">
+            <button id="mode-mobile-btn" class="mode-btn">Mobile</button>
+            <button id="mode-pc-btn" class="mode-btn">PC</button>
+        </div>
+        <p class="mt-3 text-sm text-gray-400">Then tap/click to Start</p>
+    </div>
+    <div id="inventory-screen" class="hidden absolute inset-0 flex items-center justify-center z-[200]">
+        <div id="inventory-panel" class="menu-panel inventory-mode text-black font-sans pointer-events-auto">
+            <button id="inventory-close-btn" class="inventory-close-btn" type="button" aria-label="Close inventory">
+                <img id="inventory-close-icon" alt="close inventory" draggable="false" />
+            </button>
+            <button id="edit-skin-btn" class="edit-skin-btn" type="button" aria-label="Edit skin">
+                <img id="edit-skin-icon" alt="edit skin" draggable="false" />
+            </button>
+            <div id="inventory-skin-preview" aria-hidden="true">
+                <div id="inventory-skin-head"></div>
+            </div>
+
+            <div id="crafting-2x2-container" class="menu-top-layout">
+                <div id="crafting-input-grid" class="slot-grid grid-2x2"></div>
+                <div id="crafting-output-slot-container" class="slot-grid-single"></div>
+            </div>
+
+            <div id="crafting-3x3-container" class="menu-top-layout hidden">
+                <div id="crafting-table-grid" class="slot-grid grid-3x3"></div>
+                <div id="crafting-table-output-slot" class="slot-grid-single"></div>
+            </div>
+
+            <div id="menu-lower-inventory" class="menu-lower">
+                <div id="main-inventory-grid" class="slot-grid grid-9x3"></div>
+                <div id="inventory-hotbar-grid" class="slot-grid grid-9x1"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="furnace-screen" class="hidden absolute inset-0 flex items-center justify-center z-[210]">
+        <div id="furnace-workbench-panel" class="menu-panel furnace-mode text-black font-sans pointer-events-auto">
+            <button id="furnace-close-btn" class="inventory-close-btn" type="button" aria-label="Close furnace">
+                <img id="furnace-close-icon" alt="close furnace" draggable="false" />
+            </button>
+
+            <div id="furnace-top-layout" class="menu-top-layout">
+                <div id="furnace-input-slot" class="slot-grid-single"></div>
+                <div id="furnace-fuel-slot" class="slot-grid-single"></div>
+                <div id="furnace-output-slot" class="slot-grid-single"></div>
+            </div>
+
+            <div id="furnace-menu-lower" class="menu-lower">
+                <div id="furnace-main-inventory-grid" class="slot-grid grid-9x3"></div>
+                <div id="furnace-hotbar-grid" class="slot-grid grid-9x1"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="chest-screen" class="hidden absolute inset-0 flex items-center justify-center z-[210]">
+        <div id="chest-workbench-panel" class="menu-panel chest-mode text-black font-sans pointer-events-auto">
+            <button id="chest-close-btn" class="inventory-close-btn" type="button" aria-label="Close chest">
+                <img id="chest-close-icon" alt="close chest" draggable="false" />
+            </button>
+
+            <div id="chest-top-layout" class="menu-top-layout">
+                <div id="chest-grid" class="slot-grid grid-9x3"></div>
+            </div>
+
+            <div id="chest-menu-lower" class="menu-lower">
+                <div id="chest-main-inventory-grid" class="slot-grid grid-9x3"></div>
+                <div id="chest-hotbar-grid" class="slot-grid grid-9x1"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="creative-screen" class="hidden absolute inset-0 flex items-center justify-center z-[220]">
+        <div id="creative-panel" class="pointer-events-auto">
+            <button id="creative-close-btn" class="inventory-close-btn" type="button" aria-label="Close creative menu">
+                <img id="creative-close-icon" alt="close creative menu" draggable="false" />
+            </button>
+            <button id="creative-inventory-btn" type="button" aria-label="Open inventory from creative">
+                <img id="creative-inventory-icon" alt="open inventory" draggable="false" />
+            </button>
+            <div id="creative-item-grid" class="slot-grid grid-9x5"></div>
+            <div id="creative-hotbar-grid" class="slot-grid grid-9x1"></div>
+        </div>
+    </div>
+
+    <div id="mobile-controls" class="hidden">
+        <div id="mobile-joystick" class="mobile-btn-area">
+            <img id="mobile-joystick-bg" alt="joystick" draggable="false" />
+            <img id="mobile-joystick-center" alt="joystick center" draggable="false" />
+        </div>
+        <div id="mobile-right-controls" class="mobile-btn-area">
+            <img id="mobile-jump-btn" class="mobile-btn" alt="jump" draggable="false" />
+            <img id="mobile-inventory-btn" class="mobile-btn" alt="inventory" draggable="false" />
+            <img id="mobile-fast-btn" class="mobile-btn" alt="sprint" draggable="false" />
+            <img id="mobile-camera-btn" class="mobile-btn" alt="camera" draggable="false" />
+            <img id="mobile-chat-btn" class="mobile-btn" alt="chat" draggable="false" />
+        </div>
+    </div>
+    <div id="crosshair"></div>
+    <div id="breaking-overlay"></div>
+    <div id="held-item-cursor" style="opacity: 0;"></div>
+</body>
+</html>
