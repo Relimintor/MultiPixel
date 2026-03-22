@@ -1033,6 +1033,8 @@ window.perlin = perlinInstance;
                     label: document.createElement('div'),
                     isMining: false,
                     isMoving: false,
+                    targetPosition: null,
+                    targetRot: 0,
                 };
                 entry.label.className = 'chat-row chat-info';
                 entry.label.style.position = 'fixed';
@@ -1050,8 +1052,16 @@ window.perlin = perlinInstance;
             const z = Number(payload.z);
             const rot = Number(payload.rot);
             if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return;
-            entry.mesh.position.set(x, y, z);
-            if (Number.isFinite(rot)) entry.mesh.rotation.y = rot;
+            if (!entry.targetPosition) entry.targetPosition = new THREE.Vector3(x, y, z);
+            entry.targetPosition.set(x, y, z);
+            if (!entry.mesh.userData?.hasSpawnedPosition) {
+                entry.mesh.position.set(x, y, z);
+                entry.mesh.userData = { ...(entry.mesh.userData || {}), hasSpawnedPosition: true };
+            }
+            if (Number.isFinite(rot)) {
+                entry.targetRot = rot;
+                if (!Number.isFinite(entry.mesh.rotation.y)) entry.mesh.rotation.y = rot;
+            }
             entry.isMining = Boolean(payload.mining);
             entry.isMoving = Boolean(payload.moving);
         }
@@ -1135,8 +1145,19 @@ window.perlin = perlinInstance;
             };
         }
 
-        function updateRemotePlayerAnimations(time) {
+        function updateRemotePlayerAnimations(time, deltaMs = 16) {
             remotePlayers.forEach((entry) => {
+                if (entry?.targetPosition && entry?.mesh?.position) {
+                    const lerpAlpha = 1 - Math.exp(-Math.max(0, deltaMs) / 85);
+                    entry.mesh.position.lerp(entry.targetPosition, Math.max(0.05, Math.min(0.65, lerpAlpha)));
+                }
+                if (Number.isFinite(entry?.targetRot)) {
+                    const currentRot = Number(entry.mesh.rotation.y) || 0;
+                    let deltaRot = entry.targetRot - currentRot;
+                    while (deltaRot > Math.PI) deltaRot -= Math.PI * 2;
+                    while (deltaRot < -Math.PI) deltaRot += Math.PI * 2;
+                    entry.mesh.rotation.y = currentRot + deltaRot * 0.2;
+                }
                 const rig = entry?.mesh?.userData?.remoteRig;
                 if (!rig) return;
                 const moveSwing = entry.isMoving ? Math.sin(time * 0.015) * 0.7 : 0;
@@ -7473,7 +7494,7 @@ window.perlin = perlinInstance;
                     persistedWorldFlushTimerMs = 0;
                 }
             }
-            updateRemotePlayerAnimations(time);
+            updateRemotePlayerAnimations(time, delta);
             refreshRemotePlayerLabels();
             renderOnlinePlayersOverlay();
             renderer.render(scene, camera);
