@@ -585,6 +585,23 @@ body {
 .chat-player { color: #f1f1f1; }
 .chat-info { color: #9cc3ff; }
 
+.online-players-overlay {
+    position: fixed;
+    top: 14px;
+    right: 14px;
+    z-index: 250;
+    min-width: 140px;
+    max-width: 260px;
+    padding: 8px 10px;
+    color: #f4f7ff;
+    background: rgba(10, 15, 25, 0.78);
+    border: 1px solid rgba(147, 169, 255, 0.45);
+    border-radius: 6px;
+    font: 12px/1.4 monospace;
+    text-shadow: 1px 1px 0 #000;
+    pointer-events: none;
+}
+
 #firstperson-hand {
     display: none;
     position: fixed;
