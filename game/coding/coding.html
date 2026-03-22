@@ -256,7 +256,7 @@
 
     <!-- Header / Title -->
     <div class="max-w-7xl mx-auto mb-4">
-        <h1 class="text-3xl font-bold text-white tracking-wider">MultiRaptor IDE (<span class="text-blue-400">M.R.I.D.E.</span>) <span class="text-xl text-gray-500">(v6.0 - Advanced AST Interpreter)
+        <h1 class="text-3xl font-bold text-white tracking-wider">MultiRaptor IDE (<span class="text-blue-400">M.R.I.D.E.</span>) <span class="text-xl text-gray-500">(v7.0 - Dual Runtime + Visualizer)
                     <span id="info-icon" class="ml-2 inline-block cursor-pointer text-blue-400 hover:text-white transition duration-150 relative">
                         <!-- Info Icon SVG -->
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
@@ -340,11 +340,21 @@
                  <!-- Editor Header (Tab Bar Style) -->
                 <div id="editor-header" class="flex justify-between items-center bg-[#252526] p-2 border-b border-[#3c3c3c]">
                     <span id="current-file-name" class="text-white text-sm font-medium ml-2 px-2 py-1 bg-[#1e1e1e] rounded-t-md border-t border-l border-r border-[#3c3c3c]">main.mr</span>
-                    <button id="run-button" onclick="runInterpreter(false)"
-                            class="run-button-accent text-white text-xs font-bold py-1.5 px-4 rounded transition duration-150 ease-in-out">
-                        <svg class="w-4 h-4 inline mr-1 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 12.016v3.31a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                        Run Code
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <select id="syntax-mode-selector" class="bg-[#1e1e1e] text-gray-200 text-xs border border-[#3c3c3c] rounded px-2 py-1.5">
+                            <option value="AST-RAPTOR">Raptor AST</option>
+                            <option value="JAVASCRIPT">JavaScript</option>
+                        </select>
+                        <button id="visualize-button" onclick="switchTab('visualizer')"
+                                class="text-white text-xs font-bold py-1.5 px-3 rounded bg-violet-600 hover:bg-violet-700 transition duration-150 ease-in-out">
+                            Visualizer
+                        </button>
+                        <button id="run-button" onclick="runInterpreter(false)"
+                                class="run-button-accent text-white text-xs font-bold py-1.5 px-4 rounded transition duration-150 ease-in-out">
+                            <svg class="w-4 h-4 inline mr-1 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 12.016v3.31a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            Run Code
+                        </button>
+                    </div>
                 </div>
                 <textarea id="code-input" class="code-editor" spellcheck="false"></textarea>
             </div>
@@ -360,6 +370,8 @@
                             class="tab-button active">Terminal</button>
                     <button id="tab-console" onclick="switchTab('console')" 
                             class="tab-button">Program Output</button>
+                    <button id="tab-visualizer" onclick="switchTab('visualizer')" 
+                            class="tab-button">Visualizer</button>
                     <div class="flex-grow bg-[#1e1e1e]"></div>
                 </div>
 
@@ -371,6 +383,11 @@
                 <!-- Console Tab Content -->
                 <div id="console-pane" class="console-tab-content p-4" style="display: none;">
                     <div id="console-output"></div>
+                </div>
+
+                <!-- Visualizer Tab Content -->
+                <div id="visualizer-pane" class="console-tab-content p-3" style="display: none;">
+                    <canvas id="visualizer-canvas" width="1200" height="700" class="w-full h-full bg-[#111827] border border-[#3c3c3c] rounded"></canvas>
                 </div>
 
                  <!-- CLI Input (Only visible in Terminal tab) -->
@@ -409,6 +426,10 @@
         const consolePane = document.getElementById('console-pane');
         const tabTerminal = document.getElementById('tab-terminal');
         const tabConsole = document.getElementById('tab-console');
+        const tabVisualizer = document.getElementById('tab-visualizer');
+        const visualizerPane = document.getElementById('visualizer-pane');
+        const visualizerCanvas = document.getElementById('visualizer-canvas');
+        const syntaxModeSelector = document.getElementById('syntax-mode-selector');
         
         // Modal Elements
         const actionDialog = document.getElementById('action-dialog');
@@ -424,6 +445,13 @@
         
         // Global state
         let currentSyntaxMode = 'AST-RAPTOR'; 
+        const visualizerState = {
+            width: 16,
+            depth: 16,
+            height: 8,
+            blocks: new Map(),
+            cameraRotation: 0
+        };
         let currentTab = 'terminal';
         let currentFile = 'main.mr'; // Full path: main.mr
         let isResizing = false;
@@ -513,6 +541,35 @@ proc proc_demo() {
 
 // 9. GLOBAL STATEMENT (Code outside proc_demo, executed on 2nd pass)
 Signal("Global statements loaded successfully.");
+`
+            },
+            'GUIDE.mr': {
+                type: 'file',
+                content: `
+// MultiRaptor Guide
+// - Use rap mode js to switch to JavaScript-compatible runtime.
+// - Use rap mode raptor to return to AST-RAPTOR runtime.
+// - Use the Visualizer tab plus Game.* APIs from JavaScript mode.
+`
+            },
+            'minecraft_demo.js': {
+                type: 'file',
+                content: `
+// JavaScript runtime demo: small voxel village.
+Game.createVoxelWorld(24, 24, 10);
+Game.fillRect(0, 0, 23, 23, 0, 'grass');
+
+for (let x = 3; x <= 8; x++) {
+  for (let z = 3; z <= 8; z++) {
+    Game.setBlock(x, 1, z, 'stone');
+  }
+}
+
+Game.buildHouse({ x: 4, z: 4, width: 4, depth: 4, height: 3, wall: 'wood', roof: 'brick' });
+Game.buildTree(14, 1, 12);
+Game.buildTree(18, 1, 16);
+Game.signal('Visualizer world generated. Open the Visualizer tab.');
+Game.render();
 `
             },
             'src': { 
@@ -1439,10 +1496,121 @@ Signal("Config loaded. Version: " + VERSION);
             return files;
         }
 
-        function runInterpreter(isCliRun = false) {
+        
+        function getAllProjectFiles() {
+            const files = flattenFileSystem(fileSystem);
+            return Object.entries(files).map(([path, content]) => ({ path, content }));
+        }
+
+        function renderVisualizer() {
+            const ctx = visualizerCanvas.getContext('2d');
+            const { width, height } = visualizerCanvas;
+            ctx.clearRect(0, 0, width, height);
+            ctx.fillStyle = '#0f172a';
+            ctx.fillRect(0, 0, width, height);
+
+            const tileW = 28;
+            const tileH = 14;
+            const originX = width / 2;
+            const originY = 110;
+
+            const colors = {
+                grass: '#4ade80', dirt: '#b45309', stone: '#94a3b8', wood: '#a16207', leaves: '#22c55e',
+                brick: '#ef4444', glass: '#93c5fd', water: '#38bdf8', sand: '#fde68a', lava: '#f97316'
+            };
+
+            const entries = [...visualizerState.blocks.entries()].map(([key, type]) => {
+                const [x, y, z] = key.split(',').map(Number);
+                return { x, y, z, type };
+            }).sort((a, b) => (a.x + a.z + a.y) - (b.x + b.z + b.y));
+
+            for (const block of entries) {
+                const color = colors[block.type] || '#e5e7eb';
+                const rx = visualizerState.cameraRotation % 4;
+                let x = block.x, z = block.z;
+                if (rx === 1) [x, z] = [z, visualizerState.width - 1 - x];
+                if (rx === 2) [x, z] = [visualizerState.width - 1 - x, visualizerState.depth - 1 - z];
+                if (rx === 3) [x, z] = [visualizerState.depth - 1 - z, x];
+
+                const screenX = originX + (x - z) * tileW;
+                const screenY = originY + (x + z) * tileH - block.y * 16;
+
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.moveTo(screenX, screenY);
+                ctx.lineTo(screenX + tileW, screenY + tileH);
+                ctx.lineTo(screenX, screenY + tileH * 2);
+                ctx.lineTo(screenX - tileW, screenY + tileH);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.fillStyle = 'rgba(0,0,0,0.18)';
+                ctx.fillRect(screenX - tileW, screenY + tileH, tileW, tileH + 8);
+                ctx.fillRect(screenX, screenY + tileH, tileW, tileH + 8);
+            }
+        }
+
+        function createGameApi() {
+            const put = (x, y, z, type) => {
+                const ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z);
+                if (ix < 0 || iy < 0 || iz < 0 || ix >= visualizerState.width || iz >= visualizerState.depth || iy >= visualizerState.height) return;
+                visualizerState.blocks.set(`${ix},${iy},${iz}`, String(type || 'stone'));
+            };
+
+            return {
+                createVoxelWorld(width = 16, depth = 16, height = 8) {
+                    visualizerState.width = Math.max(4, Math.floor(width));
+                    visualizerState.depth = Math.max(4, Math.floor(depth));
+                    visualizerState.height = Math.max(4, Math.floor(height));
+                    visualizerState.blocks.clear();
+                },
+                setBlock: put,
+                fillRect(x1, z1, x2, z2, y = 0, type = 'grass') {
+                    for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) {
+                        for (let z = Math.min(z1, z2); z <= Math.max(z1, z2); z++) put(x, y, z, type);
+                    }
+                },
+                buildHouse({ x = 0, z = 0, width = 4, depth = 4, height = 3, wall = 'wood', roof = 'brick' } = {}) {
+                    for (let ix = x; ix < x + width; ix++) for (let iz = z; iz < z + depth; iz++) put(ix, 1, iz, 'stone');
+                    for (let y = 2; y < 2 + height; y++) {
+                        for (let ix = x; ix < x + width; ix++) { put(ix, y, z, wall); put(ix, y, z + depth - 1, wall); }
+                        for (let iz = z; iz < z + depth; iz++) { put(x, y, iz, wall); put(x + width - 1, y, iz, wall); }
+                    }
+                    for (let ix = x - 1; ix <= x + width; ix++) for (let iz = z - 1; iz <= z + depth; iz++) put(ix, 2 + height, iz, roof);
+                    put(x + 1, 2, z, 'glass');
+                },
+                buildTree(x, y, z) {
+                    for (let h = 0; h < 4; h++) put(x, y + h, z, 'wood');
+                    for (let ix = x - 1; ix <= x + 1; ix++) for (let iz = z - 1; iz <= z + 1; iz++) put(ix, y + 4, iz, 'leaves');
+                    put(x, y + 5, z, 'leaves');
+                },
+                rotateCamera(step = 1) {
+                    visualizerState.cameraRotation = (visualizerState.cameraRotation + step + 4) % 4;
+                },
+                signal(message) { __mr_console_log(String(message), 'program'); },
+                render() { renderVisualizer(); switchTab('visualizer'); },
+                clear() { visualizerState.blocks.clear(); }
+            };
+        }
+
+        function runJavaScriptProject() {
+            const files = getAllProjectFiles().filter((f) => f.path.endsWith('.js'));
+            if (files.length === 0) throw new Error("No .js files found. Create one and try again.");
+            const gameApi = createGameApi();
+            for (const file of files) {
+                const wrapped = `
+//# sourceURL=${file.path}
+` + file.content;
+                const fn = new Function('Game', 'Signal', wrapped);
+                fn(gameApi, (msg) => __mr_console_log(String(msg), 'program'));
+            }
+            renderVisualizer();
+        }
+
+function runInterpreter(isCliRun = false) {
             if (!isCliRun) {
                 consoleOutput.innerHTML = '';
-                __mr_console_log(`Executing MultiRaptor code in ${currentSyntaxMode} mode...`, 'cli_output');
+                __mr_console_log(`Executing project in ${currentSyntaxMode} mode...`, 'cli_output');
             }
             runButton.disabled = true;
             runButton.textContent = 'Parsing...';
@@ -1453,30 +1621,39 @@ Signal("Config loaded. Version: " + VERSION);
                  currentFileNode.content = codeInput.value;
             }
 
-            // 2. Combine all file contents
+            // 2. Combine runtime-relevant file contents
             const allFiles = flattenFileSystem(fileSystem);
             let combinedCode = '';
-            
-            Object.keys(allFiles).forEach(fileName => {
-                combinedCode += `\n\n// --- File: ${fileName} ---\n` + allFiles[fileName] + '\n';
-            });
+            const runtimeExtension = currentSyntaxMode === 'JAVASCRIPT' ? '.js' : '.mr';
+
+            Object.keys(allFiles)
+                .filter((fileName) => fileName.endsWith(runtimeExtension))
+                .forEach((fileName) => {
+                    combinedCode += `\n\n// --- File: ${fileName} ---\n` + allFiles[fileName] + '\n';
+                });
             
             // 3. Tokenize, Parse, and Interpret
             setTimeout(() => {
                 try {
-                    runButton.textContent = 'Tokenizing...';
-                    const tokenizer = new Tokenizer(combinedCode);
-                    const tokens = tokenizer.tokenize();
-                    __mr_console_log(`[Tokenizer Success] ${tokens.length} tokens generated.`, 'cli_output');
+                    if (currentSyntaxMode === 'JAVASCRIPT') {
+                        runButton.textContent = 'Running JS...';
+                        runJavaScriptProject();
+                        __mr_console_log('[JavaScript Runtime] Completed successfully.', 'cli_output');
+                    } else {
+                        runButton.textContent = 'Tokenizing...';
+                        const tokenizer = new Tokenizer(combinedCode);
+                        const tokens = tokenizer.tokenize();
+                        __mr_console_log(`[Tokenizer Success] ${tokens.length} tokens generated.`, 'cli_output');
 
-                    runButton.textContent = 'Parsing...';
-                    const parser = new Parser(tokens);
-                    const ast = parser.parse();
-                    __mr_console_log(`[Parser Success] AST generated.`, 'cli_output');
-                    
-                    runButton.textContent = 'Interpreting...';
-                    const interpreter = new Interpreter(ast, __mr_console_log);
-                    interpreter.interpret();
+                        runButton.textContent = 'Parsing...';
+                        const parser = new Parser(tokens);
+                        const ast = parser.parse();
+                        __mr_console_log(`[Parser Success] AST generated.`, 'cli_output');
+
+                        runButton.textContent = 'Interpreting...';
+                        const interpreter = new Interpreter(ast, __mr_console_log);
+                        interpreter.interpret();
+                    }
 
                 } catch (e) {
                     if (e instanceof ReturnValue) {
@@ -1645,8 +1822,8 @@ Signal("Config loaded. Version: " + VERSION);
             let targetPath = dialogTargetPath;
             let finalName = fileName;
 
-            if (!finalName.toLowerCase().endsWith('.mr')) {
-                finalName += '.mr';
+            if (!finalName.includes('.')) {
+                finalName += currentSyntaxMode === 'JAVASCRIPT' ? '.js' : '.mr';
             }
             
             const fullPath = targetPath ? `${targetPath}/${finalName}` : finalName;
@@ -1675,7 +1852,8 @@ Signal("Config loaded. Version: " + VERSION);
 // =======================================================
 // MultiRaptor New File: ${fullPath}
 // =======================================================
-// Add your definitions (proc/def) here.
+// Add your code here.
+// JavaScript mode exposes Game.* APIs for voxel visualization.
 `
             };
             
@@ -1819,8 +1997,10 @@ Signal("Config loaded. Version: " + VERSION);
             currentTab = tabName;
             tabTerminal.classList.remove('active');
             tabConsole.classList.remove('active');
+            tabVisualizer.classList.remove('active');
             terminalPane.style.display = 'none';
             consolePane.style.display = 'none';
+            visualizerPane.style.display = 'none';
             cliInputWrapper.style.display = 'none';
 
             if (tabName === 'terminal') {
@@ -1828,9 +2008,13 @@ Signal("Config loaded. Version: " + VERSION);
                 tabTerminal.classList.add('active');
                 cliInputWrapper.style.display = 'flex';
                 cliInput.focus();
-            } else {
+            } else if (tabName === 'console') {
                 consolePane.style.display = 'block';
                 tabConsole.classList.add('active');
+            } else {
+                visualizerPane.style.display = 'block';
+                tabVisualizer.classList.add('active');
+                renderVisualizer();
             }
         }
 
@@ -1877,12 +2061,19 @@ Supported features:
 - Built-in Math object access (e.g., Math.PI, Math.pow(x, y))
 - Variable Assignment: variable = expression;
 
-CLI: rap run, rap help, rap doctor
+CLI: rap run, rap help, rap doctor, rap mode <js|raptor>, rap viz
 `;
             __mr_console_log(raptorHelp.trim(), 'program');
         }
         
-        function handleCliCommand() {
+        
+        function updateSyntaxMode(nextMode) {
+            currentSyntaxMode = nextMode;
+            syntaxModeSelector.value = nextMode;
+            __mr_console_log(`Runtime switched to ${nextMode}.`, 'cli_output');
+        }
+
+function handleCliCommand() {
             const command = cliInput.value.trim();
             if (!command) return;
 
@@ -1919,6 +2110,19 @@ CLI: rap run, rap help, rap doctor
                     __mr_console_log(`   > Core dependencies: OK`, 'cli_output');
                     __mr_console_log(`   > Interpreter Mode: ${currentSyntaxMode}`, 'cli_output');
                     __mr_console_log(`   > Environment: All systems nominal.`, 'cli_output');
+                    break;
+
+                case 'mode': {
+                    const rawMode = (parts[2] || '').toLowerCase();
+                    if (rawMode === 'js' || rawMode === 'javascript') updateSyntaxMode('JAVASCRIPT');
+                    else if (rawMode === 'raptor' || rawMode === 'mr') updateSyntaxMode('AST-RAPTOR');
+                    else __mr_console_log(`Usage: rap mode <js|raptor>`, 'cli_output');
+                    break;
+                }
+
+                case 'viz':
+                    switchTab('visualizer');
+                    __mr_console_log(`Visualizer tab opened.`, 'cli_output');
                     break;
 
                 default:
@@ -2039,15 +2243,22 @@ CLI: rap run, rap help, rap doctor
 
 
             infoTooltip.textContent = 
-`MultiRaptor v6.0 IDE: Advanced AST Interpreter Core.
-- Execution is now handled by a custom Tokenizer, Parser, and Scope-based Interpreter.
-- Supports variables (vault/seal), procedures (proc), Signal(), loops/branches, booleans, and advanced expressions.
-- This is a proper compiler/interpreter foundation!`;
+`MultiRaptor v7.0 IDE: Dual Runtime + Visualizer.
+- AST-RAPTOR runtime uses custom Tokenizer, Parser, and Scope-based Interpreter.
+- JavaScript runtime supports modern JS syntax and exposes Game.* voxel APIs.
+- Use Visualizer tab to render a voxel scene (Minecraft-style prototyping).`;
             
             infoIcon.onmouseenter = () => infoTooltip.classList.remove('hidden');
             infoIcon.onmouseleave = () => infoTooltip.classList.add('hidden');
             
-            __mr_console_log("Welcome to MultiRaptor IDE v6.0. Advanced language features are online.", 'cli_output');
+            syntaxModeSelector.addEventListener('change', (event) => updateSyntaxMode(event.target.value));
+            visualizerCanvas.addEventListener('click', () => {
+                const api = createGameApi();
+                api.rotateCamera(1);
+                api.render();
+            });
+
+            __mr_console_log("Welcome to MultiRaptor IDE v7.0. Dual runtimes and visualizer are online.", 'cli_output');
             cliInput.focus();
         }
         
