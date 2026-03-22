@@ -64,6 +64,14 @@
 
     const parts = rawInput.trim().split(/\s+/);
     const command = (parts[0] || '').toLowerCase();
+    const restrictedMode = Boolean(ctx?.isRestrictedCommandsMode);
+    const bypassCommands = new Set(['/set', '/grantme', '/ungrantme', '/help']);
+    if (restrictedMode && !bypassCommands.has(command)) {
+      const hasPrivs = Boolean(ctx?.hasCommandPrivileges?.());
+      if (!hasPrivs) {
+        return { handled: true, ok: false, message: 'Command locked in 1d4p. Use /grantme all first.' };
+      }
+    }
 
     if (command === '/give' && window.SingleplayerChatCommandGive?.execute) {
       return window.SingleplayerChatCommandGive.execute(parts, ctx);
