@@ -228,6 +228,20 @@
     /*Glass*/
     BLACK_STAINED_GLASS: getAssetPath('textures/glass/black_stained_glass.png'),
     GREEN_STAINED_GLASS: getAssetPath('textures/glass/green_stained_glass.png'),
+    WHITE_STAINED_GLASS: getAssetPath('textures/glass/white_stained_glass.png'),
+    PINK_STAINED_GLASS: getAssetPath('textures/glass/pink_stained_glass.png'),
+    YELLOW_STAINED_GLASS: getAssetPath('textures/glass/yellow_stained_glass.png'),
+    RED_STAINED_GLASS: getAssetPath('textures/glass/red_stained_glass.png'),
+    PURPLE_STAINED_GLASS: getAssetPath('textures/glass/purple_stained_glass.png'),
+    LIGHT_BLUE_STAINED_GLASS: getAssetPath('textures/glass/light_blue_stained_glass.png'),
+    BLUE_STAINED_GLASS: getAssetPath('textures/glass/blue_stained_glass.png'),
+    LIME_STAINED_GLASS: getAssetPath('textures/glass/lime_stained_glass.png'),
+    ORANGE_STAINED_GLASS: getAssetPath('textures/glass/orange_stained_glass.png'),
+    MAGENTA_STAINED_GLASS: getAssetPath('textures/glass/magenta_stained_glass.png'),
+    CYAN_STAINED_GLASS: getAssetPath('textures/glass/cyan_stained_glass.png'),
+    GRAY_STAINED_GLASS: getAssetPath('textures/glass/gray_stained_glass.png'),
+    LIGHT_GRAY_STAINED_GLASS: getAssetPath('textures/glass/light_gray_stained_glass.png'),
+    BROWN_STAINED_GLASS: getAssetPath('textures/glass/brown_stained_glass.png'),
     
     /*Pickaxes*/
     WOODEN_PICKAXE: getAssetPath('textures/item/tool/pickaxe/wooden_pickaxe.png'),
@@ -769,7 +783,7 @@
     ...(sideConfig.SIDE_BLOCK_MATERIALS || sideConfig.FLOWER_BLOCK_MATERIALS || {}),
   };
 
-  const solidBlocks = [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 108, 110, 113, 114, 119, 222 ];
+  const solidBlocks = [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 108, 110, 113, 114, 119, 222, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 156, 157, 158 ];
 
   window.SingleplayerConfig = {
     CHUNK_SIZE, CHUNK_HEIGHT, WORLD_RADIUS, BLOCK_SIZE, SEA_LEVEL, BASE_LAND_Y, ISLAND_RADIUS,
