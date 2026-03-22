@@ -69,6 +69,17 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('playerMove', updated);
   });
 
+
+  socket.on('blockUpdate', (payload) => {
+    const x = Number(payload?.x);
+    const y = Number(payload?.y);
+    const z = Number(payload?.z);
+    const type = Number(payload?.type);
+    if (![x, y, z, type].every(Number.isFinite)) return;
+
+    socket.broadcast.emit('blockUpdate', { x, y, z, type });
+  });
+
   socket.on('chat', (payload) => {
     const text = String(payload?.text || '').trim();
     if (!text) return;

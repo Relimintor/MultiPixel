@@ -38,6 +38,17 @@
     return true;
   }
 
+  function sendBlockChange(payload) {
+    if (!socket || !isConnected) return false;
+    const x = Number(payload?.x);
+    const y = Number(payload?.y);
+    const z = Number(payload?.z);
+    const type = Number(payload?.type);
+    if (![x, y, z, type].every(Number.isFinite)) return false;
+    socket.emit('blockUpdate', { x, y, z, type });
+    return true;
+  }
+
   function attachSocketEvents() {
     socket.on('connect', () => {
       isConnected = true;
@@ -81,6 +92,10 @@
       getBridge()?.removeOtherPlayer?.(id);
     });
 
+    socket.on('blockUpdate', (payload) => {
+      getBridge()?.applyNetworkBlockChange?.(payload);
+    });
+
     socket.on('chat', (message) => {
       getBridge()?.pushNetworkChatMessage?.({
         text: message?.text,
@@ -109,6 +124,7 @@
   window.MultiPixelMultiplayerClient = {
     init,
     sendChatMessage,
+    sendBlockChange,
   };
 
   window.addEventListener('load', () => {

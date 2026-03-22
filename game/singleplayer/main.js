@@ -35,6 +35,8 @@
         const SpawnLighting = window.SpawnLighting || {};
 
         window.__SINGLEPLAYER_BUILD__ = 'sp-2026-03-01-06';
+        const MULTIPLAYER_WORLD_SEED = 1311652885;
+        const IS_1D4P_MULTIPLAYER = /(?:^|\/)1d4p\.html$/i.test(window.location?.pathname || '');
         console.info('[Singleplayer build]', window.__SINGLEPLAYER_BUILD__);
 
         const TerrainModules = {
@@ -223,10 +225,9 @@
         }
 
         function resolveWorldSeed() {
-            // Always use a fresh random seed per game load so terrain changes each time.
-            // Optional override: if WORLD_GEN_SETTINGS.seed is provided, honor that value.
             const configuredSeed = normalizeWorldSeed(worldGenSettings.seed);
             if (configuredSeed) return configuredSeed;
+            if (IS_1D4P_MULTIPLAYER) return MULTIPLAYER_WORLD_SEED;
             return Math.floor(Math.random() * 2147483646) + 1;
         }
 
@@ -785,7 +786,7 @@ window.perlin = perlinInstance;
 
         function ensureRemotePlayerAssets() {
             if (!remotePlayerGeometry) {
-                remotePlayerGeometry = new THREE.CapsuleGeometry(0.38, 1.0, 4, 8);
+                remotePlayerGeometry = new THREE.BoxGeometry(0.7, 1.8, 0.55);
             }
             if (!remotePlayerMaterial) {
                 remotePlayerMaterial = new THREE.MeshStandardMaterial({ color: 0x40c9ff, emissive: 0x06263a });
@@ -872,6 +873,19 @@ window.perlin = perlinInstance;
             };
         }
 
+        function applyNetworkBlockChange(payload) {
+            const wx = Number(payload?.x);
+            const wy = Number(payload?.y);
+            const wz = Number(payload?.z);
+            const type = Number(payload?.type);
+            if (![wx, wy, wz, type].every(Number.isFinite)) return false;
+            return modifyWorld(new THREE.Vector3(wx, wy, wz), type, {
+                dropItems: false,
+                skipNetwork: true,
+                force: true,
+            });
+        }
+
         function installMultiplayerBridge() {
             window.MultiPixelMultiplayerBridge = {
                 getLocalPlayerState: getLocalMultiplayerState,
@@ -880,6 +894,7 @@ window.perlin = perlinInstance;
                 pushNetworkChatMessage(payload) {
                     window.SingleplayerChat?.receiveNetworkMessage?.(payload);
                 },
+                applyNetworkBlockChange,
             };
         }
 
@@ -3505,6 +3520,12 @@ window.perlin = perlinInstance;
                 }
             }
 
+        function emitNetworkBlockChange(wx, wy, wz, type) {
+            if (!IS_1D4P_MULTIPLAYER) return;
+            window.MultiPixelMultiplayerClient?.sendBlockChange?.({ x: wx, y: wy, z: wz, type });
+        }
+
+
         function modifyWorld(posVector, newType, options = {}) {
             const wx = Math.floor(posVector.x);
             const wy = Math.floor(posVector.y);
@@ -3519,17 +3540,23 @@ window.perlin = perlinInstance;
 
             const lx = wx - cx * CHUNK_SIZE;
             const lz = wz - cz * CHUNK_SIZE;
-            
+
             if (wy < 0 || wy >= CHUNK_HEIGHT) return false;
 
             const index = lx + wy * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
             const chunkData = group.userData.chunkData;
-            
+
             const oldType = chunkData[index];
-            
+            const forceApply = options.force === true;
+            const shouldBroadcast = options.skipNetwork !== true;
+
             if (newType === 0) {
-                if (oldType === 0 || oldType === 4) return false;
-                if (blockMaterials[oldType]?.unbreakable) return false;
+                if (!forceApply) {
+                    if (oldType === 0 || oldType === 4) return false;
+                    if (blockMaterials[oldType]?.unbreakable) return false;
+                } else if (oldType === 0) {
+                    return false;
+                }
 
                 const shouldDrop = options.dropItems !== false;
                 if (shouldDrop) {
@@ -3539,8 +3566,8 @@ window.perlin = perlinInstance;
                 chunkData[index] = 0;
                 emitBreakParticles(wx, wy, wz, 14, true);
             } else {
-               
-                if (oldType !== 0 && oldType !== 4) return false; 
+                if (!forceApply && oldType !== 0 && oldType !== 4) return false;
+                if (oldType === newType) return false;
                 chunkData[index] = newType;
             }
 
@@ -3548,10 +3575,12 @@ window.perlin = perlinInstance;
 
             if (chunkData[index] === 0 && isChunkAllAir(chunkData)) {
                 convertChunkToSparseAir(group);
+                if (shouldBroadcast) emitNetworkBlockChange(wx, wy, wz, 0);
                 return true;
             }
 
             updateChunkAndNeighbors(group, lx, lz);
+            if (shouldBroadcast) emitNetworkBlockChange(wx, wy, wz, chunkData[index]);
             return true;
         }
 
