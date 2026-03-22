@@ -195,6 +195,20 @@
     //dyes
     BLACK_DYE: getAssetPath('textures/item/black_dye.png'),
     GREEN_DYE: getAssetPath('textures/item/green_dye.png'),
+    WHITE_DYE: getAssetPath('textures/item/white_dye.png'),
+    PINK_DYE: getAssetPath('textures/item/pink_dye.png'),
+    YELLOW_DYE: getAssetPath('textures/item/yellow_dye.png'),
+    RED_DYE: getAssetPath('textures/item/red_dye.png'),
+    PURPLE_DYE: getAssetPath('textures/item/purple_dye.png'),
+    LIGHT_BLUE_DYE: getAssetPath('textures/item/light_blue_dye.png'),
+    BLUE_DYE: getAssetPath('textures/item/blue_dye.png'),
+    LIME_DYE: getAssetPath('textures/item/lime_dye.png'),
+    ORANGE_DYE: getAssetPath('textures/item/orange_dye.png'),
+    MAGENTA_DYE: getAssetPath('textures/item/magenta_dye.png'),
+    CYAN_DYE: getAssetPath('textures/item/cyan_dye.png'),
+    GRAY_DYE: getAssetPath('textures/item/gray_dye.png'),
+    LIGHT_GRAY_DYE: getAssetPath('textures/item/light_gray_dye.png'),
+    BROWN_DYE: getAssetPath('textures/item/brown_dye.png'),
     
     /*Ice*/
     ICE: getAssetPath('textures/ice.png'),
@@ -648,6 +662,21 @@
     /*Dyes*/
     57: { name: 'Black Dye', id: 57, textured: true, textureKey: 'BLACK_DYE' },
     58: { name: 'Green Dye', id: 58, textured: true, textureKey: 'GREEN_DYE' },
+    107: { name: 'White Dye', id: 107, textured: true, textureKey: 'WHITE_DYE' },
+    120: { name: 'Pink Dye', id: 120, textured: true, textureKey: 'PINK_DYE' },
+    126: { name: 'Yellow Dye', id: 126, textured: true, textureKey: 'YELLOW_DYE' },
+    134: { name: 'Red Dye', id: 134, textured: true, textureKey: 'RED_DYE' },
+    135: { name: 'Purple Dye', id: 135, textured: true, textureKey: 'PURPLE-DYE' },
+    136: { name: 'Light Blue Dye', id: 136, textured: true, textureKey: 'LIGHT_BLUE_DYE' },
+    137: { name: 'Blue Dye', id: 137, textured: true, textureKey: 'BLUE_DYE' },
+    138: { name: 'Lime Dye', id: 138, textured: true, textureKey: 'LIME_DYE' },
+    139: { name: 'Orange Dye', id: 139, textured: true, textureKey: 'ORANGE_DYE' },
+    140: { name: 'Magenta Dye', id: 140, textured: true, textureKey: 'MAGENTA_DYE' },
+    141: { name: 'Cyan dye', id: 141, textured: true, textureKey: 'CYAN_DYE' },
+    142: { name: 'Gray Dye', id: 142, textured: true, textureKey: 'GRAY_DYE' },
+    143: { name: 'light Grey Dye', id: 143, textured: true, textureKey: 'LIGHT_GRAY_DYE' },
+    144: { name: 'Brown Dye', id: 144, textured: true, textureKey: 'BROWN_DYE' },
+     
 
     /*Items*/
     56: { name: 'Emerald', id: 56, textured: true, textureKey: 'EMERALD' },
