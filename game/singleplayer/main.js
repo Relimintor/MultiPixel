@@ -2035,11 +2035,20 @@ window.perlin = perlinInstance;
 
         function spawnDroppedItem(itemId, count = 1) {
             if (!scene || !yawObject || !Number.isFinite(itemId) || itemId <= 0 || count <= 0) return false;
-            const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.26, 0.26), getDroppedItemMeshMaterial(itemId));
             const angle = yawObject.rotation.y || 0;
-            const spawnX = yawObject.position.x + Math.sin(angle) * 0.9;
-            const spawnZ = yawObject.position.z + Math.cos(angle) * 0.9;
+            const spawnX = yawObject.position.x + Math.sin(angle) * 1.9;
+            const spawnZ = yawObject.position.z + Math.cos(angle) * 1.9;
             const spawnY = yawObject.position.y + 0.52;
+            for (const drop of droppedWorldItems) {
+                if (!drop?.mesh || drop.itemId !== itemId) continue;
+                const dx = drop.mesh.position.x - spawnX;
+                const dz = drop.mesh.position.z - spawnZ;
+                if ((dx * dx + dz * dz) > 2.25) continue;
+                drop.count += count;
+                drop.spawnedAt = performance.now();
+                return true;
+            }
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.26, 0.26), getDroppedItemMeshMaterial(itemId));
             mesh.position.set(spawnX, spawnY, spawnZ);
             scene.add(mesh);
             droppedWorldItems.push({
@@ -2053,13 +2062,17 @@ window.perlin = perlinInstance;
             return true;
         }
 
-        function dropSelectedHotbarItem() {
+        function dropSelectedHotbarItem(dropSingle = false) {
             if (isInventoryOpen || window.SingleplayerChat?.isOpen?.()) return false;
             const held = inventory[selectedHotbarIndex];
             if (!held || held.count <= 0) return false;
             const itemId = held.id;
-            if (!consumeSelectedItem()) return false;
-            return spawnDroppedItem(itemId, 1);
+            const dropAmount = dropSingle ? 1 : held.count;
+            held.count -= dropAmount;
+            if (held.count <= 0) inventory[selectedHotbarIndex] = null;
+            updateHotbarUI();
+            if (isInventoryOpen) renderInventoryScreen();
+            return spawnDroppedItem(itemId, dropAmount);
         }
 
         function updateDroppedItems(time, deltaMs) {
@@ -2077,7 +2090,7 @@ window.perlin = perlinInstance;
                 const dy = (drop.mesh.position.y + 0.1) - yawObject.position.y;
                 const dz = drop.mesh.position.z - yawObject.position.z;
                 const distSq = dx * dx + dy * dy + dz * dz;
-                if ((now - drop.spawnedAt) < 400 || distSq > 1.21) continue;
+                if ((now - drop.spawnedAt) < 400 || distSq > 4) continue;
                 const picked = addToInventory(drop.itemId, drop.count);
                 if (!picked) continue;
                 scene.remove(drop.mesh);
@@ -5230,7 +5243,7 @@ window.perlin = perlinInstance;
                 }
                 if (k === 'q' && !window.SingleplayerChat?.isOpen?.()) {
                     e.preventDefault();
-                    dropSelectedHotbarItem();
+                    dropSelectedHotbarItem(Boolean(e.shiftKey));
                     return;
                 }
                 if (k === ' ' && playerPrivileges.fly && !isInventoryOpen && !window.SingleplayerChat?.isOpen?.() && !e.repeat) {
