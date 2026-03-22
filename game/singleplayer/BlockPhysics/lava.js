@@ -25,7 +25,7 @@
     if ((gameTick + wx + wy + wz) % FLOW_DELAY !== 0) return false;
 
     const below = getBlock(wx, wy - 1, wz);
-    if (below >= 4 && below <= 53) {
+    if (below === 4 || (below >= 47 && below <= 53)) {
       setBlock(wx, wy - 1, wz, id === LAVA_SOURCE ? 39 : 3); // obsidian/cobble-ish cooling
       if (id !== LAVA_SOURCE) setBlock(wx, wy, wz, 0);
       return true;
@@ -46,7 +46,7 @@
       const nx = wx + dx;
       const nz = wz + dz;
       const nid = getBlock(nx, wy, nz);
-      if (nid >= 4 && nid <= 53) {
+      if (nid === 4 || (nid >= 47 && nid <= 53)) {
         setBlock(nx, wy, nz, id === LAVA_SOURCE ? 39 : 3);
         moved = true;
         continue;

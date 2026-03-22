@@ -174,6 +174,35 @@ io.on('connection', (socket) => {
     io.emit('chat', message);
   });
 
+  socket.on('pvpHit', (payload) => {
+    const attacker = players.get(socket.id);
+    if (!attacker) return;
+    const targetId = String(payload?.targetId || '').trim();
+    if (!targetId || targetId === socket.id) return;
+    const target = players.get(targetId);
+    if (!target) return;
+
+    const damage = Math.max(0, Math.min(40, Number(payload?.damage) || 0));
+    const knockbackStrength = Math.max(0.05, Math.min(1.2, Number(payload?.knockbackStrength) || 0.2));
+    const range = Math.max(1.2, Math.min(6, Number(payload?.range) || 1.5));
+    if (damage <= 0) return;
+
+    const dx = Number(target.x) - Number(attacker.x);
+    const dy = Number(target.y) - Number(attacker.y);
+    const dz = Number(target.z) - Number(attacker.z);
+    const dist = Math.hypot(dx, dy, dz);
+    if (!Number.isFinite(dist) || dist > range + 0.8) return;
+
+    io.to(targetId).emit('pvpHit', {
+      fromId: socket.id,
+      damage,
+      knockbackStrength,
+      sourcePos: { x: attacker.x, y: attacker.y, z: attacker.z },
+      crit: Boolean(payload?.crit),
+      at: Date.now(),
+    });
+  });
+
   socket.on('disconnect', () => {
     players.delete(socket.id);
     io.emit('playerDisconnected', { id: socket.id });

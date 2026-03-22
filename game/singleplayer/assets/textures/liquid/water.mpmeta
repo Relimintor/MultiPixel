@@ -1,0 +1,10 @@
+{
+  "format": "multipixel-mpmeta-v1",
+  "kind": "texture-strip",
+  "texture": "water_strip.svg",
+  "direction": "vertical",
+  "frameWidth": 16,
+  "frameHeight": 16,
+  "frames": 4,
+  "frametime": 2
+}
