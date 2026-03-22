@@ -7,6 +7,7 @@
   let isConnected = false;
   let flushTimer = null;
   const pendingBlockUpdates = [];
+  let auth = null;
 
   function getBridge() {
     return window.MultiPixelMultiplayerBridge || null;
@@ -96,6 +97,9 @@
     });
 
     socket.on('bootstrap', (payload) => {
+      const selfState = payload?.selfState;
+      if (selfState) getBridge()?.setLocalPlayerState?.(selfState);
+
       const players = Array.isArray(payload?.players) ? payload.players : [];
       players.forEach(updateOtherPlayer);
 
@@ -110,7 +114,7 @@
         getBridge()?.pushNetworkChatMessage?.({
           text: message?.text,
           fromSelf: message?.id === socket.id,
-          name: message?.id === socket.id ? 'You' : `Player ${String(message?.id || '').slice(0, 6)}`,
+          name: message?.id === socket.id ? 'You' : (message?.name || `Player ${String(message?.id || '').slice(0, 6)}`),
         });
       });
     });
@@ -137,14 +141,20 @@
       getBridge()?.pushNetworkChatMessage?.({
         text: message?.text,
         fromSelf: message?.id === socket.id,
-        name: message?.id === socket.id ? 'You' : `Player ${String(message?.id || '').slice(0, 6)}`,
+        name: message?.id === socket.id ? 'You' : (message?.name || `Player ${String(message?.id || '').slice(0, 6)}`),
       });
     });
   }
 
-  function init() {
+  async function init() {
     if (typeof window.io !== 'function') {
       console.warn('[Multiplayer] socket.io client missing.');
+      return;
+    }
+
+    auth = await window.MultiPixelAuth?.ensureAuth?.();
+    if (!auth?.token || !auth?.username) {
+      console.warn('[Multiplayer] auth missing.');
       return;
     }
 
@@ -153,6 +163,10 @@
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
+      auth: {
+        token: auth.token,
+        username: auth.username,
+      },
     });
 
     attachSocketEvents();
