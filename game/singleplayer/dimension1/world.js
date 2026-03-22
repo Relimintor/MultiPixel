@@ -9,7 +9,7 @@
     showGameMessage,
   }) {
     const OVERWORLD_ANCHOR = { x: 0, y: 88, z: 0 };
-    const DIMENSION1_ANCHOR = { x: 220000, y: 88, z: 220000 };
+    const DIMENSION1_ANCHOR = { x: 4096, y: 88, z: 4096 };
     let currentDimension = 'overworld';
 
     function setSafe(wx, wy, wz, id) {
@@ -66,7 +66,11 @@
     function teleportToDimension(next) {
       const toDimension1 = next === 'dimension1';
       const destination = toDimension1 ? DIMENSION1_ANCHOR : OVERWORLD_ANCHOR;
-      teleportToCoordinates?.(destination.x + 0.5, destination.y + 2, destination.z + 0.5);
+      const result = teleportToCoordinates?.(destination.x + 0.5, destination.y + 2, destination.z + 0.5);
+      if (result && result.ok === false) {
+        showGameMessage?.(`Portal link failed: ${result.message || 'teleport unavailable'}`);
+        return;
+      }
       ensureAnchorBuilt(destination, 14);
       currentDimension = toDimension1 ? 'dimension1' : 'overworld';
       showGameMessage?.(toDimension1 ? 'Entering Dimension 1...' : 'Returning to Overworld...');
