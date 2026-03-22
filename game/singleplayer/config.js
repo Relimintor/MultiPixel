@@ -164,7 +164,11 @@
     IRON_ORE: getAssetPath('textures/item/raw_iron.png'),
     RAW_IRON_BLOCK: getAssetPath('textures/raw_iron_block.png'),
     LAVA_LIQUID: getAssetPath('textures/liquid/lava.jpeg'),
-    WATER: getAssetPath('textures/liquid/water_still.jpeg'),
+    WATER: getAssetPath('textures/liquid/water.mpmeta#frame=0'),
+    WATER_FRAME_0: getAssetPath('textures/liquid/water.mpmeta#frame=0'),
+    WATER_FRAME_1: getAssetPath('textures/liquid/water.mpmeta#frame=1'),
+    WATER_FRAME_2: getAssetPath('textures/liquid/water.mpmeta#frame=2'),
+    WATER_FRAME_3: getAssetPath('textures/liquid/water.mpmeta#frame=3'),
     COPPER_BLOCK: getAssetPath('textures/copper/copper_block.png'),
     COPPER_ORE: getAssetPath('textures/copper/copper_ore.png'),
     RAW_COPPER_BLOCK: getAssetPath('textures/copper/raw_copper_block.png'),
@@ -662,13 +666,6 @@
     
     /* water*/
     4: { name: 'Water', id: 4, transparent: true, opacity: 0.9, textured: true, textureKey: 'WATER' },
-    47: { name: 'Flowing Water', id: 47, transparent: true, opacity: 0.9, textured: true, textureKey: 'WATER' },
-    48: { name: 'Flowing Water', id: 48, transparent: true, opacity: 0.9, textured: true, textureKey: 'WATER' },
-    49: { name: 'Flowing Water', id: 49, transparent: true, opacity: 0.9, textured: true, textureKey: 'WATER' },
-    50: { name: 'Flowing Water', id: 50, transparent: true, opacity: 0.9, textured: true, textureKey: 'WATER' },
-    51: { name: 'Flowing Water', id: 51, transparent: true, opacity: 0.9, textured: true, textureKey: 'WATER' },
-    52: { name: 'Flowing Water', id: 52, transparent: true, opacity: 0.9, textured: true, textureKey: 'WATER' },
-    53: { name: 'Flowing Water', id: 53, transparent: true, opacity: 0.9, textured: true, textureKey: 'WATER' },
 
     /*Flowing lava*/
     33: { name: 'Lava', id: 33, textured: true, textureKey: 'LAVA_LIQUID' },
@@ -799,7 +796,7 @@
     SIDE_RENDER_BLOCK_IDS: sideConfig.SIDE_RENDER_BLOCK_IDS || sideConfig.FLOWER_IDS || [],
     FLOWER_SPAWN_CONFIG: sideConfig.FLOWER_SPAWN_CONFIG || {},
     SOLID_BLOCKS: solidBlocks,
-    LIQUID_BLOCKS: [4, 33, 47, 48, 49, 50, 51, 52, 53, 60, 61, 62, 63, 64, 65, 66],
+    LIQUID_BLOCKS: [4, 33, 60, 61, 62, 63, 64, 65, 66],
     DEFAULT_PLAYER: {
       moveSpeed: 0.12,
       sprintMultiplier: 1.7,
