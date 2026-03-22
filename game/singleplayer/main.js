@@ -977,6 +977,9 @@ window.perlin = perlinInstance;
         const remoteLabelProjectionPos = new THREE.Vector3();
         let frameTimeEmaMs = 16.67;
         let lastAdaptiveQualityTickMs = -Infinity;
+        let caveLightingBlend = 1;
+        let lastCaveLightingProbeMs = -Infinity;
+        let cachedCaveSkyExposure = 1;
         let eatOverlayEl = playerRuntime.eatOverlayEl;
         let eatItemEl = playerRuntime.eatItemEl;
         let eatingAnimState = playerRuntime.eatingAnimState;
@@ -993,6 +996,8 @@ window.perlin = perlinInstance;
         const ADAPTIVE_QUALITY_TICK_MS = 1400;
         const ADAPTIVE_QUALITY_LOW_FPS = IS_1D4P_MULTIPLAYER ? 45 : 42;
         const ADAPTIVE_QUALITY_HIGH_FPS = IS_1D4P_MULTIPLAYER ? 58 : 56;
+        const CAVE_LIGHT_PROBE_INTERVAL_MS = 140;
+        const CAVE_LIGHT_BLEND_SPEED = 0.11;
 
         function applyHitFeedback(entity, sourcePos = null, amount = 4, extraKnockback = 0) {
             PlayerMobInteractions.applyHitFeedback({ entity, sourcePos, amount, extraKnockback, yawObject, THREE });
@@ -1846,6 +1851,43 @@ window.perlin = perlinInstance;
 
         function updateSkyAndSun() {
             dayNightCycle?.updateSkyAndSun?.();
+        }
+
+        function samplePlayerSkyExposure() {
+            if (!yawObject) return 1;
+            const px = Math.floor(yawObject.position.x);
+            const py = Math.floor(yawObject.position.y + 0.25);
+            const pz = Math.floor(yawObject.position.z);
+            if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) return 1;
+
+            const probes = [
+                [0, 0],
+                [1, 0],
+                [-1, 0],
+                [0, 1],
+                [0, -1],
+            ];
+            let openColumns = 0;
+            for (const [ox, oz] of probes) {
+                if (lightingSystem?.isOpenToSky?.(px + ox, py, pz + oz)) openColumns++;
+            }
+            const rawExposure = openColumns / probes.length;
+            return Math.max(0, Math.min(1, rawExposure));
+        }
+
+        function applyCaveLighting(time) {
+            if (!ambientLight || !hemiLight || !dirLight || !moonLight) return;
+            if ((time - lastCaveLightingProbeMs) >= CAVE_LIGHT_PROBE_INTERVAL_MS) {
+                cachedCaveSkyExposure = samplePlayerSkyExposure();
+                lastCaveLightingProbeMs = time;
+            }
+            const indoorBlend = 0.18 + cachedCaveSkyExposure * 0.82;
+            caveLightingBlend += (indoorBlend - caveLightingBlend) * CAVE_LIGHT_BLEND_SPEED;
+            const blend = Math.max(0.18, Math.min(1, caveLightingBlend));
+            ambientLight.intensity *= blend;
+            hemiLight.intensity *= blend;
+            dirLight.intensity *= (0.35 + blend * 0.65);
+            moonLight.intensity *= (0.4 + blend * 0.6);
         }
 
         function setRenderDistance(amount) {
@@ -7534,6 +7576,7 @@ window.perlin = perlinInstance;
             maybeApplyAdaptiveQuality(time);
 
             dayNightCycle?.tick?.(delta);
+            applyCaveLighting(time);
 
             const liquidState = getPlayerLiquidState();
             updateBreathing(delta / 1000, liquidState.isUnderLiquid);
