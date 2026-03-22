@@ -53,6 +53,18 @@
     return true;
   }
 
+  function sendPlayerHit(payload) {
+    if (!socket || !isConnected) return false;
+    const targetId = String(payload?.targetId || '').trim();
+    const damage = Number(payload?.damage);
+    const knockbackStrength = Number(payload?.knockbackStrength);
+    const range = Number(payload?.range);
+    const crit = Boolean(payload?.crit);
+    if (!targetId || ![damage, knockbackStrength, range].every(Number.isFinite)) return false;
+    socket.emit('pvpHit', { targetId, damage, knockbackStrength, range, crit });
+    return true;
+  }
+
 
   function applyIncomingBlockUpdate(payload) {
     const bridge = getBridge();
@@ -142,6 +154,10 @@
         name: message?.id === socket.id ? 'You' : `Player ${String(message?.id || '').slice(0, 6)}`,
       });
     });
+
+    socket.on('pvpHit', (payload) => {
+      getBridge()?.applyNetworkPvpHit?.(payload);
+    });
   }
 
   function init() {
@@ -165,6 +181,7 @@
     init,
     sendChatMessage,
     sendBlockChange,
+    sendPlayerHit,
   };
 
   window.addEventListener('load', () => {
