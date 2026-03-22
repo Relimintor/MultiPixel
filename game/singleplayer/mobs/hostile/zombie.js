@@ -226,19 +226,21 @@
       }
 
       function trySpawnNight(deltaMs) {
-        const phase = getTimePhaseInfo?.()?.phase;
-        if (phase !== 'Night') return;
         zombieSpawnTimerMs -= deltaMs;
         if (zombieSpawnTimerMs > 0) return;
         zombieSpawnTimerMs = 2200 + Math.random() * 3200;
         if (entities.length >= 8) return;
         const yawObject = getYawObject?.();
         if (!yawObject) return;
-        const angle = Math.random() * Math.PI * 2;
-        const dist = 14 + Math.random() * 20;
-        const wx = yawObject.position.x + Math.cos(angle) * dist;
-        const wz = yawObject.position.z + Math.sin(angle) * dist;
-        spawnAt(wx, wz);
+        const phase = getTimePhaseInfo?.()?.phase;
+        const attempts = phase === 'Night' ? 7 : 12;
+        for (let i = 0; i < attempts; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const dist = 10 + Math.random() * 26;
+          const wx = yawObject.position.x + Math.cos(angle) * dist;
+          const wz = yawObject.position.z + Math.sin(angle) * dist;
+          if (spawnAt(wx, wz)) return;
+        }
       }
 
       function isInDirectSunlight(wx, wy, wz) {

@@ -82,8 +82,10 @@
         for (const zombie of zombieEntities) colliders.push({ kind: 'zombie', ref: zombie, pos: zombie.root.position, radius: mobCollisionRadius.zombie });
         for (const villager of villagerEntities) colliders.push({ kind: 'villager', ref: villager, pos: villager.root.position, radius: mobCollisionRadius.villager });
         for (const gnome of gnomeEntities) colliders.push({ kind: 'gnome', ref: gnome, pos: gnome.root.position, radius: mobCollisionRadius.gnome });
+        const noPlayerPushKinds = new Set(['wolf', 'panda', 'zombie']);
 
         for (const c of colliders) {
+            if (noPlayerPushKinds.has(c.kind)) continue;
             const overlap = resolveCircleOverlap(yawObject.position.x, yawObject.position.z, PLAYER_RADIUS, c.pos.x, c.pos.z, c.radius);
             if (!overlap) continue;
             const pushHalf = overlap.push * 0.5 + 0.001;

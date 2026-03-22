@@ -11,6 +11,16 @@
     7: 5,   // Sand
     8: 6,   // Oak Planks
     114: 4, // Wooden slab
+    230: 8, // Stone slab
+    231: 8, // Cobblestone slab
+    232: 8, // Mossy cobblestone slab
+    233: 10, // Stone brick slab
+    234: 10, // Cracked stone brick slab
+    235: 10, // Smooth stone slab
+    236: 9, // Sandstone slab
+    237: 10, // Smooth sandstone slab
+    238: 5, // Jungle planks slab
+    239: 5, // Bamboo planks slab
     9: 8,   // Crafting table
     13: 10, // Sandstone
     14: -1, // Bedrock
