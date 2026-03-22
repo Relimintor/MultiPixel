@@ -1,9 +1,24 @@
 (function () {
-  const SERVER_URL = 'https://multipixel-yzoq.onrender.com';
+  const REMOTE_FALLBACK_URL = 'https://multipixel-yzoq.onrender.com';
   const AUTH_STORAGE_KEY = 'multipixel.1d4p.auth';
 
   let authState = null;
   let authPromise = null;
+
+  function normalizeServerUrl(url) {
+    const raw = String(url || '').trim();
+    if (!raw) return '';
+    return raw.endsWith('/') ? raw.slice(0, -1) : raw;
+  }
+
+  function getPreferredServerUrl() {
+    const forced = normalizeServerUrl(window.__MULTIPIXEL_SERVER_URL__);
+    if (forced) return forced;
+    const origin = normalizeServerUrl(window.location?.origin);
+    if (origin && origin !== 'null') return origin;
+    return normalizeServerUrl(REMOTE_FALLBACK_URL);
+  }
+
 
   function readStoredAuth() {
     try {
@@ -18,7 +33,7 @@
   }
 
   function saveAuth(next) {
-    authState = next;
+    authState = { ...next, serverUrl: normalizeServerUrl(next?.serverUrl || getPreferredServerUrl()) };
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(next));
   }
 
@@ -86,22 +101,32 @@
       errorEl.textContent = '';
 
       const endpoint = mode === 'register' ? '/auth/register' : '/auth/login';
-      try {
-        const res = await fetch(`${SERVER_URL}${endpoint}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password, passwordAgain, notRobot }),
-        });
-        const payload = await res.json().catch(() => ({}));
-        if (!res.ok || !payload?.ok) {
-          errorEl.textContent = payload?.error || 'Auth failed.';
+      const primary = getPreferredServerUrl();
+      const fallback = normalizeServerUrl(REMOTE_FALLBACK_URL);
+      const candidates = [primary, fallback].filter((value, index, arr) => value && arr.indexOf(value) === index);
+
+      for (const baseUrl of candidates) {
+        try {
+          const res = await fetch(`${baseUrl}${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password, passwordAgain, notRobot }),
+          });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok || !payload?.ok) {
+            errorEl.textContent = payload?.error || 'Auth failed.';
+            if (res.status >= 500) continue;
+            return;
+          }
+          saveAuth({ username: payload.username, token: payload.token, serverUrl: baseUrl });
+          overlay.remove();
           return;
+        } catch {
+          // try next candidate
         }
-        saveAuth({ username: payload.username, token: payload.token });
-        overlay.remove();
-      } catch {
-        errorEl.textContent = 'Could not reach auth server.';
       }
+
+      errorEl.textContent = 'Could not reach auth server.';
     }
 
     tabRegister.addEventListener('click', () => setMode('register'));
@@ -134,6 +159,7 @@
   window.MultiPixelAuth = {
     ensureAuth,
     getAuth: () => authState || readStoredAuth(),
+    getServerUrl: () => normalizeServerUrl((authState || readStoredAuth())?.serverUrl || getPreferredServerUrl()),
     clearAuth: () => {
       authState = null;
       localStorage.removeItem(AUTH_STORAGE_KEY);

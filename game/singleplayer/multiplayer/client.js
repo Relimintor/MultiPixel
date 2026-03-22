@@ -1,5 +1,4 @@
 (function () {
-  const SERVER_URL = 'https://multipixel-yzoq.onrender.com';
   const EMIT_INTERVAL_MS = 50;
 
   let socket = null;
@@ -158,7 +157,9 @@
       return;
     }
 
-    socket = window.io(SERVER_URL, {
+    const serverUrl = auth.serverUrl || window.MultiPixelAuth?.getServerUrl?.() || window.location.origin;
+
+    socket = window.io(serverUrl, {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: Infinity,
