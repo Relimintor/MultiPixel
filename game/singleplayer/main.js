@@ -7057,14 +7057,18 @@ window.perlin = perlinInstance;
 
             const CH = CHUNK_HEIGHT;
             const CS = CHUNK_SIZE;
+            const normalizeBlockId = (id) => {
+                if (id >= 47 && id <= 53) return 4; // legacy flowing water -> unified water id
+                return id;
+            };
 
             const get = (x,y,z) => {
                 if (x < 0 || x >= CS || z < 0 || z >= CS || y < 0 || y >= CH) {
                     const wx = x + cx * CS;
                     const wz = z + cz * CS;
-                    return getBlockType(wx, y, wz);
+                    return normalizeBlockId(getBlockType(wx, y, wz));
                 }
-                return data[x + y * CS + z * CS * CH];
+                return normalizeBlockId(data[x + y * CS + z * CS * CH]);
             };
 
             const isTransparentBlock = (id) => {
@@ -7220,6 +7224,7 @@ window.perlin = perlinInstance;
                                 const id = get(x, y, z);
                                 if (id === 0 || id === 22) continue;
                                 const mat = blockMaterials[id];
+                                if (!mat) continue;
                                 if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES') || mat.shape) continue;
                                 const nid = get(x, y + face.sign, z);
                                 if (!shouldDrawFace(id, nid)) continue;
@@ -7269,6 +7274,7 @@ window.perlin = perlinInstance;
                                 const id = get(x, y, z);
                                 if (id === 0 || id === 22) continue;
                                 const mat = blockMaterials[id];
+                                if (!mat) continue;
                                 if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES') || mat.shape) continue;
                                 const nid = get(x + face.sign, y, z);
                                 if (!shouldDrawFace(id, nid)) continue;
@@ -7318,6 +7324,7 @@ window.perlin = perlinInstance;
                                 const id = get(x, y, z);
                                 if (id === 0 || id === 22) continue;
                                 const mat = blockMaterials[id];
+                                if (!mat) continue;
                                 if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES') || mat.shape) continue;
                                 const nid = get(x, y, z + face.sign);
                                 if (!shouldDrawFace(id, nid)) continue;
@@ -7367,6 +7374,7 @@ window.perlin = perlinInstance;
                         const id = get(x, y, z);
                         if (id === 0) continue;
                         const mat = blockMaterials[id];
+                        if (!mat) continue;
                         const isTorch = id === 22;
                         const isBambooStage = id === 99 || id === 100;
                         const isBambooStalk = id === 101;
