@@ -6751,6 +6751,12 @@ window.perlin = perlinInstance;
             // if neighbor block is not AIR and both sides are opaque, the face is hidden and skipped.
             const shouldCullFace = (id, nid) => {
                 if (nid === 0) return false;
+                const selfMat = blockMaterials[id];
+                const neighborMat = blockMaterials[nid];
+                const selfIsSlab = selfMat?.shape === 'slab';
+                const neighborIsSlab = neighborMat?.shape === 'slab';
+                // Slabs are partial-height blocks, so adjacent cube faces should still render.
+                if (selfIsSlab || neighborIsSlab) return false;
                 const selfTransparent = isTransparentBlock(id);
                 const neighborTransparent = isTransparentBlock(nid);
                 if (!selfTransparent && !neighborTransparent) return true;
