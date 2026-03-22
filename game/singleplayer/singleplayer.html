@@ -8,7 +8,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
         <link rel="stylesheet" href="./style.css">
         <script src="side_config.js?v=1"></script>
-        <script src="config.js?v=11"></script>
+        <script src="config.js?v=12"></script>
     <script src="noise/perlin.js?v=10"></script>
     <script src="terrain/ocean/biome.js?v=10"></script>
     <script src="terrain/river/biome.js?v=10"></script>
@@ -30,7 +30,7 @@
     <script src="worldgen/underground/geodes.js?v=1"></script>
     <script src="crafting/recipes.js?v=10"></script>
     <script src="crafting/furnace.js?v=10"></script>
-    <script src="tools/blocks/hardness.js?v=1"></script>
+    <script src="tools/blocks/hardness.js?v=2"></script>
     <script src="tools/blocks/breakable.js?v=1"></script>
     <script src="tools/pickaxes.js?v=10"></script>
     <script src="lighting/spawn_lighting.js?v=10"></script>
@@ -49,7 +49,7 @@
     <script src="mobs/passive/villager.js?v=1"></script>
     <script src="mobs/neutral/wolf.js?v=1"></script>
     <script src="mobs/neutral/panda.js?v=1"></script>
-    <script src="mobs/hostile/zombie.js?v=1"></script>
+    <script src="mobs/hostile/zombie.js?v=2"></script>
     <script src="chat/commands/mobs/config.js?v=1"></script>
     <script src="chat/commands/give/main.js?v=1"></script>
     <script src="chat/commands/spawn/main.js?v=1"></script>
@@ -64,8 +64,9 @@
     <script src="chat/commands/grantme/main.js?v=1"></script>
     <script src="chat/commands/ungrantme/main.js?v=1"></script>
     <script src="chat/commands/enchant/main.js?v=1"></script>
-    <script src="chat/commands/commands.js?v=8"></script>
-    <script src="chat/main.js?v=8"></script>
+    <script src="chat/commands/effect/main.js?v=1"></script>
+    <script src="chat/commands/commands.js?v=9"></script>
+    <script src="chat/main.js?v=9"></script>
     <script src="trees/oak/default_oak.js?v=1"></script>
     <script src="trees/oak/small_oak.js?v=1"></script>
     <script src="trees/oak/large_oak.js?v=1"></script>
@@ -87,8 +88,9 @@
     <script src="optimiations/chunk_remesh.js?v=1"></script>
     <script src="optimiations/frustum_culling.js?v=1"></script>
     <script src="optimiations/chunk_streaming.js?v=1"></script>
+    <script src="dimension1/glowstone_portal.js?v=1"></script>
 
-    <script src="main.js?v=27"></script>
+    <script src="main.js?v=34"></script>
     <!-- Removed external script links to ensure functionality in this single-file preview -->
 </head>
 <body>
@@ -122,6 +124,7 @@
         <p>Break: <span class="text-neon-green">LMB</span> | Place: <span class="text-neon-green">RMB</span></p>
         <p>Inventory: <span class="text-neon-green">Y</span> or <span class="text-neon-green">I</span></p>
         <p>Scroll/1-9: <span class="text-neon-green">Select Item</span></p>
+        <p>Drop Item: <span class="text-neon-green">Q</span> | Render Boost: <span class="text-neon-green">R</span></p>
         <p class="mt-3 text-sm text-gray-300">Choose controls:</p>
         <div id="input-mode-buttons" class="mt-2 flex justify-center gap-3">
             <button id="mode-mobile-btn" class="mode-btn">Mobile</button>
@@ -139,6 +142,10 @@
             </button>
             <div id="inventory-skin-preview" aria-hidden="true">
                 <div id="inventory-skin-head"></div>
+            </div>
+            <div id="inventory-effects-panel" aria-live="polite">
+                <div class="inv-effects-title">Effects</div>
+                <div id="inventory-effects-list"></div>
             </div>
 
             <div id="crafting-2x2-container" class="menu-top-layout">
