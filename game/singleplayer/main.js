@@ -629,6 +629,8 @@ window.perlin = perlinInstance;
       
         let inventory = playerRuntime.inventory;
         const knockbackEnchantByItemId = new Map();
+        let lastPvpAttackAtMs = -Infinity;
+        let lastPvpHitAtMs = -Infinity;
         let selectedHotbarIndex = playerRuntime.selectedHotbarIndex; // 0-8
         let isInventoryOpen = playerRuntime.isInventoryOpen;
         let isCreativeMode = playerRuntime.isCreativeMode;
@@ -1066,8 +1068,31 @@ window.perlin = perlinInstance;
             leftLegPivot.add(leftLeg);
 
             avatar.add(body, head, leftArmPivot, rightArmPivot, leftLegPivot, rightLegPivot);
+            const pvpHitbox = new THREE.Mesh(
+                new THREE.BoxGeometry(0.7, 1.8, 0.7),
+                new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+            );
+            pvpHitbox.position.set(0, 0.9, 0);
+            avatar.add(pvpHitbox);
             avatar.userData.remoteRig = { leftArmPivot, rightArmPivot, leftLegPivot, rightLegPivot };
+            avatar.userData.remotePvpHitbox = pvpHitbox;
             return avatar;
+        }
+
+        function getRemotePlayerHitFromCrosshair() {
+            if (!prepareCrosshairRaycast()) return null;
+            const candidates = [];
+            remotePlayers.forEach((entry, id) => {
+                const hitbox = entry?.mesh?.userData?.remotePvpHitbox;
+                if (!hitbox) return;
+                candidates.push({ id, entry, hitbox });
+            });
+            if (!candidates.length) return null;
+            const hits = raycaster.intersectObjects(candidates.map((c) => c.hitbox), false);
+            if (!hits.length) return null;
+            const target = candidates.find((c) => c.hitbox === hits[0].object);
+            if (!target) return null;
+            return { id: target.id, entry: target.entry, distance: hits[0].distance };
         }
 
         function updateRemotePlayerState(payload) {
@@ -1272,6 +1297,21 @@ window.perlin = perlinInstance;
             }
         }
 
+        function applyNetworkPvpHit(payload) {
+            const damage = Math.max(0, Number(payload?.damage) || 0);
+            if (damage <= 0) return false;
+            const now = performance.now();
+            if (now - lastPvpHitAtMs < 250) return false;
+            lastPvpHitAtMs = now;
+            const knockback = Math.max(0, Number(payload?.knockbackStrength) || 0);
+            const sourcePos = payload?.sourcePos && Number.isFinite(Number(payload.sourcePos.x)) && Number.isFinite(Number(payload.sourcePos.z))
+                ? { x: Number(payload.sourcePos.x), y: Number(payload.sourcePos.y) || yawObject.position.y, z: Number(payload.sourcePos.z) }
+                : null;
+            takeDamage(damage, { source: 'pvp', sourcePos, knockbackStrength: knockback });
+            if (payload?.crit) showGameMessage(`Critical hit! -${damage} HP`);
+            return true;
+        }
+
         function installMultiplayerBridge() {
             window.MultiPixelMultiplayerBridge = {
                 getLocalPlayerState: getLocalMultiplayerState,
@@ -1282,6 +1322,7 @@ window.perlin = perlinInstance;
                 },
                 applyNetworkBlockChange,
                 queueNetworkBlockChange,
+                applyNetworkPvpHit,
             };
         }
 
@@ -2235,14 +2276,44 @@ window.perlin = perlinInstance;
         function getHeldMeleeProfile() {
             const held = inventory[selectedHotbarIndex];
             const heldDef = held ? blockMaterials[held.id] : null;
+            const tier = Math.max(1, Number(heldDef?.tier) || 1);
+            const baseRange = Math.max(1.3, Number(heldDef?.attackRange) || 1.5);
             if (heldDef?.toolType === 'dagger') {
                 return {
                     damage: Number(heldDef.meleeDamage) || 3,
-                    range: Math.max(0, Number(heldDef.attackRange) || 1.5),
+                    range: baseRange,
                     toolType: 'dagger',
+                    cooldownMs: 1500,
+                    knockbackBonus: 0,
+                    critEnabled: true,
                 };
             }
-            return { damage: 4, range: Infinity, toolType: heldDef?.toolType || null };
+            if (heldDef?.toolType === 'axe') {
+                return { damage: 5 + tier * 0.9, range: baseRange, toolType: 'axe', cooldownMs: 5000, knockbackBonus: 0.01, critEnabled: false };
+            }
+            if (heldDef?.toolType === 'pickaxe') {
+                return { damage: 4 + tier, range: baseRange, toolType: 'pickaxe', cooldownMs: 3000, knockbackBonus: 0, critEnabled: false };
+            }
+            if (heldDef?.toolType === 'shovel') {
+                return { damage: 4 + tier, range: baseRange, toolType: 'shovel', cooldownMs: 3000, knockbackBonus: 0, critEnabled: false };
+            }
+            return { damage: 4, range: baseRange, toolType: heldDef?.toolType || null, cooldownMs: 1000, knockbackBonus: 0, critEnabled: false };
+        }
+
+        function canUsePvpAttack(meleeProfile) {
+            const now = performance.now();
+            const cooldownMs = Math.max(0, Number(meleeProfile?.cooldownMs) || 0);
+            return (now - lastPvpAttackAtMs) >= cooldownMs;
+        }
+
+        function markPvpAttackUsed() {
+            lastPvpAttackAtMs = performance.now();
+        }
+
+        function isDaggerCriticalStrike(meleeProfile) {
+            if (!meleeProfile?.critEnabled) return false;
+            if (player.isSwimming || isSneaking) return false;
+            return Boolean(player.inAir) && Number(player.velocity?.y) < -0.08;
         }
 
         function isTargetWithinMeleeRange(target, maxRange) {
@@ -4197,6 +4268,30 @@ window.perlin = perlinInstance;
             if (event.button === 0) {
                 const attackKnockback = getHeldKnockbackEnchantLevel();
                 const meleeProfile = getHeldMeleeProfile();
+                const remoteHit = IS_1D4P_MULTIPLAYER ? getRemotePlayerHitFromCrosshair() : null;
+                if (remoteHit && isTargetWithinMeleeRange({ root: remoteHit.entry?.mesh }, meleeProfile.range)) {
+                    if (!canUsePvpAttack(meleeProfile)) {
+                        showGameMessage('Weapon cooling down...');
+                        return;
+                    }
+                    const crit = isDaggerCriticalStrike(meleeProfile);
+                    const rawDamage = Number(meleeProfile.damage) || 1;
+                    const finalDamage = Math.max(1, Math.round(rawDamage * (crit ? 1.5 : 1)));
+                    const baseKnockback = 0.26 + ((Number(meleeProfile.knockbackBonus) || 0) * 0.26);
+                    const enchKnock = Math.max(0, attackKnockback) * 0.015;
+                    const sent = window.MultiPixelMultiplayerClient?.sendPlayerHit?.({
+                        targetId: remoteHit.id,
+                        damage: finalDamage,
+                        knockbackStrength: Math.max(0.12, Math.min(0.95, baseKnockback + enchKnock)),
+                        range: Number(meleeProfile.range) || 1.5,
+                        crit,
+                    });
+                    if (sent) {
+                        markPvpAttackUsed();
+                        showGameMessage(crit ? `Critical! ${finalDamage} dmg` : `Hit! ${finalDamage} dmg`);
+                    }
+                    return;
+                }
                 const wolfHit = wolfMob?.getHitFromCrosshair?.();
                 if (wolfHit && isTargetWithinMeleeRange(wolfHit, meleeProfile.range)) {
                     const held = inventory[selectedHotbarIndex];
@@ -4751,16 +4846,20 @@ window.perlin = perlinInstance;
 
         function takeDamage(amount, options = {}) {
             const isMobHit = options?.source === 'mob';
-            if (isMobHit) {
+            const isPvpHit = options?.source === 'pvp';
+            if (isMobHit || isPvpHit) {
                 const now = performance.now();
-                if (now - lastMobHitAtMs < 2000) return false;
-                lastMobHitAtMs = now;
+                if (isMobHit) {
+                    if (now - lastMobHitAtMs < 2000) return false;
+                    lastMobHitAtMs = now;
+                }
                 const sourcePos = options?.sourcePos || null;
                 if (sourcePos && yawObject) {
                     const dx = yawObject.position.x - Number(sourcePos.x || 0);
                     const dz = yawObject.position.z - Number(sourcePos.z || 0);
                     const dist = Math.hypot(dx, dz) || 1;
-                    const strength = Math.max(0.12, Math.min(0.65, Number(options?.knockbackStrength) || 0.24));
+                    const defaultStrength = isPvpHit ? 0.3 : 0.24;
+                    const strength = Math.max(0.12, Math.min(0.85, Number(options?.knockbackStrength) || defaultStrength));
                     const pushX = (dx / dist) * strength;
                     const pushZ = (dz / dist) * strength;
                     yawObject.position.x += pushX;
