@@ -114,6 +114,10 @@
       return window.SingleplayerChatCommandEnchant.execute(parts, ctx);
     }
 
+    if (command === '/effect' && window.SingleplayerChatCommandEffect?.execute) {
+      return window.SingleplayerChatCommandEffect.execute(parts, ctx);
+    }
+
     if (command === '/set') {
       if (window.SingleplayerChatCommandSet?.execute) {
         return window.SingleplayerChatCommandSet.execute(parts, ctx);

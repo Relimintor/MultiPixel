@@ -41,6 +41,8 @@
         const GLOWSTONE_PORTAL_FRAME_KEYS = Array.isArray(window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_FRAME_KEYS)
             ? window.SingleplayerSideConfig.GLOWSTONE_PORTAL_FRAME_KEYS
             : [];
+        const GLOWSTONE_PORTAL_Z_ID = Number(window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_Z_ID) || 147;
+        const GLOWSTONE_PORTAL_X_ID = Number(window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_X_ID) || 148;
         const portalAnimationState = { frameMs: 120, frameIndex: 0, elapsedMs: 0 };
         console.info('[Singleplayer build]', window.__SINGLEPLAYER_BUILD__);
 
@@ -659,6 +661,8 @@ window.perlin = perlinInstance;
         let lavaParticleTexture = null;
         const activeWorldParticles = [];
         const particleSpritePool = [];
+        const droppedWorldItems = [];
+        const droppedItemMeshMaterialCache = new Map();
         const particleMaterials = { break: null, lava: null };
         let lavaParticleScanMs = 0;
         let lastPhysicsTickMs = 0;
@@ -782,6 +786,7 @@ window.perlin = perlinInstance;
         let wolfMob = null;
         let pandaMob = null;
         let villagerMob = null;
+        let glowstonePortalDimension1 = null;
         remeshOptimizations = window.SingleplayerChunkRemeshOptimizations?.create?.({
             getChunkKey: chunkKeyFromCoords,
             getChunk: (key) => chunks.get(key),
@@ -966,6 +971,22 @@ window.perlin = perlinInstance;
         let isSneaking = false;
         let bambooGrowthTimerMs = 0;
         let lastMobHitAtMs = -Infinity;
+        let coordinatesDisplayEl = null;
+        let lastCoordinateUpdateMs = -Infinity;
+        let lastCoordinateX = Number.NaN;
+        let lastCoordinateY = Number.NaN;
+        let lastCoordinateZ = Number.NaN;
+        let lastRemoteLabelRefreshMs = -Infinity;
+        let lastOnlineOverlayRenderMs = -Infinity;
+        let lastOnlineOverlayHtml = '';
+        const remoteLabelProjectionPos = new THREE.Vector3();
+        let frameTimeEmaMs = 16.67;
+        let lastAdaptiveQualityTickMs = -Infinity;
+        let caveLightingBlend = 1;
+        let lastCaveLightingProbeMs = -Infinity;
+        let cachedCaveSkyExposure = 1;
+        let inventoryEffectsEl = null;
+        const activeCommandEffects = new Map();
         let eatOverlayEl = playerRuntime.eatOverlayEl;
         let eatItemEl = playerRuntime.eatItemEl;
         let eatingAnimState = playerRuntime.eatingAnimState;
@@ -976,6 +997,14 @@ window.perlin = perlinInstance;
         
 
         const PlayerMobInteractions = window.SingleplayerPlayerMobInteractions;
+        const COORDINATES_UPDATE_INTERVAL_MS = 100;
+        const REMOTE_LABEL_UPDATE_INTERVAL_MS = 34;
+        const ONLINE_OVERLAY_UPDATE_INTERVAL_MS = 180;
+        const ADAPTIVE_QUALITY_TICK_MS = 1400;
+        const ADAPTIVE_QUALITY_LOW_FPS = IS_1D4P_MULTIPLAYER ? 45 : 42;
+        const ADAPTIVE_QUALITY_HIGH_FPS = IS_1D4P_MULTIPLAYER ? 58 : 56;
+        const CAVE_LIGHT_PROBE_INTERVAL_MS = 140;
+        const CAVE_LIGHT_BLEND_SPEED = 0.11;
 
         function applyHitFeedback(entity, sourcePos = null, amount = 4, extraKnockback = 0) {
             PlayerMobInteractions.applyHitFeedback({ entity, sourcePos, amount, extraKnockback, yawObject, THREE });
@@ -1094,7 +1123,7 @@ window.perlin = perlinInstance;
             if (!camera || !renderer) return;
             remotePlayers.forEach((entry) => {
                 if (!entry?.mesh || !entry?.label) return;
-                const world = entry.mesh.position.clone();
+                const world = remoteLabelProjectionPos.copy(entry.mesh.position);
                 world.y += 1.1;
                 world.project(camera);
                 const isBehind = world.z > 1;
@@ -1131,11 +1160,17 @@ window.perlin = perlinInstance;
             ensureOnlinePlayersOverlay();
             if (!onlinePlayersOverlayEl) return;
             if (!isSneaking || isInventoryOpen) {
-                onlinePlayersOverlayEl.classList.add('hidden');
+                if (!onlinePlayersOverlayEl.classList.contains('hidden')) {
+                    onlinePlayersOverlayEl.classList.add('hidden');
+                }
                 return;
             }
             const lines = getOnlinePlayerSummaryLines();
-            onlinePlayersOverlayEl.innerHTML = lines.map((line) => `<div>${line}</div>`).join('');
+            const nextHtml = lines.map((line) => `<div>${line}</div>`).join('');
+            if (nextHtml !== lastOnlineOverlayHtml) {
+                onlinePlayersOverlayEl.innerHTML = nextHtml;
+                lastOnlineOverlayHtml = nextHtml;
+            }
             onlinePlayersOverlayEl.classList.remove('hidden');
         }
 
@@ -1727,6 +1762,8 @@ window.perlin = perlinInstance;
             if (closeIcon) closeIcon.src = closeIconPath;
             if (furnaceCloseIcon) furnaceCloseIcon.src = closeIconPath;
             if (chestCloseIcon) chestCloseIcon.src = closeIconPath;
+            coordinatesDisplayEl = document.getElementById('coordinates-display');
+            inventoryEffectsEl = document.getElementById('inventory-effects-list');
             defaultPlayerSkin?.initSkinUi?.();
             const creativeCloseIcon = document.getElementById('creative-close-icon');
             const creativeInventoryIcon = document.getElementById('creative-inventory-icon');
@@ -1772,6 +1809,10 @@ window.perlin = perlinInstance;
             targetRenderPixelRatio = computeRenderPixelRatio();
             renderer.setPixelRatio(targetRenderPixelRatio);
             document.body.appendChild(renderer.domElement);
+            glowstonePortalDimension1 = window.SingleplayerDimension1GlowstonePortal?.create?.({
+                getRenderer: () => renderer,
+                getCamera: () => camera,
+            }) || null;
             setupEatingOverlay();
             
             window.addEventListener('resize', onWindowResize);
@@ -1824,6 +1865,124 @@ window.perlin = perlinInstance;
             dayNightCycle?.updateSkyAndSun?.();
         }
 
+        function samplePlayerSkyExposure() {
+            if (!yawObject) return 1;
+            const px = Math.floor(yawObject.position.x);
+            const py = Math.floor(yawObject.position.y + 0.25);
+            const pz = Math.floor(yawObject.position.z);
+            if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) return 1;
+
+            const probes = [
+                [0, 0],
+                [1, 0],
+                [-1, 0],
+                [0, 1],
+                [0, -1],
+            ];
+            let openColumns = 0;
+            for (const [ox, oz] of probes) {
+                if (lightingSystem?.isOpenToSky?.(px + ox, py, pz + oz)) openColumns++;
+            }
+            const rawExposure = openColumns / probes.length;
+            return Math.max(0, Math.min(1, rawExposure));
+        }
+
+        function applyCaveLighting(time) {
+            if (!ambientLight || !hemiLight || !dirLight || !moonLight) return;
+            if ((time - lastCaveLightingProbeMs) >= CAVE_LIGHT_PROBE_INTERVAL_MS) {
+                cachedCaveSkyExposure = samplePlayerSkyExposure();
+                lastCaveLightingProbeMs = time;
+            }
+            const indoorBlend = 0.18 + cachedCaveSkyExposure * 0.82;
+            caveLightingBlend += (indoorBlend - caveLightingBlend) * CAVE_LIGHT_BLEND_SPEED;
+            const blend = Math.max(0.18, Math.min(1, caveLightingBlend));
+            ambientLight.intensity *= blend;
+            hemiLight.intensity *= blend;
+            dirLight.intensity *= (0.35 + blend * 0.65);
+            moonLight.intensity *= (0.4 + blend * 0.6);
+        }
+
+        function applyPlayerEffect(effectName, durationSeconds, options = {}) {
+            const key = String(effectName || '').toLowerCase().trim();
+            if (key !== 'nausea') return false;
+            const seconds = Number(durationSeconds);
+            if (!Number.isFinite(seconds) || seconds <= 0) return false;
+            const durationMs = Math.max(1000, Math.floor(seconds * 1000));
+            const now = performance.now();
+            activeCommandEffects.set(key, {
+                key,
+                source: options.source || 'command',
+                expiresAt: now + durationMs,
+                durationMs,
+                startedAt: now,
+            });
+            if (isInventoryOpen) renderEffectStatusPanel(now);
+            return true;
+        }
+
+        function getEffectRemainingMs(effectName, now = performance.now()) {
+            const key = String(effectName || '').toLowerCase().trim();
+            const effect = activeCommandEffects.get(key);
+            if (!effect) return 0;
+            return Math.max(0, effect.expiresAt - now);
+        }
+
+        function hasActiveCommandEffect(effectName, now = performance.now()) {
+            return getEffectRemainingMs(effectName, now) > 0;
+        }
+
+        function tickCommandEffects(now = performance.now()) {
+            let removed = false;
+            for (const [key, effect] of activeCommandEffects.entries()) {
+                if (!effect || effect.expiresAt <= now) {
+                    activeCommandEffects.delete(key);
+                    removed = true;
+                }
+            }
+            if (removed && isInventoryOpen) renderEffectStatusPanel(now);
+        }
+
+        function formatEffectDuration(ms) {
+            const totalSec = Math.max(0, Math.ceil(ms / 1000));
+            const min = Math.floor(totalSec / 60);
+            const sec = totalSec % 60;
+            if (min <= 0) return `${sec}s`;
+            return `${min}m ${String(sec).padStart(2, '0')}s`;
+        }
+
+        function renderEffectStatusPanel(now = performance.now()) {
+            if (!inventoryEffectsEl) return;
+            const entries = [];
+            activeCommandEffects.forEach((effect) => {
+                const remainingMs = Math.max(0, effect.expiresAt - now);
+                if (remainingMs <= 0) return;
+                entries.push({ key: effect.key, remainingMs });
+            });
+            entries.sort((a, b) => a.remainingMs - b.remainingMs);
+
+            if (!entries.length) {
+                inventoryEffectsEl.innerHTML = '<div class="inv-effects-empty">No active effects</div>';
+                return;
+            }
+            inventoryEffectsEl.innerHTML = entries
+                .map((entry) => `<div class="inv-effect-row"><span class="inv-effect-name">${entry.key}</span><span class="inv-effect-time">${formatEffectDuration(entry.remainingMs)}</span></div>`)
+                .join('');
+        }
+
+        function isPlayerInsideGlowstonePortal() {
+            if (!yawObject) return false;
+            const px = Math.floor(yawObject.position.x);
+            const pz = Math.floor(yawObject.position.z);
+            const feetY = Math.floor(yawObject.position.y);
+            const torsoY = Math.floor(yawObject.position.y + 0.8);
+            const footId = getBlockType(px, feetY, pz);
+            const torsoId = getBlockType(px, torsoY, pz);
+            return footId === GLOWSTONE_PORTAL_Z_ID ||
+                footId === GLOWSTONE_PORTAL_X_ID ||
+                torsoId === GLOWSTONE_PORTAL_Z_ID ||
+                torsoId === GLOWSTONE_PORTAL_X_ID;
+        }
+
         function setRenderDistance(amount) {
             const parsed = Number.parseInt(amount, 10);
             if (!Number.isFinite(parsed)) return false;
@@ -1847,6 +2006,96 @@ window.perlin = perlinInstance;
 
         function getCameraFov() {
             return Number(camera?.fov || 90);
+        }
+
+        function toggleRenderDistanceBoost() {
+            const current = Math.max(1, Math.floor(Number(currentChunkLoadRadius) || 1));
+            const boosting = current <= Math.floor(baseChunkRenderDistance * 1.5);
+            const next = boosting ? Math.min(WORLD_RADIUS, current * 2) : Math.max(1, Math.floor(current / 2));
+            if (!setRenderDistance(next)) return false;
+            showGameMessage(`Render distance ${boosting ? 'boosted' : 'reduced'}: ${next}`);
+            return true;
+        }
+
+        function getDroppedItemMeshMaterial(itemId) {
+            if (droppedItemMeshMaterialCache.has(itemId)) return droppedItemMeshMaterialCache.get(itemId);
+            const matDef = blockMaterials[itemId] || {};
+            const sourceMat = matDef.textureKey ? materials[matDef.textureKey] : null;
+            const dropMat = new THREE.MeshStandardMaterial({
+                map: sourceMat?.map || null,
+                color: matDef.textured ? 0xffffff : (matDef.color || 0xbcbcbc),
+                roughness: 0.75,
+                metalness: 0.02,
+                transparent: Boolean(matDef.transparent),
+                opacity: Number.isFinite(matDef.opacity) ? matDef.opacity : 1,
+            });
+            droppedItemMeshMaterialCache.set(itemId, dropMat);
+            return dropMat;
+        }
+
+        function spawnDroppedItem(itemId, count = 1) {
+            if (!scene || !yawObject || !Number.isFinite(itemId) || itemId <= 0 || count <= 0) return false;
+            const angle = yawObject.rotation.y || 0;
+            const spawnX = yawObject.position.x + Math.sin(angle) * 1.9;
+            const spawnZ = yawObject.position.z + Math.cos(angle) * 1.9;
+            const spawnY = yawObject.position.y + 0.52;
+            for (const drop of droppedWorldItems) {
+                if (!drop?.mesh || drop.itemId !== itemId) continue;
+                const dx = drop.mesh.position.x - spawnX;
+                const dz = drop.mesh.position.z - spawnZ;
+                if ((dx * dx + dz * dz) > 2.25) continue;
+                drop.count += count;
+                drop.spawnedAt = performance.now();
+                return true;
+            }
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.26, 0.26), getDroppedItemMeshMaterial(itemId));
+            mesh.position.set(spawnX, spawnY, spawnZ);
+            scene.add(mesh);
+            droppedWorldItems.push({
+                mesh,
+                itemId,
+                count,
+                spawnedAt: performance.now(),
+                bobPhase: Math.random() * Math.PI * 2,
+                baseY: spawnY,
+            });
+            return true;
+        }
+
+        function dropSelectedHotbarItem(dropSingle = false) {
+            if (isInventoryOpen || window.SingleplayerChat?.isOpen?.()) return false;
+            const held = inventory[selectedHotbarIndex];
+            if (!held || held.count <= 0) return false;
+            const itemId = held.id;
+            const dropAmount = dropSingle ? 1 : held.count;
+            held.count -= dropAmount;
+            if (held.count <= 0) inventory[selectedHotbarIndex] = null;
+            updateHotbarUI();
+            if (isInventoryOpen) renderInventoryScreen();
+            return spawnDroppedItem(itemId, dropAmount);
+        }
+
+        function updateDroppedItems(time, deltaMs) {
+            if (!droppedWorldItems.length || !yawObject) return;
+            const now = performance.now();
+            for (let i = droppedWorldItems.length - 1; i >= 0; i--) {
+                const drop = droppedWorldItems[i];
+                if (!drop?.mesh) {
+                    droppedWorldItems.splice(i, 1);
+                    continue;
+                }
+                drop.mesh.position.y = drop.baseY + Math.sin(time * 0.004 + drop.bobPhase) * 0.08;
+                drop.mesh.rotation.y += (deltaMs / 1000) * 1.8;
+                const dx = drop.mesh.position.x - yawObject.position.x;
+                const dy = (drop.mesh.position.y + 0.1) - yawObject.position.y;
+                const dz = drop.mesh.position.z - yawObject.position.z;
+                const distSq = dx * dx + dy * dy + dz * dz;
+                if ((now - drop.spawnedAt) < 400 || distSq > 4) continue;
+                const picked = addToInventory(drop.itemId, drop.count);
+                if (!picked) continue;
+                scene.remove(drop.mesh);
+                droppedWorldItems.splice(i, 1);
+            }
         }
 
         function getMaxStackSize(itemId) {
@@ -2613,6 +2862,7 @@ window.perlin = perlinInstance;
                 getReach,
                 setPlayerHeight,
                 getPlayerHeight,
+                applyPlayerEffect,
                 setGameMode,
                 openCreativeMenu,
                 closeCreativeMenu,
@@ -2795,13 +3045,40 @@ window.perlin = perlinInstance;
         }
 
 
-        function updateCoordinatesUI() {
-            const el = document.getElementById('coordinates-display');
+        function updateCoordinatesUI(nowMs = performance.now()) {
+            const el = coordinatesDisplayEl || document.getElementById('coordinates-display');
             if (!el || !yawObject) return;
+            if ((nowMs - lastCoordinateUpdateMs) < COORDINATES_UPDATE_INTERVAL_MS) return;
             const x = Math.floor(yawObject.position.x);
             const y = Math.floor(yawObject.position.y);
             const z = Math.floor(yawObject.position.z);
+            if (x === lastCoordinateX && y === lastCoordinateY && z === lastCoordinateZ) return;
+            lastCoordinateUpdateMs = nowMs;
+            lastCoordinateX = x;
+            lastCoordinateY = y;
+            lastCoordinateZ = z;
             el.textContent = `XYZ: ${x}, ${y}, ${z}`;
+        }
+
+        function maybeApplyAdaptiveQuality(nowMs) {
+            if (!renderer || !Number.isFinite(frameTimeEmaMs)) return;
+            if ((nowMs - lastAdaptiveQualityTickMs) < ADAPTIVE_QUALITY_TICK_MS) return;
+            lastAdaptiveQualityTickMs = nowMs;
+            const fpsEstimate = 1000 / Math.max(0.001, frameTimeEmaMs);
+            const minRatio = isLowEndDevice ? 0.68 : 0.74;
+            const maxRatio = computeRenderPixelRatio();
+            let nextRatio = targetRenderPixelRatio;
+
+            if (fpsEstimate < ADAPTIVE_QUALITY_LOW_FPS && targetRenderPixelRatio > minRatio) {
+                nextRatio = Math.max(minRatio, targetRenderPixelRatio - 0.06);
+            } else if (fpsEstimate > ADAPTIVE_QUALITY_HIGH_FPS && targetRenderPixelRatio < maxRatio) {
+                nextRatio = Math.min(maxRatio, targetRenderPixelRatio + 0.04);
+            }
+
+            if (Math.abs(nextRatio - targetRenderPixelRatio) > 0.009) {
+                targetRenderPixelRatio = Number(nextRatio.toFixed(3));
+                renderer.setPixelRatio(targetRenderPixelRatio);
+            }
         }
 
         function updateHotbarUI() {
@@ -3197,6 +3474,7 @@ window.perlin = perlinInstance;
 
             const waypointMenuEnabled = isInventoryOpen && !usingFurnaceScreen && !usingChestScreen && !isCreativeMenuOpen;
             waypointsMod?.renderWaypointUi?.({ enabled: waypointMenuEnabled });
+            renderEffectStatusPanel();
 
             mainGrid.innerHTML = '';
             hotbarGrid.innerHTML = '';
@@ -4958,6 +5236,16 @@ window.perlin = perlinInstance;
                     window.SingleplayerChat?.toggle?.();
                     return;
                 }
+                if (k === 'r' && !window.SingleplayerChat?.isOpen?.()) {
+                    e.preventDefault();
+                    toggleRenderDistanceBoost();
+                    return;
+                }
+                if (k === 'q' && !window.SingleplayerChat?.isOpen?.()) {
+                    e.preventDefault();
+                    dropSelectedHotbarItem(Boolean(e.shiftKey));
+                    return;
+                }
                 if (k === ' ' && playerPrivileges.fly && !isInventoryOpen && !window.SingleplayerChat?.isOpen?.() && !e.repeat) {
                     const now = Date.now();
                     if (now - lastSpaceTapAt <= 280) {
@@ -6121,39 +6409,93 @@ window.perlin = perlinInstance;
             function placeRuinAt(coreX, coreZ, biomeKey) {
                 const def = rg.getBiomeDefinition(biomeKey);
                 if (!def) return false;
-                const columns = [
-                    { x: 0, z: 0, h: 4 },
-                    { x: 1, z: 0, h: 3 }, { x: 2, z: 0, h: 2 }, { x: 3, z: 0, h: 1 },
-                    { x: 0, z: 1, h: 3 }, { x: 0, z: 2, h: 2 }, { x: 0, z: 3, h: 1 },
-                    { x: -1, z: 0, h: 3 }, { x: -2, z: 0, h: 2 }, { x: -3, z: 0, h: 1 },
-                    { x: 0, z: -1, h: 3 }, { x: 0, z: -2, h: 2 }, { x: 0, z: -3, h: 1 },
-                ];
-                const fillerOffsets = [
-                    { x: 1, z: 1 }, { x: -1, z: -1 }, { x: 1, z: -1 }, { x: -1, z: 1 },
-                    { x: 2, z: 1 }, { x: 1, z: 2 }, { x: -2, z: -1 }, { x: -1, z: -2 },
-                ];
+                // Build a decayed courtyard + fragmented walls so ruins look less like a plus sign.
+                const radius = 3;
+                for (let ox = -radius; ox <= radius; ox++) {
+                    for (let oz = -radius; oz <= radius; oz++) {
+                        const wx = coreX + ox;
+                        const wz = coreZ + oz;
+                        const edge = Math.max(Math.abs(ox), Math.abs(oz)) === radius;
+                        const inside = Math.max(Math.abs(ox), Math.abs(oz)) <= 2;
+                        const decayRoll = hashRand2D(wx * 2, wz * 3, 42500);
 
-                columns.forEach((column, index) => placeColumn(coreX + column.x, coreZ + column.z, column.h, def.blocks, coreX, coreZ, index + 1));
-                fillerOffsets.forEach((offset, index) => {
-                    const roll = hashRand2D(coreX + offset.x * 3, coreZ + offset.z * 5, 42500 + index);
-                    if (roll > 0.62) return;
-                    const height = 1 + Math.floor(hashRand2D(coreX - offset.x * 7, coreZ + offset.z * 11, 42600 + index) * 2);
-                    placeColumn(coreX + offset.x, coreZ + offset.z, height, def.blocks, coreX, coreZ, 30 + index);
+                        if (inside && decayRoll < 0.82) {
+                            // Uneven floor patches.
+                            const floorY = getGroundYAt(wx, wz);
+                            if (Number.isFinite(floorY)) {
+                                placeSolid(wx, floorY, wz, choosePaletteBlock(def.blocks, coreX, coreZ, 100 + ox * 7 + oz * 11));
+                            }
+                        }
+
+                        if (edge && decayRoll < 0.68) {
+                            const wallH = 1 + Math.floor(hashRand2D(wx, wz, 42501) * 3);
+                            placeColumn(wx, wz, wallH, def.blocks, coreX, coreZ, 120 + ox * 5 + oz * 7);
+                        }
+                    }
+                }
+
+                // Corner pillars with varied heights.
+                const pillarOffsets = [
+                    { x: -radius, z: -radius },
+                    { x: -radius, z: radius },
+                    { x: radius, z: -radius },
+                    { x: radius, z: radius },
+                ];
+                pillarOffsets.forEach((off, i) => {
+                    const h = 3 + Math.floor(hashRand2D(coreX + off.x, coreZ + off.z, 42520 + i) * 3);
+                    placeColumn(coreX + off.x, coreZ + off.z, h, def.blocks, coreX, coreZ, 160 + i);
                 });
 
-                const chestRoll = hashRand2D(coreX, coreZ, 42700);
-                if (chestRoll < 0.20) {
-                    const chestOffsets = [{ x: 1, z: 1 }, { x: -1, z: -1 }, { x: 1, z: -1 }, { x: -1, z: 1 }];
-                    const chosen = chestOffsets[Math.floor(hashRand2D(coreX, coreZ, 42701) * chestOffsets.length) % chestOffsets.length];
-                    const chestX = coreX + chosen.x;
-                    const chestZ = coreZ + chosen.z;
+                // Central broken arch / standing remnant.
+                const centerSpokes = [
+                    { x: 0, z: 0, h: 3 },
+                    { x: 1, z: 0, h: 2 },
+                    { x: -1, z: 0, h: 2 },
+                    { x: 0, z: 1, h: 2 },
+                    { x: 0, z: -1, h: 2 },
+                ];
+                centerSpokes.forEach((spoke, i) => {
+                    const keep = hashRand2D(coreX + spoke.x * 13, coreZ + spoke.z * 17, 42540 + i);
+                    if (keep < 0.2) return;
+                    placeColumn(coreX + spoke.x, coreZ + spoke.z, spoke.h, def.blocks, coreX, coreZ, 190 + i);
+                });
+
+                // Scatter rubble around the ruin.
+                for (let i = 0; i < 14; i++) {
+                    const ox = Math.floor(hashRand2D(coreX, coreZ, 42560 + i) * 9) - 4;
+                    const oz = Math.floor(hashRand2D(coreX, coreZ, 42590 + i) * 9) - 4;
+                    const wx = coreX + ox;
+                    const wz = coreZ + oz;
+                    const rubbleRoll = hashRand2D(wx * 5, wz * 7, 42620 + i);
+                    if (rubbleRoll > 0.65) continue;
+                    const height = rubbleRoll > 0.2 ? 1 : 2;
+                    placeColumn(wx, wz, height, def.blocks, coreX, coreZ, 220 + i);
+                }
+
+                // Guarantee one chest whenever a valid location exists.
+                const chestOffsets = [
+                    { x: 1, z: 1 }, { x: -1, z: -1 }, { x: 1, z: -1 }, { x: -1, z: 1 },
+                    { x: 2, z: 0 }, { x: -2, z: 0 }, { x: 0, z: 2 }, { x: 0, z: -2 },
+                    { x: 0, z: 0 },
+                ];
+                const orderShift = Math.floor(hashRand2D(coreX, coreZ, 42701) * chestOffsets.length) % chestOffsets.length;
+                let chestPlaced = false;
+                for (let i = 0; i < chestOffsets.length; i++) {
+                    const pick = chestOffsets[(i + orderShift) % chestOffsets.length];
+                    const chestX = coreX + pick.x;
+                    const chestZ = coreZ + pick.z;
                     const groundY = getGroundYAt(chestX, chestZ);
-                    if (Number.isFinite(groundY) && placeSolid(chestX, groundY + 1, chestZ, 82)) {
-                        placeSolid(chestX, groundY, chestZ, def.chestBaseBlockId);
-                        const chestKey = `${chestX},${groundY + 1},${chestZ}`;
-                        const loot = window.RuinsChestLoot?.generateLoot?.({ hashRand2D, seedX: coreX, seedZ: coreZ, biomeKey }) || [];
-                        seedChestStateWithLoot(chestKey, loot);
-                    }
+                    if (!Number.isFinite(groundY)) continue;
+                    if (!placeSolid(chestX, groundY + 1, chestZ, 82)) continue;
+                    placeSolid(chestX, groundY, chestZ, def.chestBaseBlockId);
+                    const chestKey = `${chestX},${groundY + 1},${chestZ}`;
+                    const loot = window.RuinsChestLoot?.generateLoot?.({ hashRand2D, seedX: coreX, seedZ: coreZ, biomeKey }) || [];
+                    seedChestStateWithLoot(chestKey, loot);
+                    chestPlaced = true;
+                    break;
+                }
+                if (!chestPlaced) {
+                    console.warn('[Ruins] Could not place chest at ruin', coreX, coreZ, biomeKey);
                 }
 
                 return true;
@@ -6565,6 +6907,12 @@ window.perlin = perlinInstance;
             // if neighbor block is not AIR and both sides are opaque, the face is hidden and skipped.
             const shouldCullFace = (id, nid) => {
                 if (nid === 0) return false;
+                const selfMat = blockMaterials[id];
+                const neighborMat = blockMaterials[nid];
+                const selfIsSlab = selfMat?.shape === 'slab';
+                const neighborIsSlab = neighborMat?.shape === 'slab';
+                // Slabs are partial-height blocks, so adjacent cube faces should still render.
+                if (selfIsSlab || neighborIsSlab) return false;
                 const selfTransparent = isTransparentBlock(id);
                 const neighborTransparent = isTransparentBlock(nid);
                 if (!selfTransparent && !neighborTransparent) return true;
@@ -7476,10 +7824,20 @@ window.perlin = perlinInstance;
         function animate(time) {
 
             requestAnimationFrame(animate);
-            const delta = lastTime ? (time - lastTime) : 0;
+            const deltaRaw = lastTime ? (time - lastTime) : 0;
+            const delta = Math.min(66, Math.max(0, deltaRaw));
             lastTime = time;
+            frameTimeEmaMs = frameTimeEmaMs * 0.9 + delta * 0.1;
+            maybeApplyAdaptiveQuality(time);
 
             dayNightCycle?.tick?.(delta);
+            applyCaveLighting(time);
+            tickCommandEffects(time);
+            glowstonePortalDimension1?.update?.({
+                deltaMs: delta,
+                inPortalBlock: isPlayerInsideGlowstonePortal() || hasActiveCommandEffect('nausea', time),
+                portalIgnited: true,
+            });
 
             const liquidState = getPlayerLiquidState();
             updateBreathing(delta / 1000, liquidState.isUnderLiquid);
@@ -7536,10 +7894,11 @@ window.perlin = perlinInstance;
                 updateBreakingOverlay();
             }
             updateAdaptiveCrosshair();
-            updateCoordinatesUI();
+            updateCoordinatesUI(time);
             waypointsMod?.update?.(time, delta);
             updatePortalAnimation(delta);
             flushPendingNetworkBlockChanges();
+            updateDroppedItems(time, delta);
             if (IS_1D4P_MULTIPLAYER) {
                 persistedWorldFlushTimerMs += delta;
                 if (persistedWorldFlushTimerMs >= PERSISTED_WORLD_FLUSH_MS) {
@@ -7548,8 +7907,14 @@ window.perlin = perlinInstance;
                 }
             }
             updateRemotePlayerAnimations(time, delta);
-            refreshRemotePlayerLabels();
-            renderOnlinePlayersOverlay();
+            if ((time - lastRemoteLabelRefreshMs) >= REMOTE_LABEL_UPDATE_INTERVAL_MS) {
+                refreshRemotePlayerLabels();
+                lastRemoteLabelRefreshMs = time;
+            }
+            if ((time - lastOnlineOverlayRenderMs) >= ONLINE_OVERLAY_UPDATE_INTERVAL_MS) {
+                renderOnlinePlayersOverlay();
+                lastOnlineOverlayRenderMs = time;
+            }
             renderer.render(scene, camera);
         }
         
