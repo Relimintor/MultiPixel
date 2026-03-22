@@ -983,6 +983,8 @@ window.perlin = perlinInstance;
         let caveLightingBlend = 1;
         let lastCaveLightingProbeMs = -Infinity;
         let cachedCaveSkyExposure = 1;
+        let inventoryEffectsEl = null;
+        const activeCommandEffects = new Map();
         let eatOverlayEl = playerRuntime.eatOverlayEl;
         let eatItemEl = playerRuntime.eatItemEl;
         let eatingAnimState = playerRuntime.eatingAnimState;
@@ -1759,6 +1761,7 @@ window.perlin = perlinInstance;
             if (furnaceCloseIcon) furnaceCloseIcon.src = closeIconPath;
             if (chestCloseIcon) chestCloseIcon.src = closeIconPath;
             coordinatesDisplayEl = document.getElementById('coordinates-display');
+            inventoryEffectsEl = document.getElementById('inventory-effects-list');
             defaultPlayerSkin?.initSkinUi?.();
             const creativeCloseIcon = document.getElementById('creative-close-icon');
             const creativeInventoryIcon = document.getElementById('creative-inventory-icon');
@@ -1895,6 +1898,73 @@ window.perlin = perlinInstance;
             hemiLight.intensity *= blend;
             dirLight.intensity *= (0.35 + blend * 0.65);
             moonLight.intensity *= (0.4 + blend * 0.6);
+        }
+
+        function applyPlayerEffect(effectName, durationSeconds, options = {}) {
+            const key = String(effectName || '').toLowerCase().trim();
+            if (key !== 'nausea') return false;
+            const seconds = Number(durationSeconds);
+            if (!Number.isFinite(seconds) || seconds <= 0) return false;
+            const durationMs = Math.max(1000, Math.floor(seconds * 1000));
+            const now = performance.now();
+            activeCommandEffects.set(key, {
+                key,
+                source: options.source || 'command',
+                expiresAt: now + durationMs,
+                durationMs,
+                startedAt: now,
+            });
+            if (isInventoryOpen) renderEffectStatusPanel(now);
+            return true;
+        }
+
+        function getEffectRemainingMs(effectName, now = performance.now()) {
+            const key = String(effectName || '').toLowerCase().trim();
+            const effect = activeCommandEffects.get(key);
+            if (!effect) return 0;
+            return Math.max(0, effect.expiresAt - now);
+        }
+
+        function hasActiveCommandEffect(effectName, now = performance.now()) {
+            return getEffectRemainingMs(effectName, now) > 0;
+        }
+
+        function tickCommandEffects(now = performance.now()) {
+            let removed = false;
+            for (const [key, effect] of activeCommandEffects.entries()) {
+                if (!effect || effect.expiresAt <= now) {
+                    activeCommandEffects.delete(key);
+                    removed = true;
+                }
+            }
+            if (removed && isInventoryOpen) renderEffectStatusPanel(now);
+        }
+
+        function formatEffectDuration(ms) {
+            const totalSec = Math.max(0, Math.ceil(ms / 1000));
+            const min = Math.floor(totalSec / 60);
+            const sec = totalSec % 60;
+            if (min <= 0) return `${sec}s`;
+            return `${min}m ${String(sec).padStart(2, '0')}s`;
+        }
+
+        function renderEffectStatusPanel(now = performance.now()) {
+            if (!inventoryEffectsEl) return;
+            const entries = [];
+            activeCommandEffects.forEach((effect) => {
+                const remainingMs = Math.max(0, effect.expiresAt - now);
+                if (remainingMs <= 0) return;
+                entries.push({ key: effect.key, remainingMs });
+            });
+            entries.sort((a, b) => a.remainingMs - b.remainingMs);
+
+            if (!entries.length) {
+                inventoryEffectsEl.innerHTML = '<div class="inv-effects-empty">No active effects</div>';
+                return;
+            }
+            inventoryEffectsEl.innerHTML = entries
+                .map((entry) => `<div class="inv-effect-row"><span class="inv-effect-name">${entry.key}</span><span class="inv-effect-time">${formatEffectDuration(entry.remainingMs)}</span></div>`)
+                .join('');
         }
 
         function isPlayerInsideGlowstonePortal() {
@@ -2700,6 +2770,7 @@ window.perlin = perlinInstance;
                 getReach,
                 setPlayerHeight,
                 getPlayerHeight,
+                applyPlayerEffect,
                 setGameMode,
                 openCreativeMenu,
                 closeCreativeMenu,
@@ -3311,6 +3382,7 @@ window.perlin = perlinInstance;
 
             const waypointMenuEnabled = isInventoryOpen && !usingFurnaceScreen && !usingChestScreen && !isCreativeMenuOpen;
             waypointsMod?.renderWaypointUi?.({ enabled: waypointMenuEnabled });
+            renderEffectStatusPanel();
 
             mainGrid.innerHTML = '';
             hotbarGrid.innerHTML = '';
@@ -7598,9 +7670,10 @@ window.perlin = perlinInstance;
 
             dayNightCycle?.tick?.(delta);
             applyCaveLighting(time);
+            tickCommandEffects(time);
             glowstonePortalDimension1?.update?.({
                 deltaMs: delta,
-                inPortalBlock: isPlayerInsideGlowstonePortal(),
+                inPortalBlock: isPlayerInsideGlowstonePortal() || hasActiveCommandEffect('nausea', time),
                 portalIgnited: true,
             });
 

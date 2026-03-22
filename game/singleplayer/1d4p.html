@@ -65,8 +65,9 @@
     <script src="chat/commands/grantme/main.js?v=1"></script>
     <script src="chat/commands/ungrantme/main.js?v=1"></script>
     <script src="chat/commands/enchant/main.js?v=1"></script>
-    <script src="chat/commands/commands.js?v=8"></script>
-    <script src="chat/main.js?v=8"></script>
+    <script src="chat/commands/effect/main.js?v=1"></script>
+    <script src="chat/commands/commands.js?v=9"></script>
+    <script src="chat/main.js?v=9"></script>
     <script src="trees/oak/default_oak.js?v=1"></script>
     <script src="trees/oak/small_oak.js?v=1"></script>
     <script src="trees/oak/large_oak.js?v=1"></script>
@@ -90,7 +91,7 @@
     <script src="optimiations/chunk_streaming.js?v=1"></script>
     <script src="dimension1/glowstone_portal.js?v=1"></script>
 
-    <script src="main.js?v=30"></script>
+    <script src="main.js?v=31"></script>
     <script src="multiplayer/client.js?v=1"></script>
     <!-- Removed external script links to ensure functionality in this single-file preview -->
 </head>
@@ -142,6 +143,10 @@
             </button>
             <div id="inventory-skin-preview" aria-hidden="true">
                 <div id="inventory-skin-head"></div>
+            </div>
+            <div id="inventory-effects-panel" aria-live="polite">
+                <div class="inv-effects-title">Effects</div>
+                <div id="inventory-effects-list"></div>
             </div>
 
             <div id="crafting-2x2-container" class="menu-top-layout">
