@@ -41,6 +41,8 @@
         const GLOWSTONE_PORTAL_FRAME_KEYS = Array.isArray(window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_FRAME_KEYS)
             ? window.SingleplayerSideConfig.GLOWSTONE_PORTAL_FRAME_KEYS
             : [];
+        const GLOWSTONE_PORTAL_Z_ID = Number(window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_Z_ID) || 147;
+        const GLOWSTONE_PORTAL_X_ID = Number(window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_X_ID) || 148;
         const portalAnimationState = { frameMs: 120, frameIndex: 0, elapsedMs: 0 };
         console.info('[Singleplayer build]', window.__SINGLEPLAYER_BUILD__);
 
@@ -782,6 +784,7 @@ window.perlin = perlinInstance;
         let wolfMob = null;
         let pandaMob = null;
         let villagerMob = null;
+        let glowstonePortalDimension1 = null;
         remeshOptimizations = window.SingleplayerChunkRemeshOptimizations?.create?.({
             getChunkKey: chunkKeyFromCoords,
             getChunk: (key) => chunks.get(key),
@@ -1801,6 +1804,10 @@ window.perlin = perlinInstance;
             targetRenderPixelRatio = computeRenderPixelRatio();
             renderer.setPixelRatio(targetRenderPixelRatio);
             document.body.appendChild(renderer.domElement);
+            glowstonePortalDimension1 = window.SingleplayerDimension1GlowstonePortal?.create?.({
+                getRenderer: () => renderer,
+                getCamera: () => camera,
+            }) || null;
             setupEatingOverlay();
             
             window.addEventListener('resize', onWindowResize);
@@ -1888,6 +1895,20 @@ window.perlin = perlinInstance;
             hemiLight.intensity *= blend;
             dirLight.intensity *= (0.35 + blend * 0.65);
             moonLight.intensity *= (0.4 + blend * 0.6);
+        }
+
+        function isPlayerInsideGlowstonePortal() {
+            if (!yawObject) return false;
+            const px = Math.floor(yawObject.position.x);
+            const pz = Math.floor(yawObject.position.z);
+            const feetY = Math.floor(yawObject.position.y);
+            const torsoY = Math.floor(yawObject.position.y + 0.8);
+            const footId = getBlockType(px, feetY, pz);
+            const torsoId = getBlockType(px, torsoY, pz);
+            return footId === GLOWSTONE_PORTAL_Z_ID ||
+                footId === GLOWSTONE_PORTAL_X_ID ||
+                torsoId === GLOWSTONE_PORTAL_Z_ID ||
+                torsoId === GLOWSTONE_PORTAL_X_ID;
         }
 
         function setRenderDistance(amount) {
@@ -7577,6 +7598,11 @@ window.perlin = perlinInstance;
 
             dayNightCycle?.tick?.(delta);
             applyCaveLighting(time);
+            glowstonePortalDimension1?.update?.({
+                deltaMs: delta,
+                inPortalBlock: isPlayerInsideGlowstonePortal(),
+                portalIgnited: true,
+            });
 
             const liquidState = getPlayerLiquidState();
             updateBreathing(delta / 1000, liquidState.isUnderLiquid);
