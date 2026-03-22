@@ -1239,7 +1239,7 @@ window.perlin = perlinInstance;
         function renderProceduralPortalFrame(meta, frame = 0) {
             const width = Math.max(8, Math.min(128, Number(meta?.width) || 16));
             const height = Math.max(8, Math.min(128, Number(meta?.height) || 16));
-            const palette = meta?.palette || {};
+            const palette = meta?.palette || meta?.fallback?.palette || {};
             const canvas = document.createElement('canvas');
             canvas.width = width;
             canvas.height = height;
@@ -1271,6 +1271,44 @@ window.perlin = perlinInstance;
             return canvas.toDataURL('image/png');
         }
 
+        function resolveMpmetaRelativePath(mpmetaPath, rawRelativePath) {
+            const rel = String(rawRelativePath || '').trim();
+            if (!rel) return '';
+            if (/^(?:https?:)?\/\//i.test(rel) || rel.startsWith('/')) return rel;
+            const base = String(mpmetaPath || '');
+            const cut = base.lastIndexOf('/');
+            if (cut < 0) return rel;
+            return `${base.slice(0, cut + 1)}${rel}`;
+        }
+
+        function loadImageFromPath(path) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = () => reject(new Error(`Failed loading image: ${path}`));
+                img.src = path;
+            });
+        }
+
+        function renderPortalStripFrame(meta, frame, stripImage) {
+            const frameWidth = Math.max(1, Math.floor(Number(meta?.frameWidth) || 16));
+            const frameHeight = Math.max(1, Math.floor(Number(meta?.frameHeight) || 16));
+            const direction = String(meta?.direction || 'vertical').toLowerCase() === 'horizontal' ? 'horizontal' : 'vertical';
+            const frames = Math.max(1, Math.floor(Number(meta?.frames) || 4));
+            const frameIdx = ((Math.floor(frame) % frames) + frames) % frames;
+            const sx = direction === 'horizontal' ? frameIdx * frameWidth : 0;
+            const sy = direction === 'vertical' ? frameIdx * frameHeight : 0;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = frameWidth;
+            canvas.height = frameHeight;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return '';
+            ctx.clearRect(0, 0, frameWidth, frameHeight);
+            ctx.drawImage(stripImage, sx, sy, frameWidth, frameHeight, 0, 0, frameWidth, frameHeight);
+            return canvas.toDataURL('image/png');
+        }
+
         async function resolveMpmetaTexturePath(path) {
             const req = parseMpmetaRequest(path);
             if (!req) return path;
@@ -1283,9 +1321,26 @@ window.perlin = perlinInstance;
                 if (!response.ok) throw new Error(`mpmeta load failed (${response.status})`);
                 meta = await response.json();
                 mpmetaTextureCache.set(req.basePath, meta);
+                const frameTime = Number(meta?.frametime);
+                if (Number.isFinite(frameTime) && frameTime > 0) {
+                    portalAnimationState.frameMs = Math.max(40, Math.min(1000, Math.floor(frameTime * 50)));
+                }
             }
 
-            const dataUrl = renderProceduralPortalFrame(meta, req.frame);
+            let dataUrl = '';
+            if (String(meta?.kind || '').toLowerCase() === 'texture-strip') {
+                const stripPath = resolveMpmetaRelativePath(req.basePath, meta?.stripTexture || meta?.texture || '');
+                if (stripPath) {
+                    const imageCacheKey = `${req.basePath}#strip-image`;
+                    let stripImage = mpmetaTextureCache.get(imageCacheKey);
+                    if (!stripImage) {
+                        stripImage = await loadImageFromPath(stripPath);
+                        mpmetaTextureCache.set(imageCacheKey, stripImage);
+                    }
+                    dataUrl = renderPortalStripFrame(meta, req.frame, stripImage);
+                }
+            }
+            if (!dataUrl) dataUrl = renderProceduralPortalFrame(meta, req.frame);
             mpmetaTextureCache.set(cacheKey, dataUrl);
             return dataUrl || path;
         }
