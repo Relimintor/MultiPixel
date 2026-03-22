@@ -6371,6 +6371,12 @@ window.perlin = perlinInstance;
             const singlePlaneFacesX = [
                 { name: 'posX', dir: [1, 0, 0], corners: [[0.5,1,0.15],[0.5,0,0.15],[0.5,0,0.85],[0.5,1,0.85]], uv: [0,1,0,0,1,0,1,1] },
             ];
+            const fullPlaneFaces = [
+                { name: 'posZ', dir: [0, 0, 1], corners: [[0,1,0.5],[0,0,0.5],[1,0,0.5],[1,1,0.5]], uv: [0,1,0,0,1,0,1,1] },
+            ];
+            const fullPlaneFacesX = [
+                { name: 'posX', dir: [1, 0, 0], corners: [[0.5,1,0],[0.5,0,0],[0.5,0,1],[0.5,1,1]], uv: [0,1,0,0,1,0,1,1] },
+            ];
 
 
             const CH = CHUNK_HEIGHT;
@@ -6685,15 +6691,30 @@ window.perlin = perlinInstance;
                         const isSlab = mat.shape === 'slab';
                         const sideRenderMode = getSideRenderMode(id);
                         const isSideRenderBlock = Boolean(sideRenderMode);
+                        const isGlowstonePortalPlane = id === (window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_Z_ID || 147);
+                        const isGlowstonePortalPlaneX = id === (window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_X_ID || 148);
                         if (isTorch) torchPositions.push({ x: x + cx * CS, y, z: z + cz * CS });
                         if (id === 119) glowstonePositions.push({ x: x + cx * CS, y, z: z + cz * CS, id });
                         const isTrans = mat.transparent || (mat.textured && mat.textureKey === 'LEAVES');
                         if (!isTorch && !isBambooStage && !isBambooStalk && !isSlab && !isSideRenderBlock && !isTrans) continue;
-                        const activeFaces = isSideRenderBlock
-                            ? (sideRenderMode === 'plane'
-                                ? singlePlaneFaces
-                                : (sideRenderMode === 'plane_x' ? singlePlaneFacesX : crossPlantFaces))
-                            : (isTorch ? torchFaces : (isBambooStalk ? bambooStalkFaces : (isBambooStage ? bambooStageFaces : (isSlab ? slabFaces : faces))));
+                        let activeFaces;
+                        if (isSideRenderBlock) {
+                            if (isGlowstonePortalPlane) activeFaces = fullPlaneFaces;
+                            else if (isGlowstonePortalPlaneX) activeFaces = fullPlaneFacesX;
+                            else if (sideRenderMode === 'plane') activeFaces = singlePlaneFaces;
+                            else if (sideRenderMode === 'plane_x') activeFaces = singlePlaneFacesX;
+                            else activeFaces = crossPlantFaces;
+                        } else if (isTorch) {
+                            activeFaces = torchFaces;
+                        } else if (isBambooStalk) {
+                            activeFaces = bambooStalkFaces;
+                        } else if (isBambooStage) {
+                            activeFaces = bambooStageFaces;
+                        } else if (isSlab) {
+                            activeFaces = slabFaces;
+                        } else {
+                            activeFaces = faces;
+                        }
 
                         for (let i = 0; i < activeFaces.length; i++) {
                             const f = activeFaces[i];
