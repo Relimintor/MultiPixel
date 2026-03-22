@@ -295,8 +295,8 @@
 
           z.attackCooldownMs = Math.max(0, z.attackCooldownMs - deltaMs);
           if (dist3D < (z.attackReach || 1.35) && z.attackCooldownMs <= 0) {
-            z.attackCooldownMs = 900;
-            takeDamage?.(3);
+            z.attackCooldownMs = 2000;
+            takeDamage?.(3, { source: 'mob', sourcePos: z.root.position, knockbackStrength: 0.28 });
           }
 
           const zx = Math.floor(z.root.position.x);

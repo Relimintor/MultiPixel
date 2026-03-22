@@ -225,8 +225,8 @@
               panda.dir.copy(toPlayer);
             }
             if (d < 1.45 && panda.attackCooldownMs <= 0) {
-              panda.attackCooldownMs = 850;
-              takeDamage?.(2);
+              panda.attackCooldownMs = 2000;
+              takeDamage?.(2, { source: 'mob', sourcePos: panda.root.position, knockbackStrength: 0.24 });
             }
           } else if (panda.changeDirMs <= 0) {
             panda.changeDirMs = 1000 + Math.random() * 1800;

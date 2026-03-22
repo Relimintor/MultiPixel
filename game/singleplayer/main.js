@@ -953,6 +953,7 @@ window.perlin = perlinInstance;
         let onlinePlayersOverlayEl = null;
         let isSneaking = false;
         let bambooGrowthTimerMs = 0;
+        let lastMobHitAtMs = -Infinity;
         let eatOverlayEl = playerRuntime.eatOverlayEl;
         let eatItemEl = playerRuntime.eatItemEl;
         let eatingAnimState = playerRuntime.eatingAnimState;
@@ -2592,6 +2593,8 @@ window.perlin = perlinInstance;
                 closeCreativeMenu,
                 grantPrivilege,
                 ungrantPrivilege,
+                isRestrictedCommandsMode: IS_1D4P_MULTIPLAYER,
+                hasCommandPrivileges: () => Boolean(playerPrivileges.fly && playerPrivileges.speed && playerPrivileges.noclip),
                 teleportToCoordinates,
                 teleportToBiome,
                 teleportToVillageStructure,
@@ -4394,7 +4397,22 @@ window.perlin = perlinInstance;
             }
         }
 
-        function takeDamage(amount) {
+        function takeDamage(amount, options = {}) {
+            const isMobHit = options?.source === 'mob';
+            if (isMobHit) {
+                const now = performance.now();
+                if (now - lastMobHitAtMs < 2000) return false;
+                lastMobHitAtMs = now;
+                const sourcePos = options?.sourcePos || null;
+                if (sourcePos && yawObject) {
+                    const dx = yawObject.position.x - Number(sourcePos.x || 0);
+                    const dz = yawObject.position.z - Number(sourcePos.z || 0);
+                    const dist = Math.hypot(dx, dz) || 1;
+                    const strength = Math.max(0.12, Math.min(0.4, Number(options?.knockbackStrength) || 0.24));
+                    yawObject.position.x += (dx / dist) * strength;
+                    yawObject.position.z += (dz / dist) * strength;
+                }
+            }
             player.health -= amount;
             if (player.health < 0) player.health = 0;
             renderHearts();
@@ -4415,6 +4433,7 @@ window.perlin = perlinInstance;
                     updateHotbarUI();
                 }, 1000);
             }
+            return true;
         }
 
         function findSupportingBlockTop(px, py, pz) {
