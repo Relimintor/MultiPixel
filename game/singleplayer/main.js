@@ -46,6 +46,8 @@
         const portalAnimationState = { frameMs: 120, frameIndex: 0, elapsedMs: 0 };
         const WATER_FRAME_KEYS = ['WATER_FRAME_0', 'WATER_FRAME_1', 'WATER_FRAME_2', 'WATER_FRAME_3'];
         const waterAnimationState = { frameMs: 140, frameIndex: 0, elapsedMs: 0 };
+        let waterShaderTime = 0;
+        let waterShaderUniforms = null;
         console.info('[Singleplayer build]', window.__SINGLEPLAYER_BUILD__);
 
         const TerrainModules = {
@@ -1450,6 +1452,27 @@ window.perlin = perlinInstance;
             return canvas.toDataURL('image/png');
         }
 
+        function applyLightweightWaterShader(material) {
+            if (!material || material.userData?.hasLightweightWaterShader) return;
+            material.onBeforeCompile = (shader) => {
+                shader.uniforms.uWaterTime = { value: 0 };
+                waterShaderUniforms = shader.uniforms;
+                shader.fragmentShader = shader.fragmentShader.replace(
+                    '#include <dithering_fragment>',
+                    `
+                    float mpWaveA = sin((vUv.x * 30.0) + (uWaterTime * 0.0045));
+                    float mpWaveB = cos((vUv.y * 26.0) - (uWaterTime * 0.0038));
+                    float mpRipple = (mpWaveA * mpWaveB) * 0.5 + 0.5;
+                    gl_FragColor.rgb += vec3(0.01, 0.03, 0.05) * mpRipple;
+                    #include <dithering_fragment>
+                    `
+                );
+            };
+            material.userData = material.userData || {};
+            material.userData.hasLightweightWaterShader = true;
+            material.needsUpdate = true;
+        }
+
         async function resolveMpmetaTexturePath(path) {
             const req = parseMpmetaRequest(path);
             if (!req) return path;
@@ -1563,6 +1586,7 @@ window.perlin = perlinInstance;
                 side: THREE.DoubleSide,
                 roughness: 0.1
             });
+            applyLightweightWaterShader(materials.WATER);
             // Fallback material for textured blocks if loading failed
             materials.DIRT_FALLBACK = new THREE.MeshStandardMaterial({ color: 0x594334, roughness: 0.9 });
             materials.STONE_FALLBACK = new THREE.MeshStandardMaterial({ color: 0x7F8C8D, roughness: 0.9 });
@@ -1601,6 +1625,8 @@ window.perlin = perlinInstance;
             if (!Number.isFinite(deltaMs) || deltaMs <= 0) return;
             const waterMaterial = materials.WATER;
             if (!waterMaterial) return;
+            waterShaderTime += deltaMs;
+            if (waterShaderUniforms?.uWaterTime) waterShaderUniforms.uWaterTime.value = waterShaderTime;
             waterAnimationState.elapsedMs += deltaMs;
             if (waterAnimationState.elapsedMs < waterAnimationState.frameMs) return;
             waterAnimationState.elapsedMs = 0;
@@ -1733,14 +1759,14 @@ window.perlin = perlinInstance;
             applyCameraMode();
 
             // Lighting (premium-feel sky rig + sun/moon + emissive local lights)
-            ambientLight = new THREE.AmbientLight(0x606060, 0.65);
-            hemiLight = new THREE.HemisphereLight(0x9ad8ff, 0x1f1a16, 0.52);
-            moonLight = new THREE.DirectionalLight(0x6f82ff, 0.12);
+            ambientLight = new THREE.AmbientLight(0x6f7684, 0.72);
+            hemiLight = new THREE.HemisphereLight(0xa9ddff, 0x1c1612, 0.62);
+            moonLight = new THREE.DirectionalLight(0x7a92ff, 0.16);
             moonLight.position.set(-40, 80, -25);
             scene.add(ambientLight);
             scene.add(hemiLight);
             scene.add(moonLight);
-            dirLight = new THREE.DirectionalLight(0xffffff, 1.5); 
+            dirLight = new THREE.DirectionalLight(0xfff8ef, 1.28); 
             dirLight.position.set(50, 100, 50);
             scene.add(dirLight);
             scene.add(worldGroup);
@@ -1827,6 +1853,10 @@ window.perlin = perlinInstance;
             renderer.setSize(window.innerWidth, window.innerHeight);
             targetRenderPixelRatio = computeRenderPixelRatio();
             renderer.setPixelRatio(targetRenderPixelRatio);
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = isLowEndDevice ? 1.0 : 1.08;
+            if ('outputColorSpace' in renderer) renderer.outputColorSpace = THREE.SRGBColorSpace;
+            renderer.shadowMap.enabled = false;
             document.body.appendChild(renderer.domElement);
             glowstonePortalDimension1 = window.SingleplayerDimension1GlowstonePortal?.create?.({
                 getRenderer: () => renderer,
