@@ -44,6 +44,10 @@
         const GLOWSTONE_PORTAL_Z_ID = Number(window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_Z_ID) || 147;
         const GLOWSTONE_PORTAL_X_ID = Number(window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_X_ID) || 148;
         const portalAnimationState = { frameMs: 120, frameIndex: 0, elapsedMs: 0 };
+        const WATER_FRAME_KEYS = ['WATER_FRAME_0', 'WATER_FRAME_1', 'WATER_FRAME_2', 'WATER_FRAME_3'];
+        const waterAnimationState = { frameMs: 140, frameIndex: 0, elapsedMs: 0 };
+        let waterShaderTime = 0;
+        let waterShaderUniforms = null;
         console.info('[Singleplayer build]', window.__SINGLEPLAYER_BUILD__);
 
         const TerrainModules = {
@@ -289,9 +293,14 @@ window.perlin = perlinInstance;
         const PERSISTED_WORLD_NAMESPACE = 'singleplayer.1d4p.persist.v1';
         const PERSISTED_WORLD_MAX_CHUNKS = 180;
         const PERSISTED_WORLD_FLUSH_MS = 2200;
+        const ENABLE_1D4P_LOCAL_WORLD_CACHE = /[?&]localpersist=1(?:&|$)/i.test(window.location.search || '');
         let persistedWorldManifest = { chunkKeys: [], touched: {}, modified: {} };
         const dirtyPersistedChunkKeys = new Set();
         let persistedWorldFlushTimerMs = 0;
+
+        function canUseLocalPersistedWorld() {
+            return IS_1D4P_MULTIPLAYER && ENABLE_1D4P_LOCAL_WORLD_CACHE && typeof localStorage !== 'undefined';
+        }
 
         function getPersistedWorldPrefix() {
             return `${PERSISTED_WORLD_NAMESPACE}.${worldSeed}`;
@@ -335,7 +344,7 @@ window.perlin = perlinInstance;
         }
 
         function loadPersistedWorldManifest() {
-            if (!IS_1D4P_MULTIPLAYER || typeof localStorage === 'undefined') return;
+            if (!canUseLocalPersistedWorld()) return;
             try {
                 const raw = localStorage.getItem(getPersistedManifestKey());
                 if (!raw) {
@@ -355,7 +364,7 @@ window.perlin = perlinInstance;
         }
 
         function persistWorldManifest() {
-            if (!IS_1D4P_MULTIPLAYER || typeof localStorage === 'undefined') return;
+            if (!canUseLocalPersistedWorld()) return;
             localStorage.setItem(getPersistedManifestKey(), JSON.stringify(persistedWorldManifest));
         }
 
@@ -383,7 +392,7 @@ window.perlin = perlinInstance;
         }
 
         function markChunkForPersistence(cx, cz, isModified = false) {
-            if (!IS_1D4P_MULTIPLAYER) return;
+            if (!canUseLocalPersistedWorld()) return;
             const chunkKey = `${cx},${cz}`;
             dirtyPersistedChunkKeys.add(chunkKey);
             if (!persistedWorldManifest.chunkKeys.includes(chunkKey)) persistedWorldManifest.chunkKeys.push(chunkKey);
@@ -392,7 +401,7 @@ window.perlin = perlinInstance;
         }
 
         function flushDirtyPersistedChunks(force = false) {
-            if (!IS_1D4P_MULTIPLAYER || typeof localStorage === 'undefined') return;
+            if (!canUseLocalPersistedWorld()) return;
             if (!dirtyPersistedChunkKeys.size && !force) return;
             const keys = dirtyPersistedChunkKeys.size ? Array.from(dirtyPersistedChunkKeys) : (persistedWorldManifest.chunkKeys || []);
             for (const chunkKey of keys) {
@@ -415,7 +424,7 @@ window.perlin = perlinInstance;
         }
 
         function loadPersistedChunkData(cx, cz) {
-            if (!IS_1D4P_MULTIPLAYER || typeof localStorage === 'undefined') return null;
+            if (!canUseLocalPersistedWorld()) return null;
             const chunkKey = `${cx},${cz}`;
             if (!persistedWorldManifest.chunkKeys.includes(chunkKey)) return null;
             try {
@@ -431,7 +440,7 @@ window.perlin = perlinInstance;
         }
 
         function persistChunkGroupData(chunkKey, chunkData) {
-            if (!IS_1D4P_MULTIPLAYER || typeof localStorage === 'undefined') return;
+            if (!canUseLocalPersistedWorld()) return;
             if (!chunkKey || !Array.isArray(chunkData) || !chunkData.length) return;
             try {
                 const encoded = encodeChunkDataToBase64(chunkData);
@@ -625,6 +634,8 @@ window.perlin = perlinInstance;
       
         let inventory = playerRuntime.inventory;
         const knockbackEnchantByItemId = new Map();
+        let lastPvpAttackAtMs = -Infinity;
+        let lastPvpHitAtMs = -Infinity;
         let selectedHotbarIndex = playerRuntime.selectedHotbarIndex; // 0-8
         let isInventoryOpen = playerRuntime.isInventoryOpen;
         let isCreativeMode = playerRuntime.isCreativeMode;
@@ -787,6 +798,7 @@ window.perlin = perlinInstance;
         let pandaMob = null;
         let villagerMob = null;
         let glowstonePortalDimension1 = null;
+        let dimension1WorldController = null;
         remeshOptimizations = window.SingleplayerChunkRemeshOptimizations?.create?.({
             getChunkKey: chunkKeyFromCoords,
             getChunk: (key) => chunks.get(key),
@@ -1062,8 +1074,31 @@ window.perlin = perlinInstance;
             leftLegPivot.add(leftLeg);
 
             avatar.add(body, head, leftArmPivot, rightArmPivot, leftLegPivot, rightLegPivot);
+            const pvpHitbox = new THREE.Mesh(
+                new THREE.BoxGeometry(0.7, 1.8, 0.7),
+                new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+            );
+            pvpHitbox.position.set(0, 0.9, 0);
+            avatar.add(pvpHitbox);
             avatar.userData.remoteRig = { leftArmPivot, rightArmPivot, leftLegPivot, rightLegPivot };
+            avatar.userData.remotePvpHitbox = pvpHitbox;
             return avatar;
+        }
+
+        function getRemotePlayerHitFromCrosshair() {
+            if (!prepareCrosshairRaycast()) return null;
+            const candidates = [];
+            remotePlayers.forEach((entry, id) => {
+                const hitbox = entry?.mesh?.userData?.remotePvpHitbox;
+                if (!hitbox) return;
+                candidates.push({ id, entry, hitbox });
+            });
+            if (!candidates.length) return null;
+            const hits = raycaster.intersectObjects(candidates.map((c) => c.hitbox), false);
+            if (!hits.length) return null;
+            const target = candidates.find((c) => c.hitbox === hits[0].object);
+            if (!target) return null;
+            return { id: target.id, entry: target.entry, distance: hits[0].distance };
         }
 
         function updateRemotePlayerState(payload) {
@@ -1268,6 +1303,21 @@ window.perlin = perlinInstance;
             }
         }
 
+        function applyNetworkPvpHit(payload) {
+            const damage = Math.max(0, Number(payload?.damage) || 0);
+            if (damage <= 0) return false;
+            const now = performance.now();
+            if (now - lastPvpHitAtMs < 250) return false;
+            lastPvpHitAtMs = now;
+            const knockback = Math.max(0, Number(payload?.knockbackStrength) || 0);
+            const sourcePos = payload?.sourcePos && Number.isFinite(Number(payload.sourcePos.x)) && Number.isFinite(Number(payload.sourcePos.z))
+                ? { x: Number(payload.sourcePos.x), y: Number(payload.sourcePos.y) || yawObject.position.y, z: Number(payload.sourcePos.z) }
+                : null;
+            takeDamage(damage, { source: 'pvp', sourcePos, knockbackStrength: knockback });
+            if (payload?.crit) showGameMessage(`Critical hit! -${damage} HP`);
+            return true;
+        }
+
         function installMultiplayerBridge() {
             window.MultiPixelMultiplayerBridge = {
                 getLocalPlayerState: getLocalMultiplayerState,
@@ -1278,6 +1328,7 @@ window.perlin = perlinInstance;
                 },
                 applyNetworkBlockChange,
                 queueNetworkBlockChange,
+                applyNetworkPvpHit,
             };
         }
 
@@ -1448,6 +1499,27 @@ window.perlin = perlinInstance;
             return canvas.toDataURL('image/png');
         }
 
+        function applyLightweightWaterShader(material) {
+            if (!material || material.userData?.hasLightweightWaterShader) return;
+            material.onBeforeCompile = (shader) => {
+                shader.uniforms.uWaterTime = { value: 0 };
+                waterShaderUniforms = shader.uniforms;
+                shader.fragmentShader = shader.fragmentShader.replace(
+                    '#include <dithering_fragment>',
+                    `
+                    float mpWaveA = sin((vUv.x * 30.0) + (uWaterTime * 0.0045));
+                    float mpWaveB = cos((vUv.y * 26.0) - (uWaterTime * 0.0038));
+                    float mpRipple = (mpWaveA * mpWaveB) * 0.5 + 0.5;
+                    gl_FragColor.rgb += vec3(0.01, 0.03, 0.05) * mpRipple;
+                    #include <dithering_fragment>
+                    `
+                );
+            };
+            material.userData = material.userData || {};
+            material.userData.hasLightweightWaterShader = true;
+            material.needsUpdate = true;
+        }
+
         async function resolveMpmetaTexturePath(path) {
             const req = parseMpmetaRequest(path);
             if (!req) return path;
@@ -1561,6 +1633,7 @@ window.perlin = perlinInstance;
                 side: THREE.DoubleSide,
                 roughness: 0.1
             });
+            applyLightweightWaterShader(materials.WATER);
             // Fallback material for textured blocks if loading failed
             materials.DIRT_FALLBACK = new THREE.MeshStandardMaterial({ color: 0x594334, roughness: 0.9 });
             materials.STONE_FALLBACK = new THREE.MeshStandardMaterial({ color: 0x7F8C8D, roughness: 0.9 });
@@ -1592,6 +1665,25 @@ window.perlin = perlinInstance;
             if (portalMaterial.map !== frameMaterial.map) {
                 portalMaterial.map = frameMaterial.map;
                 portalMaterial.needsUpdate = true;
+            }
+        }
+
+        function updateWaterAnimation(deltaMs) {
+            if (!Number.isFinite(deltaMs) || deltaMs <= 0) return;
+            const waterMaterial = materials.WATER;
+            if (!waterMaterial) return;
+            waterShaderTime += deltaMs;
+            if (waterShaderUniforms?.uWaterTime) waterShaderUniforms.uWaterTime.value = waterShaderTime;
+            waterAnimationState.elapsedMs += deltaMs;
+            if (waterAnimationState.elapsedMs < waterAnimationState.frameMs) return;
+            waterAnimationState.elapsedMs = 0;
+            waterAnimationState.frameIndex = (waterAnimationState.frameIndex + 1) % WATER_FRAME_KEYS.length;
+            const frameKey = WATER_FRAME_KEYS[waterAnimationState.frameIndex];
+            const frameMaterial = materials[frameKey];
+            if (!frameMaterial?.map) return;
+            if (waterMaterial.map !== frameMaterial.map) {
+                waterMaterial.map = frameMaterial.map;
+                waterMaterial.needsUpdate = true;
             }
         }
         
@@ -1714,14 +1806,14 @@ window.perlin = perlinInstance;
             applyCameraMode();
 
             // Lighting (premium-feel sky rig + sun/moon + emissive local lights)
-            ambientLight = new THREE.AmbientLight(0x606060, 0.65);
-            hemiLight = new THREE.HemisphereLight(0x9ad8ff, 0x1f1a16, 0.52);
-            moonLight = new THREE.DirectionalLight(0x6f82ff, 0.12);
+            ambientLight = new THREE.AmbientLight(0x6f7684, 0.72);
+            hemiLight = new THREE.HemisphereLight(0xa9ddff, 0x1c1612, 0.62);
+            moonLight = new THREE.DirectionalLight(0x7a92ff, 0.16);
             moonLight.position.set(-40, 80, -25);
             scene.add(ambientLight);
             scene.add(hemiLight);
             scene.add(moonLight);
-            dirLight = new THREE.DirectionalLight(0xffffff, 1.5); 
+            dirLight = new THREE.DirectionalLight(0xfff8ef, 1.28); 
             dirLight.position.set(50, 100, 50);
             scene.add(dirLight);
             scene.add(worldGroup);
@@ -1741,7 +1833,8 @@ window.perlin = perlinInstance;
             initChatSystem();
             installMultiplayerBridge();
             setInitialPlayerPosition();
-            if (IS_1D4P_MULTIPLAYER) {
+            dimension1WorldController?.init?.();
+            if (canUseLocalPersistedWorld()) {
                 window.addEventListener('beforeunload', () => flushDirtyPersistedChunks(true));
             }
             
@@ -1808,10 +1901,25 @@ window.perlin = perlinInstance;
             renderer.setSize(window.innerWidth, window.innerHeight);
             targetRenderPixelRatio = computeRenderPixelRatio();
             renderer.setPixelRatio(targetRenderPixelRatio);
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = isLowEndDevice ? 1.0 : 1.08;
+            if ('outputColorSpace' in renderer) renderer.outputColorSpace = THREE.SRGBColorSpace;
+            renderer.shadowMap.enabled = false;
             document.body.appendChild(renderer.domElement);
             glowstonePortalDimension1 = window.SingleplayerDimension1GlowstonePortal?.create?.({
                 getRenderer: () => renderer,
                 getCamera: () => camera,
+                holdDurationSec: 7,
+                onPortalCharged: () => dimension1WorldController?.onPortalCharged?.(),
+            }) || null;
+            dimension1WorldController = window.SingleplayerDimension1World?.create?.({
+                portalBlockZId: GLOWSTONE_PORTAL_Z_ID,
+                portalBlockXId: GLOWSTONE_PORTAL_X_ID,
+                glowstoneId: 119,
+                dirtId: 1,
+                teleportToCoordinates,
+                setBlock: (x, y, z, type) => setBlockTypeRaw(x, y, z, type, true),
+                showGameMessage,
             }) || null;
             setupEatingOverlay();
             
@@ -2186,14 +2294,44 @@ window.perlin = perlinInstance;
         function getHeldMeleeProfile() {
             const held = inventory[selectedHotbarIndex];
             const heldDef = held ? blockMaterials[held.id] : null;
+            const tier = Math.max(1, Number(heldDef?.tier) || 1);
+            const baseRange = Math.max(1.3, Number(heldDef?.attackRange) || 1.5);
             if (heldDef?.toolType === 'dagger') {
                 return {
                     damage: Number(heldDef.meleeDamage) || 3,
-                    range: Math.max(0, Number(heldDef.attackRange) || 1.5),
+                    range: baseRange,
                     toolType: 'dagger',
+                    cooldownMs: 1500,
+                    knockbackBonus: 0,
+                    critEnabled: true,
                 };
             }
-            return { damage: 4, range: Infinity, toolType: heldDef?.toolType || null };
+            if (heldDef?.toolType === 'axe') {
+                return { damage: 5 + tier * 0.9, range: baseRange, toolType: 'axe', cooldownMs: 5000, knockbackBonus: 0.01, critEnabled: false };
+            }
+            if (heldDef?.toolType === 'pickaxe') {
+                return { damage: 4 + tier, range: baseRange, toolType: 'pickaxe', cooldownMs: 3000, knockbackBonus: 0, critEnabled: false };
+            }
+            if (heldDef?.toolType === 'shovel') {
+                return { damage: 4 + tier, range: baseRange, toolType: 'shovel', cooldownMs: 3000, knockbackBonus: 0, critEnabled: false };
+            }
+            return { damage: 4, range: baseRange, toolType: heldDef?.toolType || null, cooldownMs: 1000, knockbackBonus: 0, critEnabled: false };
+        }
+
+        function canUsePvpAttack(meleeProfile) {
+            const now = performance.now();
+            const cooldownMs = Math.max(0, Number(meleeProfile?.cooldownMs) || 0);
+            return (now - lastPvpAttackAtMs) >= cooldownMs;
+        }
+
+        function markPvpAttackUsed() {
+            lastPvpAttackAtMs = performance.now();
+        }
+
+        function isDaggerCriticalStrike(meleeProfile) {
+            if (!meleeProfile?.critEnabled) return false;
+            if (player.isSwimming || isSneaking) return false;
+            return Boolean(player.inAir) && Number(player.velocity?.y) < -0.08;
         }
 
         function isTargetWithinMeleeRange(target, maxRange) {
@@ -4148,6 +4286,30 @@ window.perlin = perlinInstance;
             if (event.button === 0) {
                 const attackKnockback = getHeldKnockbackEnchantLevel();
                 const meleeProfile = getHeldMeleeProfile();
+                const remoteHit = IS_1D4P_MULTIPLAYER ? getRemotePlayerHitFromCrosshair() : null;
+                if (remoteHit && isTargetWithinMeleeRange({ root: remoteHit.entry?.mesh }, meleeProfile.range)) {
+                    if (!canUsePvpAttack(meleeProfile)) {
+                        showGameMessage('Weapon cooling down...');
+                        return;
+                    }
+                    const crit = isDaggerCriticalStrike(meleeProfile);
+                    const rawDamage = Number(meleeProfile.damage) || 1;
+                    const finalDamage = Math.max(1, Math.round(rawDamage * (crit ? 1.5 : 1)));
+                    const baseKnockback = 0.26 + ((Number(meleeProfile.knockbackBonus) || 0) * 0.26);
+                    const enchKnock = Math.max(0, attackKnockback) * 0.015;
+                    const sent = window.MultiPixelMultiplayerClient?.sendPlayerHit?.({
+                        targetId: remoteHit.id,
+                        damage: finalDamage,
+                        knockbackStrength: Math.max(0.12, Math.min(0.95, baseKnockback + enchKnock)),
+                        range: Number(meleeProfile.range) || 1.5,
+                        crit,
+                    });
+                    if (sent) {
+                        markPvpAttackUsed();
+                        showGameMessage(crit ? `Critical! ${finalDamage} dmg` : `Hit! ${finalDamage} dmg`);
+                    }
+                    return;
+                }
                 const wolfHit = wolfMob?.getHitFromCrosshair?.();
                 if (wolfHit && isTargetWithinMeleeRange(wolfHit, meleeProfile.range)) {
                     const held = inventory[selectedHotbarIndex];
@@ -4290,7 +4452,7 @@ window.perlin = perlinInstance;
                             const z = (i * 7 + y * 3) % CHUNK_SIZE;
                             const idx = x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
                             const type = data[idx];
-                            const isWater = type === 4 || (type >= 47 && type <= 53);
+                            const isWater = type === 4 || (type >= 47 && type <= 53); // legacy 47-53 kept for migration
                             const isLava = type === 33 || (type >= 60 && type <= 66);
                             const isFluid = isWater || isLava;
                             const isSandLike = type === 7;
@@ -4702,16 +4864,20 @@ window.perlin = perlinInstance;
 
         function takeDamage(amount, options = {}) {
             const isMobHit = options?.source === 'mob';
-            if (isMobHit) {
+            const isPvpHit = options?.source === 'pvp';
+            if (isMobHit || isPvpHit) {
                 const now = performance.now();
-                if (now - lastMobHitAtMs < 2000) return false;
-                lastMobHitAtMs = now;
+                if (isMobHit) {
+                    if (now - lastMobHitAtMs < 2000) return false;
+                    lastMobHitAtMs = now;
+                }
                 const sourcePos = options?.sourcePos || null;
                 if (sourcePos && yawObject) {
                     const dx = yawObject.position.x - Number(sourcePos.x || 0);
                     const dz = yawObject.position.z - Number(sourcePos.z || 0);
                     const dist = Math.hypot(dx, dz) || 1;
-                    const strength = Math.max(0.12, Math.min(0.65, Number(options?.knockbackStrength) || 0.24));
+                    const defaultStrength = isPvpHit ? 0.3 : 0.24;
+                    const strength = Math.max(0.12, Math.min(0.85, Number(options?.knockbackStrength) || defaultStrength));
                     const pushX = (dx / dist) * strength;
                     const pushZ = (dz / dist) * strength;
                     yawObject.position.x += pushX;
@@ -5099,6 +5265,10 @@ window.perlin = perlinInstance;
                 return group.userData.chunkData[lx + wy * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT];
             }
             if (sparseAirChunkKeys.has(id)) return 0;
+            if (dimension1WorldController?.getCurrentDimension?.() === 'dimension1') {
+                if (wy === 0) return 14;
+                return 0;
+            }
             
             // For blocks outside loaded chunks but inside the boundary, use noise (Fallback)
             const biome = getBiome(wx, wz); // Calculate biome for fallback
@@ -5775,7 +5945,7 @@ window.perlin = perlinInstance;
             const OPPOSITE_DIR = { N: 'S', S: 'N', E: 'W', W: 'E' };
 
             function isWaterType(t) {
-                return t === 4 || t === 47 || t === 48;
+                return t === 4 || (t >= 47 && t <= 53);
             }
 
             function setSurfaceBlock(wx, wz, blockId) {
@@ -6592,17 +6762,40 @@ window.perlin = perlinInstance;
             return chunkStreamOptimizations?.isChunkAllAir?.(data) || false;
         }
 
-        function createChunk(cx, cz) {
-            const persistedData = loadPersistedChunkData(cx, cz);
-            const generated = persistedData ? {
-                data: persistedData,
-                heightmap: buildChunkHeightmap(persistedData),
+        function generateDimension1ChunkData() {
+            const size = CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE;
+            const data = new Array(size).fill(0);
+            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
+            for (let z = 0; z < CHUNK_SIZE; z++) {
+                for (let x = 0; x < CHUNK_SIZE; x++) {
+                    data[idx(x, 0, z)] = 14; // bedrock floor
+                }
+            }
+            return {
+                data,
+                heightmap: buildChunkHeightmap(data),
                 spawnedGnomes: [],
                 spawnedPigs: [],
                 spawnedWolves: [],
                 spawnedPandas: [],
                 spawnedVillagers: [],
-            } : generateChunkData(cx, cz);
+            };
+        }
+
+        function createChunk(cx, cz) {
+            const inDimension1 = dimension1WorldController?.getCurrentDimension?.() === 'dimension1';
+            const persistedData = inDimension1 ? null : loadPersistedChunkData(cx, cz);
+            const generated = inDimension1
+                ? generateDimension1ChunkData(cx, cz)
+                : (persistedData ? {
+                    data: persistedData,
+                    heightmap: buildChunkHeightmap(persistedData),
+                    spawnedGnomes: [],
+                    spawnedPigs: [],
+                    spawnedWolves: [],
+                    spawnedPandas: [],
+                    spawnedVillagers: [],
+                } : generateChunkData(cx, cz));
             const data = generated.data;
             const heightmap = generated.heightmap || buildChunkHeightmap(data);
             const chunkKey = `${cx},${cz}`;
@@ -6643,7 +6836,7 @@ window.perlin = perlinInstance;
         function disposeLoadedChunkByKey(chunkKey) {
             const chunkGroup = chunks.get(chunkKey);
             if (!chunkGroup || !chunkGroup.userData) return;
-            if (IS_1D4P_MULTIPLAYER && dirtyPersistedChunkKeys.has(chunkKey)) {
+            if (canUseLocalPersistedWorld() && dirtyPersistedChunkKeys.has(chunkKey)) {
                 persistChunkGroupData(chunkKey, chunkGroup.userData.chunkData);
             }
             removeTorchLightsForChunk(chunkKey);
@@ -6841,6 +7034,14 @@ window.perlin = perlinInstance;
                 { name: 'posZ', dir: [0,0,1], corners: [[0,0.5,1],[0,0,1],[1,0,1],[1,0.5,1]], uv: [0,0.5, 0,0, 1,0, 1,0.5] },
                 { name: 'negZ', dir: [0,0,-1], corners: [[1,0.5,0],[1,0,0],[0,0,0],[0,0.5,0]], uv: [0,0.5, 0,0, 1,0, 1,0.5] }
             ];
+            const waterFaces = [
+                { name: 'posX', dir: [1,0,0], corners: [[1,0.875,1],[1,0,1],[1,0,0],[1,0.875,0]], uv: [0,0.875, 0,0, 1,0, 1,0.875] },
+                { name: 'negX', dir: [-1,0,0], corners: [[0,0.875,0],[0,0,0],[0,0,1],[0,0.875,1]], uv: [0,0.875, 0,0, 1,0, 1,0.875] },
+                { name: 'top', dir: [0,1,0], corners: [[0,0.875,1],[1,0.875,1],[1,0.875,0],[0,0.875,0]], uv: [0,1, 0,0, 1,0, 1,1] },
+                { name: 'bottom', dir: [0,-1,0], corners: [[0,0,0],[1,0,0],[1,0,1],[0,0,1]], uv: [0,1, 0,0, 1,0, 1,1] },
+                { name: 'posZ', dir: [0,0,1], corners: [[0,0.875,1],[0,0,1],[1,0,1],[1,0.875,1]], uv: [0,0.875, 0,0, 1,0, 1,0.875] },
+                { name: 'negZ', dir: [0,0,-1], corners: [[1,0.875,0],[1,0,0],[0,0,0],[0,0.875,0]], uv: [0,0.875, 0,0, 1,0, 1,0.875] }
+            ];
             const torchFaces = [
                 { name: 'posX', dir: [1,0,0], corners: [[0.5625,0.8,0.5625],[0.5625,0.05,0.5625],[0.5625,0.05,0.4375],[0.5625,0.8,0.4375]], uv: [0,1,0,0,1,0,1,1] },
                 { name: 'negX', dir: [-1,0,0], corners: [[0.4375,0.8,0.4375],[0.4375,0.05,0.4375],[0.4375,0.05,0.5625],[0.4375,0.8,0.5625]], uv: [0,1,0,0,1,0,1,1] },
@@ -6888,14 +7089,18 @@ window.perlin = perlinInstance;
 
             const CH = CHUNK_HEIGHT;
             const CS = CHUNK_SIZE;
+            const normalizeBlockId = (id) => {
+                if (id >= 47 && id <= 53) return 4; // legacy flowing water -> unified water id
+                return id;
+            };
 
             const get = (x,y,z) => {
                 if (x < 0 || x >= CS || z < 0 || z >= CS || y < 0 || y >= CH) {
                     const wx = x + cx * CS;
                     const wz = z + cz * CS;
-                    return getBlockType(wx, y, wz);
+                    return normalizeBlockId(getBlockType(wx, y, wz));
                 }
-                return data[x + y * CS + z * CS * CH];
+                return normalizeBlockId(data[x + y * CS + z * CS * CH]);
             };
 
             const isTransparentBlock = (id) => {
@@ -7051,6 +7256,7 @@ window.perlin = perlinInstance;
                                 const id = get(x, y, z);
                                 if (id === 0 || id === 22) continue;
                                 const mat = blockMaterials[id];
+                                if (!mat) continue;
                                 if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES') || mat.shape) continue;
                                 const nid = get(x, y + face.sign, z);
                                 if (!shouldDrawFace(id, nid)) continue;
@@ -7100,6 +7306,7 @@ window.perlin = perlinInstance;
                                 const id = get(x, y, z);
                                 if (id === 0 || id === 22) continue;
                                 const mat = blockMaterials[id];
+                                if (!mat) continue;
                                 if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES') || mat.shape) continue;
                                 const nid = get(x + face.sign, y, z);
                                 if (!shouldDrawFace(id, nid)) continue;
@@ -7149,6 +7356,7 @@ window.perlin = perlinInstance;
                                 const id = get(x, y, z);
                                 if (id === 0 || id === 22) continue;
                                 const mat = blockMaterials[id];
+                                if (!mat) continue;
                                 if (mat.transparent || (mat.textured && mat.textureKey === 'LEAVES') || mat.shape) continue;
                                 const nid = get(x, y, z + face.sign);
                                 if (!shouldDrawFace(id, nid)) continue;
@@ -7198,10 +7406,12 @@ window.perlin = perlinInstance;
                         const id = get(x, y, z);
                         if (id === 0) continue;
                         const mat = blockMaterials[id];
+                        if (!mat) continue;
                         const isTorch = id === 22;
                         const isBambooStage = id === 99 || id === 100;
                         const isBambooStalk = id === 101;
                         const isSlab = mat.shape === 'slab';
+                        const isWater = id === 4 || (id >= 47 && id <= 53);
                         const sideRenderMode = getSideRenderMode(id);
                         const isSideRenderBlock = Boolean(sideRenderMode);
                         const isGlowstonePortalPlane = id === (window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_Z_ID || 147);
@@ -7209,7 +7419,7 @@ window.perlin = perlinInstance;
                         if (isTorch) torchPositions.push({ x: x + cx * CS, y, z: z + cz * CS });
                         if (id === 119) glowstonePositions.push({ x: x + cx * CS, y, z: z + cz * CS, id });
                         const isTrans = mat.transparent || (mat.textured && mat.textureKey === 'LEAVES');
-                        if (!isTorch && !isBambooStage && !isBambooStalk && !isSlab && !isSideRenderBlock && !isTrans) continue;
+                        if (!isTorch && !isBambooStage && !isBambooStalk && !isSlab && !isWater && !isSideRenderBlock && !isTrans) continue;
                         let activeFaces;
                         if (isSideRenderBlock) {
                             if (isGlowstonePortalPlane) activeFaces = fullPlaneFaces;
@@ -7225,6 +7435,8 @@ window.perlin = perlinInstance;
                             activeFaces = bambooStageFaces;
                         } else if (isSlab) {
                             activeFaces = slabFaces;
+                        } else if (isWater) {
+                            activeFaces = waterFaces;
                         } else {
                             activeFaces = faces;
                         }
@@ -7233,7 +7445,7 @@ window.perlin = perlinInstance;
                             const f = activeFaces[i];
                             const nid = get(x + f.dir[0], y + f.dir[1], z + f.dir[2]);
                             let draw = false;
-                            if (isTorch || isBambooStage || isBambooStalk || isSlab || isSideRenderBlock) draw = true;
+                            if (isTorch || isBambooStage || isBambooStalk || isSlab || isWater || isSideRenderBlock) draw = true;
                             else if (shouldDrawFace(id, nid)) draw = true;
                             if (!draw) continue;
 
@@ -7243,7 +7455,7 @@ window.perlin = perlinInstance;
                             const wx = x + cx * CS;
                             const wz = z + cz * CS;
                             const corners = f.corners.map((c) => [wx + c[0], y + c[1], wz + c[2]]);
-                            emitQuad(id, materialKey, f.dir, corners, uvInfo.uv, !(isTorch || isBambooStage || isBambooStalk || isSideRenderBlock));
+                            emitQuad(id, materialKey, f.dir, corners, uvInfo.uv, !(isTorch || isBambooStage || isBambooStalk || isWater || isSideRenderBlock));
                         }
                     }
                 }
@@ -7897,9 +8109,10 @@ window.perlin = perlinInstance;
             updateCoordinatesUI(time);
             waypointsMod?.update?.(time, delta);
             updatePortalAnimation(delta);
+            updateWaterAnimation(delta);
             flushPendingNetworkBlockChanges();
             updateDroppedItems(time, delta);
-            if (IS_1D4P_MULTIPLAYER) {
+            if (canUseLocalPersistedWorld()) {
                 persistedWorldFlushTimerMs += delta;
                 if (persistedWorldFlushTimerMs >= PERSISTED_WORLD_FLUSH_MS) {
                     flushDirtyPersistedChunks();
