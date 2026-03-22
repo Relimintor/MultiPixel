@@ -44,16 +44,16 @@
       regionHillChance: 0.08,
     },
     treeDensityByBiome: {
-      Forest: 0.82,
-      'Jungle Forest': 1.3,
-      Plains: 0.15,
-      Mountains: 0.02,
-      'Snowy Plains': 0.04,
+      Forest: 1.05,
+      'Jungle Forest': 1.62,
+      Plains: 0.24,
+      Mountains: 0.05,
+      'Snowy Plains': 0.08,
       Desert: 0,
       Ocean: 0,
     },
-    treeClusterBonus: 1.14,
-    treeMinSpacingChance: 0.62,
+    treeClusterBonus: 1.32,
+    treeMinSpacingChance: 0.48,
     decorations: {
       amethystGeodes: {
         enabled: true,

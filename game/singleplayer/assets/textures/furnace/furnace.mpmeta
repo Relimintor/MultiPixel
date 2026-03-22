@@ -1,0 +1,17 @@
+{
+  "format": "multipixel-mpmeta-v1",
+  "kind": "block-state",
+  "blockId": 23,
+  "states": {
+    "off": {
+      "frontTextureKey": "FURNACE_FRONT"
+    },
+    "on": {
+      "frontTextureKey": "FURNACE_FRONT_LIT",
+      "lightLevel": 13,
+      "lightRadius": 13,
+      "lightIntensity": 1.15,
+      "emissiveHex": 16755271
+    }
+  }
+}
