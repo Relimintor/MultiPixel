@@ -966,6 +966,17 @@ window.perlin = perlinInstance;
         let isSneaking = false;
         let bambooGrowthTimerMs = 0;
         let lastMobHitAtMs = -Infinity;
+        let coordinatesDisplayEl = null;
+        let lastCoordinateUpdateMs = -Infinity;
+        let lastCoordinateX = Number.NaN;
+        let lastCoordinateY = Number.NaN;
+        let lastCoordinateZ = Number.NaN;
+        let lastRemoteLabelRefreshMs = -Infinity;
+        let lastOnlineOverlayRenderMs = -Infinity;
+        let lastOnlineOverlayHtml = '';
+        const remoteLabelProjectionPos = new THREE.Vector3();
+        let frameTimeEmaMs = 16.67;
+        let lastAdaptiveQualityTickMs = -Infinity;
         let eatOverlayEl = playerRuntime.eatOverlayEl;
         let eatItemEl = playerRuntime.eatItemEl;
         let eatingAnimState = playerRuntime.eatingAnimState;
@@ -976,6 +987,12 @@ window.perlin = perlinInstance;
         
 
         const PlayerMobInteractions = window.SingleplayerPlayerMobInteractions;
+        const COORDINATES_UPDATE_INTERVAL_MS = 100;
+        const REMOTE_LABEL_UPDATE_INTERVAL_MS = 34;
+        const ONLINE_OVERLAY_UPDATE_INTERVAL_MS = 180;
+        const ADAPTIVE_QUALITY_TICK_MS = 1400;
+        const ADAPTIVE_QUALITY_LOW_FPS = IS_1D4P_MULTIPLAYER ? 45 : 42;
+        const ADAPTIVE_QUALITY_HIGH_FPS = IS_1D4P_MULTIPLAYER ? 58 : 56;
 
         function applyHitFeedback(entity, sourcePos = null, amount = 4, extraKnockback = 0) {
             PlayerMobInteractions.applyHitFeedback({ entity, sourcePos, amount, extraKnockback, yawObject, THREE });
@@ -1094,7 +1111,7 @@ window.perlin = perlinInstance;
             if (!camera || !renderer) return;
             remotePlayers.forEach((entry) => {
                 if (!entry?.mesh || !entry?.label) return;
-                const world = entry.mesh.position.clone();
+                const world = remoteLabelProjectionPos.copy(entry.mesh.position);
                 world.y += 1.1;
                 world.project(camera);
                 const isBehind = world.z > 1;
@@ -1131,11 +1148,17 @@ window.perlin = perlinInstance;
             ensureOnlinePlayersOverlay();
             if (!onlinePlayersOverlayEl) return;
             if (!isSneaking || isInventoryOpen) {
-                onlinePlayersOverlayEl.classList.add('hidden');
+                if (!onlinePlayersOverlayEl.classList.contains('hidden')) {
+                    onlinePlayersOverlayEl.classList.add('hidden');
+                }
                 return;
             }
             const lines = getOnlinePlayerSummaryLines();
-            onlinePlayersOverlayEl.innerHTML = lines.map((line) => `<div>${line}</div>`).join('');
+            const nextHtml = lines.map((line) => `<div>${line}</div>`).join('');
+            if (nextHtml !== lastOnlineOverlayHtml) {
+                onlinePlayersOverlayEl.innerHTML = nextHtml;
+                lastOnlineOverlayHtml = nextHtml;
+            }
             onlinePlayersOverlayEl.classList.remove('hidden');
         }
 
@@ -1727,6 +1750,7 @@ window.perlin = perlinInstance;
             if (closeIcon) closeIcon.src = closeIconPath;
             if (furnaceCloseIcon) furnaceCloseIcon.src = closeIconPath;
             if (chestCloseIcon) chestCloseIcon.src = closeIconPath;
+            coordinatesDisplayEl = document.getElementById('coordinates-display');
             defaultPlayerSkin?.initSkinUi?.();
             const creativeCloseIcon = document.getElementById('creative-close-icon');
             const creativeInventoryIcon = document.getElementById('creative-inventory-icon');
@@ -2795,13 +2819,40 @@ window.perlin = perlinInstance;
         }
 
 
-        function updateCoordinatesUI() {
-            const el = document.getElementById('coordinates-display');
+        function updateCoordinatesUI(nowMs = performance.now()) {
+            const el = coordinatesDisplayEl || document.getElementById('coordinates-display');
             if (!el || !yawObject) return;
+            if ((nowMs - lastCoordinateUpdateMs) < COORDINATES_UPDATE_INTERVAL_MS) return;
             const x = Math.floor(yawObject.position.x);
             const y = Math.floor(yawObject.position.y);
             const z = Math.floor(yawObject.position.z);
+            if (x === lastCoordinateX && y === lastCoordinateY && z === lastCoordinateZ) return;
+            lastCoordinateUpdateMs = nowMs;
+            lastCoordinateX = x;
+            lastCoordinateY = y;
+            lastCoordinateZ = z;
             el.textContent = `XYZ: ${x}, ${y}, ${z}`;
+        }
+
+        function maybeApplyAdaptiveQuality(nowMs) {
+            if (!renderer || !Number.isFinite(frameTimeEmaMs)) return;
+            if ((nowMs - lastAdaptiveQualityTickMs) < ADAPTIVE_QUALITY_TICK_MS) return;
+            lastAdaptiveQualityTickMs = nowMs;
+            const fpsEstimate = 1000 / Math.max(0.001, frameTimeEmaMs);
+            const minRatio = isLowEndDevice ? 0.68 : 0.74;
+            const maxRatio = computeRenderPixelRatio();
+            let nextRatio = targetRenderPixelRatio;
+
+            if (fpsEstimate < ADAPTIVE_QUALITY_LOW_FPS && targetRenderPixelRatio > minRatio) {
+                nextRatio = Math.max(minRatio, targetRenderPixelRatio - 0.06);
+            } else if (fpsEstimate > ADAPTIVE_QUALITY_HIGH_FPS && targetRenderPixelRatio < maxRatio) {
+                nextRatio = Math.min(maxRatio, targetRenderPixelRatio + 0.04);
+            }
+
+            if (Math.abs(nextRatio - targetRenderPixelRatio) > 0.009) {
+                targetRenderPixelRatio = Number(nextRatio.toFixed(3));
+                renderer.setPixelRatio(targetRenderPixelRatio);
+            }
         }
 
         function updateHotbarUI() {
@@ -7476,8 +7527,11 @@ window.perlin = perlinInstance;
         function animate(time) {
 
             requestAnimationFrame(animate);
-            const delta = lastTime ? (time - lastTime) : 0;
+            const deltaRaw = lastTime ? (time - lastTime) : 0;
+            const delta = Math.min(66, Math.max(0, deltaRaw));
             lastTime = time;
+            frameTimeEmaMs = frameTimeEmaMs * 0.9 + delta * 0.1;
+            maybeApplyAdaptiveQuality(time);
 
             dayNightCycle?.tick?.(delta);
 
@@ -7536,7 +7590,7 @@ window.perlin = perlinInstance;
                 updateBreakingOverlay();
             }
             updateAdaptiveCrosshair();
-            updateCoordinatesUI();
+            updateCoordinatesUI(time);
             waypointsMod?.update?.(time, delta);
             updatePortalAnimation(delta);
             flushPendingNetworkBlockChanges();
@@ -7548,8 +7602,14 @@ window.perlin = perlinInstance;
                 }
             }
             updateRemotePlayerAnimations(time, delta);
-            refreshRemotePlayerLabels();
-            renderOnlinePlayersOverlay();
+            if ((time - lastRemoteLabelRefreshMs) >= REMOTE_LABEL_UPDATE_INTERVAL_MS) {
+                refreshRemotePlayerLabels();
+                lastRemoteLabelRefreshMs = time;
+            }
+            if ((time - lastOnlineOverlayRenderMs) >= ONLINE_OVERLAY_UPDATE_INTERVAL_MS) {
+                renderOnlinePlayersOverlay();
+                lastOnlineOverlayRenderMs = time;
+            }
             renderer.render(scene, camera);
         }
         
