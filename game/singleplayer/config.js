@@ -374,6 +374,112 @@
       bounds: { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 0.5, maxZ: 1 },
       placeable: true
     },
+    230: {
+      name: 'Stone Slab',
+      id: 230,
+      textured: true,
+      textureKey: 'STONE',
+      shape: 'slab',
+      bounds: { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 0.5, maxZ: 1 },
+      placeable: true
+    },
+    231: {
+      name: 'Cobblestone Slab',
+      id: 231,
+      textured: true,
+      textureKey: 'COBBLESTONE',
+      shape: 'slab',
+      bounds: { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 0.5, maxZ: 1 },
+      placeable: true
+    },
+    232: {
+      name: 'Mossy Cobblestone Slab',
+      id: 232,
+      textured: true,
+      textureKey: 'MOSSY_COBBLESTONE',
+      shape: 'slab',
+      bounds: { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 0.5, maxZ: 1 },
+      placeable: true
+    },
+    233: {
+      name: 'Stone Brick Slab',
+      id: 233,
+      textured: true,
+      textureKey: 'STONE_BRICK_BLOCK',
+      shape: 'slab',
+      bounds: { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 0.5, maxZ: 1 },
+      placeable: true
+    },
+    234: {
+      name: 'Cracked Stone Brick Slab',
+      id: 234,
+      textured: true,
+      textureKey: 'CRACKED_STONE_BRICK',
+      shape: 'slab',
+      bounds: { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 0.5, maxZ: 1 },
+      placeable: true
+    },
+    235: {
+      name: 'Smooth Stone Slab',
+      id: 235,
+      textured: true,
+      textureKey: 'SMOOTH_STONE_BLOCK',
+      shape: 'slab',
+      bounds: { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 0.5, maxZ: 1 },
+      placeable: true
+    },
+    236: {
+      name: 'Sandstone Slab',
+      id: 236,
+      textured: true,
+      textureKey: 'SANDSTONE',
+      textureByFace: {
+        top: 'SANDSTONE_TOP',
+        bottom: 'SANDSTONE_BOTTOM',
+        posX: 'SANDSTONE',
+        negX: 'SANDSTONE',
+        posZ: 'SANDSTONE',
+        negZ: 'SANDSTONE'
+      },
+      shape: 'slab',
+      bounds: { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 0.5, maxZ: 1 },
+      placeable: true
+    },
+    237: {
+      name: 'Smooth Sandstone Slab',
+      id: 237,
+      textured: true,
+      textureKey: 'SMOOTH_SANDSTONE_BLOCK',
+      shape: 'slab',
+      bounds: { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 0.5, maxZ: 1 },
+      placeable: true
+    },
+    238: {
+      name: 'Jungle Planks Slab',
+      id: 238,
+      textured: true,
+      textureKey: 'JUNGLE_PLANKS',
+      shape: 'slab',
+      bounds: { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 0.5, maxZ: 1 },
+      placeable: true
+    },
+    239: {
+      name: 'Bamboo Planks Slab',
+      id: 239,
+      textured: true,
+      textureKey: 'BAMBOO_PLANKS_SIDE',
+      textureByFace: {
+        top: 'BAMBOO_PLANKS_TOP',
+        bottom: 'BAMBOO_PLANKS_TOP',
+        posX: 'BAMBOO_PLANKS_SIDE',
+        negX: 'BAMBOO_PLANKS_SIDE',
+        posZ: 'BAMBOO_PLANKS_SIDE',
+        negZ: 'BAMBOO_PLANKS_SIDE'
+      },
+      shape: 'slab',
+      bounds: { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 0.5, maxZ: 1 },
+      placeable: true
+    },
     17: { name: 'Cobblestone', id: 17, textured: true, textureKey: 'COBBLESTONE' },
     113: { name: 'Mossy Cobblestone', id: 113, textured: true, textureKey: 'MOSSY_COBBLESTONE', color: 0x6f8d5b },
     22: { name: 'torch', id: 22, textured: true, textureKey: 'TORCH', transparent: true, opacity: 1 },

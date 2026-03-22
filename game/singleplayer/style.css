@@ -350,6 +350,50 @@ body {
     display: none;
 }
 
+#inventory-effects-panel {
+    position: absolute;
+    top: 62px;
+    right: 20px;
+    width: 124px;
+    min-height: 106px;
+    padding: 7px 8px;
+    border: 1px solid rgba(32, 22, 16, 0.8);
+    background: rgba(12, 9, 7, 0.72);
+    color: #f3efe7;
+    font-size: 12px;
+    line-height: 1.35;
+    border-radius: 4px;
+}
+
+#inventory-panel:not(.inventory-mode) #inventory-effects-panel {
+    display: none;
+}
+
+.inv-effects-title {
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    margin-bottom: 6px;
+    color: #d9b67a;
+}
+
+.inv-effects-empty {
+    opacity: 0.8;
+    font-size: 11px;
+}
+
+.inv-effect-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 3px;
+    text-transform: capitalize;
+}
+
+.inv-effect-time {
+    font-variant-numeric: tabular-nums;
+    opacity: 0.92;
+}
+
 .inventory-close-btn {
     width:60px;
     height: 60px;

@@ -165,7 +165,7 @@
                     <img id="chat-close-icon" alt="close chat" draggable="false" />
                 </button>
                 <div id="chat-log"></div>
-                <input id="chat-input" type="text" maxlength="180" placeholder="Type message or /give, /spawn, /tp, /time, /height, /gamemode, /grantme, /ungrantme, /set, /enchant, /help" autocomplete="off" />
+                <input id="chat-input" type="text" maxlength="180" placeholder="Type message or /give, /spawn, /tp, /time, /height, /effect, /gamemode, /grantme, /ungrantme, /set, /enchant, /help" autocomplete="off" />
             </div>
             <div id="chat-help-overlay" role="dialog" aria-label="Command help">
                 <div id="chat-help-panel">
@@ -182,6 +182,7 @@
                     <p><strong>/set reach</strong> &lt;amount&gt; — set interaction reach in blocks (default 5).</p>
                     <p><strong>/gamemode creative</strong> — switch to creative and open creative menu.</p>
                     <p><strong>/enchant</strong> &lt;holding|itemId&gt; &lt;knockback&gt; &lt;amount&gt; — apply knockback enchant (max 400).</p>
+                    <p><strong>/effect</strong> &lt;me|player&gt; &lt;nausea&gt; &lt;duration[s|m|h]&gt; — apply nausea for a duration (example: <em>/effect me nausea 20s</em>).</p>
                     <p><strong>/grantme</strong> &lt;fly|speed|noclip|all&gt; — grant yourself movement privileges.</p>
                     <p><strong>/ungrantme</strong> &lt;fly|speed|noclip|all&gt; — remove movement privileges.</p>
                     <p><strong>/help</strong> — open this command help panel.</p>
@@ -253,7 +254,7 @@
         context = initContext || {};
         buildUI();
         loadCensorWords();
-        pushMessage('Chat ready. Use /give, /spawn, /tp, /time, /height, /set, /enchant, /gamemode, /grantme, /ungrantme, /help. Try /tp structure:ruins biome:jungle', 'chat-info');
+        pushMessage('Chat ready. Use /give, /spawn, /tp, /time, /height, /effect, /set, /enchant, /gamemode, /grantme, /ungrantme, /help. Try /effect me nausea 20s', 'chat-info');
     }
 
     window.SingleplayerChat = {
