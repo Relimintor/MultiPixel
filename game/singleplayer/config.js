@@ -21,10 +21,10 @@
       ravineActivationThreshold: 0.9,
     },
     // Limit new chunk generation per update to avoid frame spikes while moving/jumping.
-    chunkCreationBudgetPerTick: 2,
+    chunkCreationBudgetPerTick: 3,
     chunkCreationBudgetOnForceUpdate: 5,
     // Max chunk mesh rebuilds processed per frame from the remesh queue.
-    meshRebuildBudgetPerFrame: 2,
+    meshRebuildBudgetPerFrame: 3,
     // Tick-limiting caps to prevent chain-reaction lag spikes.
     blockUpdatesPerTickMax: 60,
     fluidUpdatesPerTickMax: 40,
@@ -41,18 +41,18 @@
       // Climate probabilities from the design plan: warm 4/6, cold 1/6, freezing 1/6.
       temperatureRatios: { warm: 4 / 6, cold: 1 / 6, freezing: 1 / 6 },
       specialRegionChance: 1 / 13,
-      regionHillChance: 0.08,
+      regionHillChance: 0.1,
     },
     treeDensityByBiome: {
       Forest: 1.05,
       'Jungle Forest': 1.62,
-      Plains: 0.24,
+      Plains: 0.6,
       Mountains: 0.05,
-      'Snowy Plains': 0.08,
+      'Snowy Plains': 0.8,
       Desert: 0,
       Ocean: 0,
     },
-    treeClusterBonus: 1.32,
+    treeClusterBonus: 2.32,
     treeMinSpacingChance: 0.48,
     decorations: {
       amethystGeodes: {
@@ -798,8 +798,8 @@
     SOLID_BLOCKS: solidBlocks,
     LIQUID_BLOCKS: [4, 33, 60, 61, 62, 63, 64, 65, 66],
     DEFAULT_PLAYER: {
-      moveSpeed: 0.12,
-      sprintMultiplier: 1.7,
+      moveSpeed: 0.8,
+      sprintMultiplier: 1.5,
       rotationSpeed: 0.002,
       health: 20,
       maxHealth: 20,
