@@ -560,6 +560,7 @@ window.perlin = perlinInstance;
             const hitboxes = [];
             const pushHitboxes = (entities, hitboxKey, profile) => {
                 for (const entity of entities) {
+                    entity?.root?.updateMatrixWorld?.(true);
                     const hitbox = entity?.root?.userData?.[hitboxKey];
                     if (!hitbox) continue;
                     hitboxes.push({ hitbox, profile });
@@ -2835,9 +2836,11 @@ window.perlin = perlinInstance;
             hm[lx + lz * CHUNK_SIZE] = getColumnTopFromData(group.userData.chunkData, lx, lz);
         }
 
-        function getSurfaceYForEntity(wx, wz, startY = null) {
+        function getSurfaceYForEntity(wx, wz, startY = null, maxStepUp = null) {
             const x = Math.floor(wx);
             const z = Math.floor(wz);
+            const hasStartY = Number.isFinite(startY);
+            const maxAllowedY = (hasStartY && Number.isFinite(maxStepUp)) ? (Math.floor(startY) + Math.max(0, Math.floor(maxStepUp))) : null;
 
             const cx = Math.floor(x / CHUNK_SIZE);
             const cz = Math.floor(z / CHUNK_SIZE);
@@ -2851,18 +2854,21 @@ window.perlin = perlinInstance;
                     const candidate = top + 1;
                     const under = getBlockType(x, candidate - 1, z);
                     const feet = getBlockType(x, candidate, z);
-                    if (isSolid(under) && !isLiquid(under) && feet === 0) return candidate;
+                    if (isSolid(under) && !isLiquid(under) && feet === 0) {
+                        if (maxAllowedY === null || candidate <= maxAllowedY) return candidate;
+                    }
                 }
             }
 
-            if (Number.isFinite(startY)) {
-                const from = Math.min(CHUNK_HEIGHT - 2, Math.floor(startY) + 3);
+            if (hasStartY) {
+                const from = Math.min(CHUNK_HEIGHT - 2, maxAllowedY === null ? Math.floor(startY) + 3 : maxAllowedY);
                 const to = Math.max(2, Math.floor(startY) - 6);
                 for (let y = from; y >= to; y--) {
                     const under = getBlockType(x, y - 1, z);
                     const feet = getBlockType(x, y, z);
                     if (isSolid(under) && !isLiquid(under) && feet === 0) return y;
                 }
+                return -1;
             }
 
             for (let y = CHUNK_HEIGHT - 2; y >= 2; y--) {
@@ -4273,10 +4279,6 @@ window.perlin = perlinInstance;
             if (!player.canMove || isInventoryOpen) return;
 
             if (!prepareCrosshairRaycast()) return;
-            const meshes = [];
-            worldGroup.children.forEach(g => g.children.forEach(m => meshes.push(m)));
-            const intersects = raycaster.intersectObjects(meshes, true);
-            if (!intersects.length) return;
 
             if (event.button === 0) {
                 const attackKnockback = getHeldKnockbackEnchantLevel();
@@ -5787,7 +5789,11 @@ window.perlin = perlinInstance;
                  }
              }
              const chunkCenterBiome = getBiome(cx * CHUNK_SIZE + Math.floor(CHUNK_SIZE / 2), cz * CHUNK_SIZE + Math.floor(CHUNK_SIZE / 2));
-             const minimumTreesForChunk = chunkCenterBiome === 'Jungle Forest' ? 5 : (chunkCenterBiome === 'Forest' ? 2 : 0);
+             const minimumTreesForChunk = chunkCenterBiome === 'Jungle Forest'
+                 ? 6
+                 : (chunkCenterBiome === 'Forest'
+                     ? 3
+                     : (chunkCenterBiome === 'Plains' ? 1 : 0));
              while (treesPlacedInChunk < minimumTreesForChunk) {
                  const placedFallbackTree = oakTreeDecoration?.placeFallbackTree?.({
                      data,

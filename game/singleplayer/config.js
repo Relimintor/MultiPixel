@@ -44,16 +44,16 @@
       regionHillChance: 0.1,
     },
     treeDensityByBiome: {
-      Forest: 1.05,
-      'Jungle Forest': 1.62,
-      Plains: 0.6,
+      Forest: 1.28,
+      'Jungle Forest': 1.9,
+      Plains: 0.82,
       Mountains: 0.05,
-      'Snowy Plains': 0.8,
+      'Snowy Plains': 0.95,
       Desert: 0,
       Ocean: 0,
     },
     treeClusterBonus: 2.32,
-    treeMinSpacingChance: 0.48,
+    treeMinSpacingChance: 0.72,
     decorations: {
       amethystGeodes: {
         enabled: true,
@@ -798,8 +798,8 @@
     SOLID_BLOCKS: solidBlocks,
     LIQUID_BLOCKS: [4, 33, 60, 61, 62, 63, 64, 65, 66],
     DEFAULT_PLAYER: {
-      moveSpeed: 0.8,
-      sprintMultiplier: 1.5,
+      moveSpeed: 0.64,
+      sprintMultiplier: 1.35,
       rotationSpeed: 0.002,
       health: 20,
       maxHealth: 20,
