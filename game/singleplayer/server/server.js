@@ -144,16 +144,30 @@ io.on('connection', (socket) => {
     const z = Math.floor(Number(payload?.z));
     const type = Number(payload?.type);
     if (![x, y, z, type].every(Number.isFinite)) return;
-    const dx = actor.x - (x + 0.5);
-    const dy = actor.y - (y + 0.5);
-    const dz = actor.z - (z + 0.5);
+    const sourceX = Number(payload?.sourcePos?.x);
+    const sourceY = Number(payload?.sourcePos?.y);
+    const sourceZ = Number(payload?.sourcePos?.z);
+    const px = Number.isFinite(sourceX) ? sourceX : actor.x;
+    const py = Number.isFinite(sourceY) ? sourceY : actor.y;
+    const pz = Number.isFinite(sourceZ) ? sourceZ : actor.z;
+
+    const dx = px - (x + 0.5);
+    const dy = py - (y + 0.5);
+    const dz = pz - (z + 0.5);
     const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    if (distance > 5) return;
+    if (distance > 7.5) return;
 
     const next = { x, y, z, type };
     worldBlocks.set(blockKey(x, y, z), next);
     worldDirty = true;
     socket.broadcast.emit('blockUpdate', next);
+  });
+
+  socket.on('requestWorldResync', () => {
+    socket.emit('worldSnapshot', {
+      players: Array.from(players.values()).filter((player) => player.id !== socket.id),
+      blocks: Array.from(worldBlocks.values())
+    });
   });
 
   socket.on('chat', (payload) => {
