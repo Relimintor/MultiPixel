@@ -1,11 +1,13 @@
 (function () {
   const SERVER_URL = 'https://multipixel-yzoq.onrender.com';
   const EMIT_INTERVAL_MS = 50;
+  const WORLD_RESYNC_INTERVAL_MS = 12000;
 
   let socket = null;
   let moveInterval = null;
   let isConnected = false;
   let flushTimer = null;
+  let worldResyncTimer = null;
   const pendingBlockUpdates = [];
 
   function getBridge() {
@@ -49,7 +51,16 @@
     const z = Number(payload?.z);
     const type = Number(payload?.type);
     if (![x, y, z, type].every(Number.isFinite)) return false;
-    socket.emit('blockUpdate', { x, y, z, type });
+    const localState = getBridge()?.getLocalPlayerState?.() || null;
+    socket.emit('blockUpdate', {
+      x, y, z, type,
+      sourcePos: localState ? {
+        x: Number(localState.x) || 0,
+        y: Number(localState.y) || 0,
+        z: Number(localState.z) || 0,
+      } : null,
+      clientSentAt: Date.now(),
+    });
     return true;
   }
 
@@ -99,6 +110,7 @@
       if (moveInterval) clearInterval(moveInterval);
       sendMove();
       moveInterval = setInterval(sendMove, EMIT_INTERVAL_MS);
+      socket.emit('requestWorldResync');
     });
 
     socket.on('disconnect', () => {
@@ -127,6 +139,19 @@
           name: message?.id === socket.id ? 'You' : `Player ${String(message?.id || '').slice(0, 6)}`,
         });
       });
+    });
+
+    socket.on('worldSnapshot', (payload) => {
+      const players = Array.isArray(payload?.players) ? payload.players : [];
+      players.forEach((entry) => {
+        if (entry?.id === socket.id) return;
+        updateOtherPlayer(entry);
+      });
+      const blocks = Array.isArray(payload?.blocks) ? payload.blocks : [];
+      blocks.forEach((entry) => {
+        applyIncomingBlockUpdate(entry);
+      });
+      flushPendingBlockUpdates(500);
     });
 
     socket.on('playerJoined', (playerData) => {
@@ -175,6 +200,12 @@
 
     attachSocketEvents();
     if (!flushTimer) flushTimer = setInterval(() => flushPendingBlockUpdates(), 250);
+    if (!worldResyncTimer) {
+      worldResyncTimer = setInterval(() => {
+        if (!socket || !isConnected) return;
+        socket.emit('requestWorldResync');
+      }, WORLD_RESYNC_INTERVAL_MS);
+    }
   }
 
   window.MultiPixelMultiplayerClient = {
