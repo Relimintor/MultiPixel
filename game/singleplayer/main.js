@@ -4419,6 +4419,7 @@ window.perlin = perlinInstance;
         let physicsTickCounter = 0;
 
         function applyBlockPhysics(nowMs) {
+            if (IS_1D4P_MULTIPLAYER) return;
             if (!window.WaterPhysics || !window.SandPhysics || !window.LavaPhysics) return;
             if (nowMs - lastPhysicsTickMs < 50) return;
             lastPhysicsTickMs = nowMs;
@@ -7966,6 +7967,7 @@ window.perlin = perlinInstance;
 
 
         function updateBambooGrowth(deltaMs) {
+            if (IS_1D4P_MULTIPLAYER) return;
             bambooGrowthTimerMs += deltaMs;
             const tickMs = Number(window.JungleDecorationConfig?.bamboo?.growthTickMs) || 1100;
             if (bambooGrowthTimerMs < tickMs) return;
@@ -8008,6 +8010,7 @@ window.perlin = perlinInstance;
         }
 
         function updateGrassSpread(deltaMs) {
+            if (IS_1D4P_MULTIPLAYER) return;
             dirtToGrassLoop?.updateGrassSpread?.(deltaMs);
         }
 
