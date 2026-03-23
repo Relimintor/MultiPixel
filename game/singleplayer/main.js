@@ -5789,7 +5789,11 @@ window.perlin = perlinInstance;
                  }
              }
              const chunkCenterBiome = getBiome(cx * CHUNK_SIZE + Math.floor(CHUNK_SIZE / 2), cz * CHUNK_SIZE + Math.floor(CHUNK_SIZE / 2));
-             const minimumTreesForChunk = chunkCenterBiome === 'Jungle Forest' ? 5 : (chunkCenterBiome === 'Forest' ? 2 : 0);
+             const minimumTreesForChunk = chunkCenterBiome === 'Jungle Forest'
+                 ? 6
+                 : (chunkCenterBiome === 'Forest'
+                     ? 3
+                     : (chunkCenterBiome === 'Plains' ? 1 : 0));
              while (treesPlacedInChunk < minimumTreesForChunk) {
                  const placedFallbackTree = oakTreeDecoration?.placeFallbackTree?.({
                      data,
