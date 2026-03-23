@@ -798,8 +798,8 @@
     SOLID_BLOCKS: solidBlocks,
     LIQUID_BLOCKS: [4, 33, 60, 61, 62, 63, 64, 65, 66],
     DEFAULT_PLAYER: {
-      moveSpeed: 0.64,
-      sprintMultiplier: 1.35,
+      moveSpeed: 0.34,
+      sprintMultiplier: 1.15,
       rotationSpeed: 0.002,
       health: 20,
       maxHealth: 20,
