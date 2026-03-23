@@ -13,7 +13,7 @@
             constants: {
                 DEFAULT_LOOK_SENSITIVITY: 10,
                 DEFAULT_INTERACTION_REACH: 5,
-                SWIM_SPEED_FACTOR: 0.58,
+                SWIM_SPEED_FACTOR: 0.35,
                 SWIM_VERTICAL_SPEED: 0.1,
                 SWIM_SINK_SPEED: -0.03,
                 SWIM_SPRINT_MULTIPLIER: 1.25,
