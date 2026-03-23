@@ -159,6 +159,7 @@
           bobPhase: Math.random() * Math.PI * 2,
           targetY: y,
           groundProbeMs: 0,
+          jumpBoostMs: 0,
           lookYaw: 0,
           lookPitch: 0,
           lookTargetYaw: 0,
@@ -264,7 +265,7 @@
           pig.groundProbeMs -= deltaMs;
           if (pig.groundProbeMs <= 0) {
             pig.groundProbeMs = 220 + Math.random() * 180;
-            pig.targetY = getSurfaceYForEntity(nx, nz, pig.targetY);
+            pig.targetY = getSurfaceYForEntity(nx, nz, pig.targetY, 1);
           }
 
           if (activeGoal?.forceRaise) {
@@ -272,6 +273,12 @@
           }
 
           if (pig.targetY > 0) {
+            const stepUp = pig.targetY - pig.root.position.y;
+            if (stepUp > 0.45 && stepUp <= 1.05) {
+              pig.jumpBoostMs = Math.max(pig.jumpBoostMs || 0, 140);
+            }
+            pig.jumpBoostMs = Math.max(0, (pig.jumpBoostMs || 0) - deltaMs);
+            if (pig.jumpBoostMs > 0) pig.root.position.y += 2.15 * dt;
             pig.root.position.x = nx;
             pig.root.position.z = nz;
             pig.root.position.y += (pig.targetY - pig.root.position.y) * Math.min(1, dt * (activeGoal?.forceRaise ? 14 : 10));
@@ -318,7 +325,10 @@
         if (!prepareCrosshairRaycast()) return null;
         const raycaster = getRaycaster?.();
         if (!raycaster) return null;
-        const hitboxes = entities.map((p) => p.root.userData.pigHitbox).filter(Boolean);
+        const hitboxes = entities.map((p) => {
+          p.root?.updateMatrixWorld?.(true);
+          return p.root.userData.pigHitbox;
+        }).filter(Boolean);
         const hits = raycaster.intersectObjects(hitboxes, false);
         if (!hits.length) return null;
         const hitObj = hits[0].object;

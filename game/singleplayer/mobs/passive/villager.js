@@ -117,6 +117,7 @@
           bobPhase: Math.random() * Math.PI * 2,
           targetY: y,
           groundProbeMs: 0,
+          jumpBoostMs: 0,
           homeCenter,
           villageCenter,
           poiTargets,
@@ -153,7 +154,10 @@
         if (!prepareCrosshairRaycast()) return null;
         const raycaster = getRaycaster?.();
         if (!raycaster) return null;
-        const hitboxes = entities.map((v) => v.root.userData.villagerHitbox).filter(Boolean);
+        const hitboxes = entities.map((v) => {
+          v.root?.updateMatrixWorld?.(true);
+          return v.root.userData.villagerHitbox;
+        }).filter(Boolean);
         const hits = raycaster.intersectObjects(hitboxes, false);
         if (!hits.length) return null;
         const hitObj = hits[0].object;
@@ -416,9 +420,15 @@
           villager.groundProbeMs -= deltaMs;
           if (villager.groundProbeMs <= 0) {
             villager.groundProbeMs = 180 + Math.random() * 120;
-            villager.targetY = getSurfaceYForEntity(nx, nz, villager.targetY);
+            villager.targetY = getSurfaceYForEntity(nx, nz, villager.targetY, 1);
           }
           if (villager.targetY > 0) {
+            const stepUp = villager.targetY - villager.root.position.y;
+            if (stepUp > 0.45 && stepUp <= 1.05) {
+              villager.jumpBoostMs = Math.max(villager.jumpBoostMs || 0, 140);
+            }
+            villager.jumpBoostMs = Math.max(0, (villager.jumpBoostMs || 0) - deltaMs);
+            if (villager.jumpBoostMs > 0) villager.root.position.y += 2.2 * dt;
             villager.root.position.x = nx;
             villager.root.position.z = nz;
             villager.root.position.y += (villager.targetY - villager.root.position.y) * Math.min(1, dt * 10);
