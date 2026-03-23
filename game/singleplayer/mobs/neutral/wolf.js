@@ -94,6 +94,7 @@
           bobPhase: Math.random() * Math.PI * 2,
           targetY: y,
           groundProbeMs: 0,
+          jumpBoostMs: 0,
           attackCooldownMs: 0,
           retargetMs: 0,
           combatTarget: null,
@@ -126,7 +127,10 @@
         if (!prepareCrosshairRaycast()) return null;
         const raycaster = getRaycaster?.();
         if (!raycaster) return null;
-        const hitboxes = entities.map((w) => w.root.userData.wolfHitbox).filter(Boolean);
+        const hitboxes = entities.map((w) => {
+          w.root?.updateMatrixWorld?.(true);
+          return w.root.userData.wolfHitbox;
+        }).filter(Boolean);
         const hits = raycaster.intersectObjects(hitboxes, false);
         if (!hits.length) return null;
         const hitObj = hits[0].object;
@@ -249,9 +253,15 @@
           wolf.groundProbeMs -= deltaMs;
           if (wolf.groundProbeMs <= 0) {
             wolf.groundProbeMs = 180 + Math.random() * 120;
-            wolf.targetY = getSurfaceYForEntity(nx, nz, wolf.targetY);
+            wolf.targetY = getSurfaceYForEntity(nx, nz, wolf.targetY, 1);
           }
           if (wolf.targetY > 0) {
+            const stepUp = wolf.targetY - wolf.root.position.y;
+            if (stepUp > 0.45 && stepUp <= 1.05) {
+              wolf.jumpBoostMs = Math.max(wolf.jumpBoostMs || 0, 130);
+            }
+            wolf.jumpBoostMs = Math.max(0, (wolf.jumpBoostMs || 0) - deltaMs);
+            if (wolf.jumpBoostMs > 0) wolf.root.position.y += 2.3 * dt;
             wolf.root.position.x = nx;
             wolf.root.position.z = nz;
             wolf.root.position.y += (wolf.targetY - wolf.root.position.y) * Math.min(1, dt * 11);

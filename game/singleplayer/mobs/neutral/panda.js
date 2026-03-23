@@ -146,6 +146,7 @@
           bobPhase: Math.random() * Math.PI * 2,
           targetY: y,
           groundProbeMs: 0,
+          jumpBoostMs: 0,
           attackCooldownMs: 0,
           angerUntilMs: 0,
           invulnerable: false,
@@ -176,7 +177,10 @@
         if (!prepareCrosshairRaycast()) return null;
         const raycaster = getRaycaster?.();
         if (!raycaster) return null;
-        const hitboxes = entities.map((p) => p.root.userData.pandaHitbox).filter(Boolean);
+        const hitboxes = entities.map((p) => {
+          p.root?.updateMatrixWorld?.(true);
+          return p.root.userData.pandaHitbox;
+        }).filter(Boolean);
         const hits = raycaster.intersectObjects(hitboxes, false);
         if (!hits.length) return null;
         const hitObj = hits[0].object;
@@ -249,9 +253,15 @@
           panda.groundProbeMs -= deltaMs;
           if (panda.groundProbeMs <= 0) {
             panda.groundProbeMs = 180;
-            panda.targetY = getSurfaceYForEntity(nx, nz, panda.targetY);
+            panda.targetY = getSurfaceYForEntity(nx, nz, panda.targetY, 1);
           }
           if (panda.targetY > 0) {
+            const stepUp = panda.targetY - panda.root.position.y;
+            if (stepUp > 0.45 && stepUp <= 1.05) {
+              panda.jumpBoostMs = Math.max(panda.jumpBoostMs || 0, 150);
+            }
+            panda.jumpBoostMs = Math.max(0, (panda.jumpBoostMs || 0) - deltaMs);
+            if (panda.jumpBoostMs > 0) panda.root.position.y += 2.05 * dt;
             panda.root.position.x = nx;
             panda.root.position.z = nz;
             panda.root.position.y += (panda.targetY - panda.root.position.y) * Math.min(1, dt * 10);

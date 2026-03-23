@@ -193,6 +193,7 @@
           sunProbeMs: 0,
           targetY: y,
           groundProbeMs: 0,
+          jumpBoostMs: 0,
           knockbackVX: 0,
           knockbackVZ: 0,
           hitFlashMs: 0,
@@ -205,7 +206,10 @@
         if (!prepareCrosshairRaycast()) return null;
         const raycaster = getRaycaster?.();
         if (!raycaster) return null;
-        const hitboxes = entities.map((z) => z.root.userData.zombieHitbox).filter(Boolean);
+        const hitboxes = entities.map((z) => {
+          z.root?.updateMatrixWorld?.(true);
+          return z.root.userData.zombieHitbox;
+        }).filter(Boolean);
         const hits = raycaster.intersectObjects(hitboxes, false);
         if (!hits.length) return null;
         const hitObj = hits[0].object;
@@ -283,10 +287,16 @@
           z.groundProbeMs -= deltaMs;
           if (z.groundProbeMs <= 0) {
             z.groundProbeMs = 180;
-            z.targetY = getSurfaceYForEntity(nx, nz, z.targetY);
+            z.targetY = getSurfaceYForEntity(nx, nz, z.targetY, 1);
           }
 
           if (z.targetY > 0) {
+            const stepUp = z.targetY - z.root.position.y;
+            if (stepUp > 0.45 && stepUp <= 1.05) {
+              z.jumpBoostMs = Math.max(z.jumpBoostMs || 0, 140);
+            }
+            z.jumpBoostMs = Math.max(0, (z.jumpBoostMs || 0) - deltaMs);
+            if (z.jumpBoostMs > 0) z.root.position.y += 2.25 * dt;
             z.root.position.x = nx;
             z.root.position.z = nz;
             z.root.position.y += (z.targetY - z.root.position.y) * Math.min(1, dt * 12);
