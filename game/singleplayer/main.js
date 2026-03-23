@@ -775,6 +775,7 @@ window.perlin = perlinInstance;
 
       
         let scene, camera, renderer, perlin, raycaster;
+        let baseCameraFov = 90;
         let worldGenerator = null;
         let spawnBiomeName = 'Plains';
         let wasmRuntime = window.WorldgenWasmRuntime || null;
@@ -1786,6 +1787,7 @@ window.perlin = perlinInstance;
             raycaster = new THREE.Raycaster();
             raycaster.far = currentInteractionReach;
             camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.1, 1000);
+            baseCameraFov = Number(camera.fov) || 90;
             
             yawObject = new THREE.Object3D();
             pitchObject = new THREE.Object3D();
@@ -1905,6 +1907,7 @@ window.perlin = perlinInstance;
             glowstonePortalDimension1 = window.SingleplayerDimension1GlowstonePortal?.create?.({
                 getRenderer: () => renderer,
                 getCamera: () => camera,
+                getBaseFov: () => baseCameraFov,
                 holdDurationSec: 7,
                 onPortalCharged: () => dimension1WorldController?.onPortalCharged?.(),
             }) || null;
@@ -2103,13 +2106,14 @@ window.perlin = perlinInstance;
             const parsed = Number.parseFloat(amount);
             if (!Number.isFinite(parsed)) return false;
             const normalized = Math.max(1, parsed);
+            baseCameraFov = normalized;
             camera.fov = normalized;
             camera.updateProjectionMatrix();
             return true;
         }
 
         function getCameraFov() {
-            return Number(camera?.fov || 90);
+            return Number(baseCameraFov || camera?.fov || 90);
         }
 
         function toggleRenderDistanceBoost() {

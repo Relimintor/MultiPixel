@@ -6,6 +6,7 @@
   function create({
     getRenderer,
     getCamera,
+    getBaseFov = null,
     onPortalCharged = null,
     holdDurationSec = 7,
   }) {
@@ -24,11 +25,12 @@
       if (!canvas || !camera) return;
 
       const level = clamp01(nauseaLevel);
+      const baseFov = Math.max(1, Number(getBaseFov?.() ?? camera.fov ?? 90));
       if (level <= 0.001) {
         canvas.style.filter = '';
         canvas.style.transform = '';
         canvas.style.transformOrigin = '';
-        camera.fov = 90;
+        camera.fov = baseFov;
         camera.updateProjectionMatrix();
         return;
       }
@@ -49,7 +51,7 @@
       canvas.style.transform = `translate(${offsetX.toFixed(2)}px, ${offsetY.toFixed(2)}px) rotate(${rotateDeg.toFixed(2)}deg) skew(${skewX.toFixed(2)}deg, ${skewY.toFixed(2)}deg) scale(${scale.toFixed(4)})`;
       canvas.style.filter = `blur(${(0.45 + level * 1.8).toFixed(2)}px) saturate(${(1 + level * 0.85).toFixed(2)}) hue-rotate(${(wobbleA * 10).toFixed(2)}deg) contrast(${(1 + level * 0.14).toFixed(2)})`;
 
-      const fovTarget = 90 + Math.sin(phase * 1.7) * (1.2 + level * 3.4);
+      const fovTarget = baseFov + Math.sin(phase * 1.7) * (1.2 + level * 3.4);
       camera.fov += (fovTarget - camera.fov) * 0.25;
       camera.updateProjectionMatrix();
     }
