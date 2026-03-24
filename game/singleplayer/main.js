@@ -55,6 +55,7 @@
             river: window.RiverTerrain || {},
             oakForest: window.OakForestTerrain || {},
             desert: window.DesertTerrain || {},
+            badlands: window.BadlandsTerrain || {},
             plains: window.PlainsTerrain || {},
             snowyPlains: window.SnowyPlainsTerrain || {},
             jungleForest: window.JungleForestTerrain || {},
@@ -810,6 +811,7 @@ window.perlin = perlinInstance;
             getBiomeAt: (x, z) => getBiome(x, z),
             getPlayerPosition: () => yawObject?.position,
             getCurrentRenderDistance: () => currentChunkLoadRadius,
+            getHasEffect: (effectName) => hasActiveCommandEffect(effectName),
             CHUNK_SIZE,
         }) || null;
         defaultPlayerSkin = window.SingleplayerDefaultSkin?.create?.({
@@ -2011,7 +2013,7 @@ window.perlin = perlinInstance;
 
         function applyPlayerEffect(effectName, durationSeconds, options = {}) {
             const key = String(effectName || '').toLowerCase().trim();
-            if (key !== 'nausea') return false;
+            if (key !== 'nausea' && key !== 'badlands') return false;
             const seconds = Number(durationSeconds);
             if (!Number.isFinite(seconds) || seconds <= 0) return false;
             const durationMs = Math.max(1000, Math.floor(seconds * 1000));
@@ -5025,26 +5027,29 @@ window.perlin = perlinInstance;
             const oceanW = smoothstep(0.36, 0.02, continentalNoise);
             const mountainW = smoothstep(0.50, 0.80, mountainNoise) * smoothstep(0.34, 0.90, continentalNoise);
             const desertW = smoothstep(0.02, 0.48, climate.temp) * smoothstep(0.24, -0.30, climate.humidity) * smoothstep(0.30, 0.90, continentalNoise);
+            const badlandsW = smoothstep(0.30, 0.92, climate.temp) * smoothstep(0.20, -0.34, climate.humidity) * smoothstep(0.46, 0.96, continentalNoise) * smoothstep(0.44, 0.98, climate.weirdness);
             const snowyW = smoothstep(-0.20, -0.64, climate.temp) * smoothstep(-0.18, 0.50, climate.humidity) * smoothstep(0.22, 0.86, continentalNoise) * (1 - mountainW * 0.70);
             const jungleHumidityW = smoothstep(0.30, 1.0, climate.humidity);
             const jungleTempW = smoothstep(0.55, 0.98, climate.temp);
             const jungleW = jungleHumidityW * jungleTempW * smoothstep(0.22, 0.92, continentalNoise) * (1 - mountainW * 0.55);
-            const forestW = smoothstep(-0.12, 0.44, climate.humidity) * smoothstep(-0.28, 0.40, climate.temp) * (1 - desertW * 0.72) * (1 - jungleW * 0.7);
+            const forestW = smoothstep(-0.12, 0.44, climate.humidity) * smoothstep(-0.28, 0.40, climate.temp) * (1 - desertW * 0.72) * (1 - badlandsW * 0.75) * (1 - jungleW * 0.7);
             const plainsW = (0.16 + smoothstep(0.14, 0.66, continentalNoise) * 0.14) * (1 - jungleW * 0.5);
 
             const adaptiveDesertFloor = climate.temp > 0.26 && climate.humidity < 0.12 ? 0.018 : 0;
             const adaptiveSnowyFloor = climate.temp < -0.30 ? 0.018 : 0;
             const adaptiveJungleFloor = climate.temp > 0.52 && climate.humidity > 0.40 ? 0.018 : 0;
+            const adaptiveBadlandsFloor = climate.temp > 0.48 && climate.humidity < -0.08 && continentalNoise > 0.56 ? 0.012 : 0;
             const desertBlendW = Math.max(desertW, adaptiveDesertFloor);
+            const badlandsBlendW = Math.max(badlandsW, adaptiveBadlandsFloor);
             const snowyBlendW = Math.max(snowyW, adaptiveSnowyFloor);
             const jungleBlendW = Math.max(jungleW, adaptiveJungleFloor);
 
-            const total = oceanW + mountainW + desertBlendW + snowyBlendW + forestW + plainsW + jungleBlendW;
+            const total = oceanW + mountainW + desertBlendW + badlandsBlendW + snowyBlendW + forestW + plainsW + jungleBlendW;
             if (total <= 0) {
                 return {
                     tv,
                     climate,
-                    weights: { Ocean: 0, Mountains: 0, Desert: 0, Forest: 0, 'Jungle Forest': 0, Plains: 1, 'Snowy Plains': 0 }
+                    weights: { Ocean: 0, Mountains: 0, Desert: 0, Badlands: 0, Forest: 0, 'Jungle Forest': 0, Plains: 1, 'Snowy Plains': 0 }
                 };
             }
 
@@ -5055,6 +5060,7 @@ window.perlin = perlinInstance;
                     Ocean: oceanW / total,
                     Mountains: mountainW / total,
                     Desert: desertBlendW / total,
+                    Badlands: badlandsBlendW / total,
                     Forest: forestW / total,
                     'Jungle Forest': jungleBlendW / total,
                     Plains: plainsW / total,
@@ -5206,6 +5212,7 @@ window.perlin = perlinInstance;
                     jaggedNoise,
                 }),
                 Desert: TerrainModules['desert'].getHeight({ BASE_LAND_Y, continentalMask, bigDuneNoise, duneDetailNoise, rockMaskNoise }),
+                Badlands: TerrainModules['badlands'].getHeight({ BASE_LAND_Y, continentalMask, bigDuneNoise, duneDetailNoise, rockMaskNoise, erosionNoise, weirdness: tv.weirdness }),
                 'Snowy Plains': TerrainModules['snowyPlains'].getHeight({ BASE_LAND_Y, continentalMask, terrainNoise, erosionNoise }),
                 Forest: TerrainModules['oakForest'].getHeight({ BASE_LAND_Y, continentalMask, terrainNoise, erosionNoise }),
                 'Jungle Forest': TerrainModules['jungleForest'].getHeight({ BASE_LAND_Y, continentalMask, terrainNoise, erosionNoise }),
@@ -5274,6 +5281,7 @@ window.perlin = perlinInstance;
             if (wy === 0) return 14;
             if (wy < h) {
                 if (biome === 'Desert') return 7;
+                if (biome === 'Badlands') return wy >= h - 1 ? 242 : (wy >= h - 4 ? 241 : 3);
                 if (biome === 'Snowy Plains') return wy >= h - 1 ? 15 : 59;
                 if (biome === 'Mountains') {
                     if (wy >= h - 1 && h > SEA_LEVEL + 16) return 15;
@@ -5673,6 +5681,17 @@ window.perlin = perlinInstance;
                                 t = worldGenerator.terrain.surfaceBlockForBiome(biome, y, h, SEA_LEVEL);
                             } else if (biome === 'Desert') {
                                 t = distFromSurface < 5 ? 7 : 13;
+                            } else if (biome === 'Badlands') {
+                                const TERRACOTTA_BANDS = [243, 244, 245, 246, 247, 248, 249];
+                                if (distFromSurface === 0) t = 242;
+                                else if (distFromSurface < 3) t = 241;
+                                else if (distFromSurface < 20) {
+                                    const bandNoise = octaveNoise2D(wx, wz, 2, 0.5, 2.0, 0.045, 2110, -1190);
+                                    const bandIndex = Math.abs(Math.floor(y * 0.72 + bandNoise * 5.2)) % TERRACOTTA_BANDS.length;
+                                    t = TERRACOTTA_BANDS[bandIndex];
+                                } else {
+                                    t = 3;
+                                }
                             } else if (biome === 'Snowy Plains') {
                                 t = distFromSurface === 0 ? 15 : 59;
                             } else if (biome === 'Mountains') {
@@ -5762,6 +5781,7 @@ window.perlin = perlinInstance;
                             wx,
                             y,
                             wz,
+                            biome,
                             surfaceHeight: h,
                             CHUNK_HEIGHT,
                             hashRand2D,
@@ -7556,7 +7576,7 @@ window.perlin = perlinInstance;
 
         function teleportToBiome(rawBiomeName) {
             const targetBiome = normalizeBiomeCommandName(rawBiomeName);
-            if (!targetBiome) return { ok: false, message: 'Unknown biome. Try plains, forest, oak_forest, desert, mountains, snowy_plains, jungle, ocean.' };
+            if (!targetBiome) return { ok: false, message: 'Unknown biome. Try plains, forest, oak_forest, desert, badlands, mountains, snowy_plains, jungle, ocean.' };
             const biomeAnchorSearchRadius = 2400;
             const biomeAnchorStep = 6;
             const localSpawnSearchRadius = 96;

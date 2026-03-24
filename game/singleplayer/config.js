@@ -107,6 +107,8 @@
     STONE: getAssetPath('textures/stone.png'),
     LEAVES: getAssetPath('textures/azalea_leaves.png'),
     SAND: getAssetPath('textures/sand.png'),
+    RED_SAND: getAssetPath('textures/sand.png'),
+    RED_SANDSTONE: getAssetPath('sand/sandstone/sandstone.png'),
     HEART: getAssetPath('ui/full.png'),
     HEART_FULL: getAssetPath('ui/full.png'),
     HEART_HALF: getAssetPath('ui/half.png'),
@@ -131,6 +133,8 @@
     SANDSTONE: getAssetPath('sand/sandstone/sandstone.png'),
     SANDSTONE_BOTTOM: getAssetPath('sand/sandstone/sandstone_bottom.png'),
     SANDSTONE_TOP: getAssetPath('sand/sandstone/sandstone_top.png'),
+    RED_SANDSTONE_TOP: getAssetPath('sand/sandstone/sandstone_top.png'),
+    RED_SANDSTONE_BOTTOM: getAssetPath('sand/sandstone/sandstone_bottom.png'),
     COBBLESTONE: getAssetPath('textures/cobblestone.png'),
     MOSSY_COBBLESTONE: getAssetPath('textures/mossy_cobblestone.png'),
     SNOW_BLOCK: getAssetPath('textures/snow.png'),
@@ -326,6 +330,7 @@
     2: { name: 'Dirt', id: 2, textured: true, textureKey: 'DIRT' }, 
     3: { name: 'Stone', id: 3, textured: true, textureKey: 'STONE' },
     7: { name: 'Sand', id: 7, textured: true, textureKey: 'SAND' },
+    242: { name: 'Red Sand', id: 242, textured: true, textureKey: 'RED_SAND', color: 0xbd6b46 },
     15: { name: 'Snow Block', id: 15, textured: true, textureKey: 'SNOW_BLOCK', color: 0xf2f7ff },
     59: { name: 'Ice', id: 59, textured: true, textureKey: 'ICE' },
     28: { name: 'gravel', id: 28, textured: true, textureKey: 'GRAVEL' },
@@ -343,6 +348,28 @@
         negZ: 'SANDSTONE' 
       },
     },
+    241: {
+      name: 'Red Sandstone',
+      id: 241,
+      textured: true,
+      textureKey: 'RED_SANDSTONE',
+      color: 0xb55b3d,
+      textureByFace: {
+        top: 'RED_SANDSTONE_TOP',
+        bottom: 'RED_SANDSTONE_BOTTOM',
+        posX: 'RED_SANDSTONE',
+        negX: 'RED_SANDSTONE',
+        posZ: 'RED_SANDSTONE',
+        negZ: 'RED_SANDSTONE'
+      },
+    },
+    243: { name: 'Terracotta', id: 243, textured: false, color: 0xb4653e },
+    244: { name: 'White Terracotta', id: 244, textured: false, color: 0xdcd1c4 },
+    245: { name: 'Light Gray Terracotta', id: 245, textured: false, color: 0x9b9293 },
+    246: { name: 'Brown Terracotta', id: 246, textured: false, color: 0x7d5a47 },
+    247: { name: 'Yellow Terracotta', id: 247, textured: false, color: 0xbf8d3a },
+    248: { name: 'Orange Terracotta', id: 248, textured: false, color: 0xbf6c34 },
+    249: { name: 'Red Terracotta', id: 249, textured: false, color: 0x9d3d34 },
 
     /* Wood Types
     With theyr
@@ -780,7 +807,7 @@
     ...(sideConfig.SIDE_BLOCK_MATERIALS || sideConfig.FLOWER_BLOCK_MATERIALS || {}),
   };
 
-  const solidBlocks = [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 108, 110, 113, 114, 119, 222, 145, 146, 147, 149, 150, 151, 152, 153, 154, 156, 157, 158, 159 ];
+  const solidBlocks = [1, 2, 3, 5, 6, 7, 8, 9, 13, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 28, 29, 30, 32, 34, 35, 36, 37, 39, 40, 41, 43, 45, 54, 55, 59, 68, 71, 76, 77, 78, 79, 80, 81, 82, 91, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 108, 110, 113, 114, 119, 222, 145, 146, 147, 149, 150, 151, 152, 153, 154, 156, 157, 158, 159, 241, 242, 243, 244, 245, 246, 247, 248, 249 ];
 
   window.SingleplayerConfig = {
     CHUNK_SIZE, CHUNK_HEIGHT, WORLD_RADIUS, BLOCK_SIZE, SEA_LEVEL, BASE_LAND_Y, ISLAND_RADIUS,

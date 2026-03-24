@@ -11,7 +11,7 @@
   };
 
   const SingleplayerDayNightCycle = {
-    create({ THREE, getScene, getLights, getBiomeAt, getPlayerPosition, getCurrentRenderDistance, CHUNK_SIZE, daySegments = DEFAULT_DAY_SEGMENTS }) {
+    create({ THREE, getScene, getLights, getBiomeAt, getPlayerPosition, getCurrentRenderDistance, getHasEffect, CHUNK_SIZE, daySegments = DEFAULT_DAY_SEGMENTS }) {
       const segments = {
         sunrise: Number(daySegments.sunrise) || DEFAULT_DAY_SEGMENTS.sunrise,
         day: Number(daySegments.day) || DEFAULT_DAY_SEGMENTS.day,
@@ -72,10 +72,14 @@
         const wx = Math.floor(pos?.x || 0);
         const wz = Math.floor(pos?.z || 0);
         const biome = getBiomeAt(wx, wz);
-        if (biome === 'Jungle Forest') {
-          return { humidity: 0.9, nearMul: 1.18, farMul: 0.7 };
+        const hasBadlandsEffect = typeof getHasEffect === 'function' && getHasEffect('badlands');
+        if (biome === 'Badlands' || hasBadlandsEffect) {
+          return { humidity: 0.0, nearMul: 1.08, farMul: 0.78, fogTint: 0xe8cf8d };
         }
-        return { humidity: 0.5, nearMul: 1.0, farMul: 1.0 };
+        if (biome === 'Jungle Forest') {
+          return { humidity: 0.9, nearMul: 1.18, farMul: 0.7, fogTint: null };
+        }
+        return { humidity: 0.5, nearMul: 1.0, farMul: 1.0, fogTint: null };
       }
 
       function updateSkyAndSun() {
@@ -98,6 +102,11 @@
           skyColor = nightColor.clone().lerp(twilightColor, k);
         }
 
+        const biomeEffects = getBiomeFogAndHumidityEffects();
+        if (biomeEffects.fogTint) {
+          const tint = new THREE.Color(biomeEffects.fogTint);
+          skyColor.lerp(tint, 0.2);
+        }
         scene.background.copy(skyColor);
         scene.fog.color.copy(skyColor);
 
@@ -119,7 +128,6 @@
         hemiLight.intensity = 0.18 + daylight * 0.55;
 
         const fog = getFogDistances(getCurrentRenderDistance());
-        const biomeEffects = getBiomeFogAndHumidityEffects();
         scene.fog.near = (fog.nearBase + daylight * fog.nearDayBoost) * biomeEffects.nearMul;
         scene.fog.far = (fog.farBase + daylight * fog.farDayBoost) * biomeEffects.farMul;
 

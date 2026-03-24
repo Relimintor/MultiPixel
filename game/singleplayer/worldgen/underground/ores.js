@@ -1,6 +1,6 @@
 (function () {
   const UndergroundOresWorldgen = {
-    applyOrePasses({ blockId, wx, y, wz, surfaceHeight, CHUNK_HEIGHT, hashRand2D, octaveNoise2D }) {
+    applyOrePasses({ blockId, wx, y, wz, biome, surfaceHeight, CHUNK_HEIGHT, hashRand2D, octaveNoise2D }) {
       let nextBlockId = blockId;
       const isStoneLike = nextBlockId === 3 || nextBlockId === 13;
       if (!isStoneLike) return nextBlockId;
@@ -35,7 +35,10 @@
           const goldNoise = octaveNoise2D(wx, wz, 3, 0.5, 2.0, 0.08, 9999, -1234);
           const goldDepthBias = 1 - (y / CHUNK_HEIGHT);
           const goldRoll = hashRand2D(wx + y * 19, wz - y * 13, 303);
-          if (goldNoise > 0.25 && goldRoll < (0.03 + goldDepthBias * 0.05)) nextBlockId = 40;
+          const isBadlands = biome === 'Badlands';
+          const goldThreshold = isBadlands ? 0.18 : 0.25;
+          const goldChance = isBadlands ? (0.07 + goldDepthBias * 0.09) : (0.03 + goldDepthBias * 0.05);
+          if (goldNoise > goldThreshold && goldRoll < goldChance) nextBlockId = 40;
         }
       }
 
