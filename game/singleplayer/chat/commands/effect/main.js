@@ -17,13 +17,13 @@
     const effectRaw = String(parts[2] || '').toLowerCase();
     const durationRaw = parts[3];
     if (!targetRaw || !effectRaw || !durationRaw) {
-      return { handled: true, ok: false, message: 'Usage: /effect <me|player> <nausea> <duration[s|m|h]>' };
+      return { handled: true, ok: false, message: 'Usage: /effect <me|player> <nausea|badlands> <duration[s|m|h]>' };
     }
     if (targetRaw !== 'me' && targetRaw !== 'player') {
       return { handled: true, ok: false, message: 'Only "me" or "player" targets are supported.' };
     }
-    if (effectRaw !== 'nausea') {
-      return { handled: true, ok: false, message: 'Only nausea is supported right now.' };
+    if (effectRaw !== 'nausea' && effectRaw !== 'badlands') {
+      return { handled: true, ok: false, message: 'Only nausea and badlands are supported right now.' };
     }
     const durationSeconds = parseDurationToSeconds(durationRaw);
     if (!Number.isFinite(durationSeconds)) {

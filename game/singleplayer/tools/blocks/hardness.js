@@ -69,6 +69,15 @@
     107: 2,  // Pumpkin block
     108: 2,  // Melon block
     119: 8,  // Glowstone
+    241: 10, // Red sandstone
+    242: 5,  // Red sand
+    243: 8,  // Terracotta
+    244: 8,  // White terracotta
+    245: 8,  // Light gray terracotta
+    246: 8,  // Brown terracotta
+    247: 8,  // Yellow terracotta
+    248: 8,  // Orange terracotta
+    249: 8,  // Red terracotta
   };
 
   function getHardness(blockId) {

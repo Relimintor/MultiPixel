@@ -5,6 +5,7 @@
     return value
       .toLowerCase()
       .replace(/^biome\s*:\s*/i, '')
+      .replace(/^[\s("'`]+|[\s)"'`]+$/g, '')
       .replace(/^"|"$/g, '')
       .replace(/^'|'$/g, '');
   }
@@ -75,11 +76,25 @@
       return { handled: true, ok: true, message: result.message || `Teleported to biome: ${result.biome}.` };
     }
 
+    if (!named.structureName && !named.biomeName && parts.length === 2) {
+      const directBiome = parseBiomeName(parts[1]);
+      if (directBiome && !Number.isFinite(Number.parseFloat(directBiome))) {
+        if (!ctx.teleportToBiome) {
+          return { handled: true, ok: false, message: 'Teleport system unavailable.' };
+        }
+        const result = ctx.teleportToBiome(directBiome);
+        if (!result?.ok) {
+          return { handled: true, ok: false, message: result?.message || `Could not find biome: ${directBiome}` };
+        }
+        return { handled: true, ok: true, message: result.message || `Teleported to biome: ${result.biome}.` };
+      }
+    }
+
     const x = Number.parseFloat(parts[1]);
     const y = Number.parseFloat(parts[2]);
     const z = Number.parseFloat(parts[3]);
     if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
-      return { handled: true, ok: false, message: 'Usage: /tp <x> <y> <z> OR /tp biome:<name> OR /tp structure:<village|ruins> biome:<name>' };
+      return { handled: true, ok: false, message: 'Usage: /tp <x> <y> <z> OR /tp <biome_name> OR /tp biome:<name> OR /tp structure:<village|ruins> biome:<name>' };
     }
 
     if (!ctx.teleportToCoordinates) {
