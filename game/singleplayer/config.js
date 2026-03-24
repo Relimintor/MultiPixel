@@ -315,8 +315,8 @@
     BONE: getAssetPath('textures/item/bone.png'),
 
     //red sandstone
-    RED_SANDSTONE_TOP: getAssetPath('sand/red/red_sandstone_top.png.png'),
-    RED_SANDSTONE: getAssetPath('sand/red/red_sandstone.png.png'),
+    RED_SANDSTONE_TOP: getAssetPath('sand/red/red_sandstone_top.png'),
+    RED_SANDSTONE: getAssetPath('sand/red/red_sandstone.png'),
     RED_SANDSTONE_BOTTOM: getAssetPath('sand/red/red_sandstone_bottom.png'),
     RED_SAND: getAssetPath('sand/red/red_sand.png'),
   };
