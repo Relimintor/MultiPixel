@@ -16,6 +16,7 @@
     { name: 'Pink Tulip', textureKey: 'FLOWER_PINK_TULIP', texturePath: 'textures/flowers/pink_tulip.png', color: 0xf29bc1, spawnBiomes: ['Plains'] },
     { name: 'Red Tulip', textureKey: 'FLOWER_RED_TULIP', texturePath: 'textures/flowers/red_tulip.png', color: 0xdb4c4c, spawnBiomes: ['Plains', 'Forest'] },
     { name: 'White Tulip', textureKey: 'FLOWER_WHITE_TULIP', texturePath: 'textures/flowers/white_tulip.png', color: 0xf3f0e8, spawnBiomes: ['Plains'] },
+    { name: 'Dead Bush', textureKey: 'FLOWER_DEAD_BUSH', texturePath: 'textures/Fallback.png', color: 0x9a8458, spawnBiomes: ['Desert', 'Badlands'] },
   ];
 
   const FIRST_FLOWER_ID = 134;
@@ -125,6 +126,14 @@
       .map((flower, index) => ({ flower, id: FIRST_FLOWER_ID + index }))
       .filter(({ flower }) => flower.spawnBiomes.includes('Forest'))
       .map(({ id }) => id),
+    Desert: flowerDefinitions
+      .map((flower, index) => ({ flower, id: FIRST_FLOWER_ID + index }))
+      .filter(({ flower }) => flower.spawnBiomes.includes('Desert'))
+      .map(({ id }) => id),
+    Badlands: flowerDefinitions
+      .map((flower, index) => ({ flower, id: FIRST_FLOWER_ID + index }))
+      .filter(({ flower }) => flower.spawnBiomes.includes('Badlands'))
+      .map(({ id }) => id),
   };
 
   const flowerPatchFeatures = {
@@ -145,6 +154,24 @@
       ySpread: 4,
       substrateIds: [1],
       flowerIds: flowerSpawnConfig.Forest.slice(),
+    },
+    Desert: {
+      patchesPerChunk: 1,
+      patchSkipChance: 0.65,
+      tries: 10,
+      xzSpread: 8,
+      ySpread: 3,
+      substrateIds: [7, 13, 241, 242],
+      flowerIds: flowerSpawnConfig.Desert.slice(),
+    },
+    Badlands: {
+      patchesPerChunk: 2,
+      patchSkipChance: 0.45,
+      tries: 14,
+      xzSpread: 9,
+      ySpread: 3,
+      substrateIds: [241, 242, 243, 244, 245, 246, 247, 248, 249],
+      flowerIds: flowerSpawnConfig.Badlands.slice(),
     },
   };
 
