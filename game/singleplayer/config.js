@@ -107,8 +107,6 @@
     STONE: getAssetPath('textures/stone.png'),
     LEAVES: getAssetPath('textures/azalea_leaves.png'),
     SAND: getAssetPath('textures/sand.png'),
-    RED_SAND: getAssetPath('textures/sand.png'),
-    RED_SANDSTONE: getAssetPath('sand/sandstone/sandstone.png'),
     HEART: getAssetPath('ui/full.png'),
     HEART_FULL: getAssetPath('ui/full.png'),
     HEART_HALF: getAssetPath('ui/half.png'),
@@ -133,8 +131,6 @@
     SANDSTONE: getAssetPath('sand/sandstone/sandstone.png'),
     SANDSTONE_BOTTOM: getAssetPath('sand/sandstone/sandstone_bottom.png'),
     SANDSTONE_TOP: getAssetPath('sand/sandstone/sandstone_top.png'),
-    RED_SANDSTONE_TOP: getAssetPath('sand/sandstone/sandstone_top.png'),
-    RED_SANDSTONE_BOTTOM: getAssetPath('sand/sandstone/sandstone_bottom.png'),
     COBBLESTONE: getAssetPath('textures/cobblestone.png'),
     MOSSY_COBBLESTONE: getAssetPath('textures/mossy_cobblestone.png'),
     SNOW_BLOCK: getAssetPath('textures/snow.png'),
@@ -317,6 +313,12 @@
     GLOWSTONE: getAssetPath('textures/glowstone.png'),
     GLOWSTONE_DUST: getAssetPath('textures/item/glowstone_dust.png'),
     BONE: getAssetPath('textures/item/bone.png'),
+
+    //red sandstone
+    RED_SANDSTONE_TOP: getAssetPath('sand/red/red_sandstone_top'),
+    RED_SANDSTONE: getAssetPath('sand/red/red_sandstone'),
+    RED_SANDSTONE_BOTTOM: getAssetPath('sand/red/red_sandstone_bottom'),
+    RED_SAND: getAssetPath('sand/red/red_sand'),
   };
 
   const baseBlockMaterials = {
@@ -330,7 +332,7 @@
     2: { name: 'Dirt', id: 2, textured: true, textureKey: 'DIRT' }, 
     3: { name: 'Stone', id: 3, textured: true, textureKey: 'STONE' },
     7: { name: 'Sand', id: 7, textured: true, textureKey: 'SAND' },
-    242: { name: 'Red Sand', id: 242, textured: true, textureKey: 'RED_SAND', color: 0xbd6b46 },
+    242: { name: 'Red Sand', id: 242, textured: true, textureKey: 'RED_SAND' },
     15: { name: 'Snow Block', id: 15, textured: true, textureKey: 'SNOW_BLOCK', color: 0xf2f7ff },
     59: { name: 'Ice', id: 59, textured: true, textureKey: 'ICE' },
     28: { name: 'gravel', id: 28, textured: true, textureKey: 'GRAVEL' },
@@ -353,7 +355,6 @@
       id: 241,
       textured: true,
       textureKey: 'RED_SANDSTONE',
-      color: 0xb55b3d,
       textureByFace: {
         top: 'RED_SANDSTONE_TOP',
         bottom: 'RED_SANDSTONE_BOTTOM',
@@ -719,7 +720,7 @@
     120: { name: 'Pink Dye', id: 120, textured: true, textureKey: 'PINK_DYE' },
     126: { name: 'Yellow Dye', id: 126, textured: true, textureKey: 'YELLOW_DYE' },
     134: { name: 'Red Dye', id: 134, textured: true, textureKey: 'RED_DYE' },
-    135: { name: 'Purple Dye', id: 135, textured: true, textureKey: 'PURPLE-DYE' },
+    135: { name: 'Purple Dye', id: 135, textured: true, textureKey: 'PURPLE_DYE' },
     136: { name: 'Light Blue Dye', id: 136, textured: true, textureKey: 'LIGHT_BLUE_DYE' },
     137: { name: 'Blue Dye', id: 137, textured: true, textureKey: 'BLUE_DYE' },
     138: { name: 'Lime Dye', id: 138, textured: true, textureKey: 'LIME_DYE' },
