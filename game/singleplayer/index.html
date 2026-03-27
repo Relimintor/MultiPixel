@@ -226,6 +226,39 @@
             align-items: center;
             height: 100%;
         }
+        #about-popup {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.85);
+    z-index: 20000;
+    justify-content: center;
+    align-items: center;
+}
+
+.about-box {
+    background: #2d3237;
+    padding: 20px;
+    border: 2px solid #555;
+    width: 400px;
+    text-align: center;
+    color: white;
+    box-shadow: 0 0 20px rgba(0,0,0,0.7);
+}
+
+        .dev-link {
+    cursor: pointer;
+    color: #ffffff;
+    transition: color 0.2s, text-shadow 0.2s;
+}
+
+.dev-link:hover {
+    color: #4da6ff;
+    text-shadow: 0 0 5px rgba(77, 166, 255, 0.7);
+}
 
         /* --- View: Developers / Credits (Matching Image 2) --- */
         .credits-container {
@@ -386,7 +419,9 @@
                         <!-- Right Side List -->
                         <div class="credits-right">
                             <h2>Core Developers</h2>
-                            <p>Raptor4</p>
+                            <p>
+                                <span class="dev-link" onclick="openAboutPopup()">Raptor4</span>
+                            </p>
                             <h2>Ideas</h2>
                             <p>Arfon</p>
                             <p>Dulen</p>
@@ -799,5 +834,13 @@
         }
 
     </script>
+    <!-- Developer About Popup -->
+<div id="about-popup">
+    <div class="about-box">
+        <h2>About Raptor4</h2>
+        <p id="about-text">Loading...</p>
+        <button onclick="closeAboutPopup()">Close</button>
+    </div>
+</div>
 </body>
 </html>
