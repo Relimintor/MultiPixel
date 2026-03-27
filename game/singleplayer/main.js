@@ -1153,6 +1153,15 @@ window.perlin = perlinInstance;
             remotePlayers.delete(key);
         }
 
+        function clearRemotePlayers() {
+            const ids = Array.from(remotePlayers.keys());
+            ids.forEach((id) => removeRemotePlayer(id));
+        }
+
+        function getRemotePlayerIds() {
+            return Array.from(remotePlayers.keys());
+        }
+
         function refreshRemotePlayerLabels() {
             if (!camera || !renderer) return;
             remotePlayers.forEach((entry) => {
@@ -1322,6 +1331,8 @@ window.perlin = perlinInstance;
                 getLocalPlayerState: getLocalMultiplayerState,
                 updateOtherPlayer: updateRemotePlayerState,
                 removeOtherPlayer: removeRemotePlayer,
+                clearOtherPlayers: clearRemotePlayers,
+                getRemotePlayerIds,
                 pushNetworkChatMessage(payload) {
                     window.SingleplayerChat?.receiveNetworkMessage?.(payload);
                 },
