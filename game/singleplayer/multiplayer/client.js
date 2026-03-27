@@ -59,31 +59,6 @@
     });
   }
 
-  function enqueuePendingBlockUpdate(payload) {
-    pendingBlockUpdates.push(payload);
-    if (pendingBlockUpdates.length <= MAX_PENDING_BLOCK_UPDATES) return;
-    const overflow = pendingBlockUpdates.length - MAX_PENDING_BLOCK_UPDATES;
-    pendingBlockUpdates.splice(0, overflow);
-  }
-
-  function reconcileRemotePlayers(players) {
-    const bridge = getBridge();
-    const listedIds = new Set();
-    players.forEach((entry) => {
-      const id = String(entry?.id || '').trim();
-      if (!id || id === socket?.id) return;
-      listedIds.add(id);
-      updateOtherPlayer(entry);
-    });
-
-    const knownIds = bridge?.getRemotePlayerIds?.() || [];
-    knownIds.forEach((id) => {
-      const key = String(id || '').trim();
-      if (!key || listedIds.has(key)) return;
-      bridge?.removeOtherPlayer?.(key);
-    });
-  }
-
   function getBridge() {
     return window.MultiPixelMultiplayerBridge || null;
   }
