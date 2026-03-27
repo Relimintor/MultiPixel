@@ -54,18 +54,27 @@
         scheduleFeedCollapse();
     }
 
-    async function loadCensorWords() {
+    async function loadCensorWordsFromPath(path) {
         try {
-            const response = await fetch(CENSOR_WORDS_PATH, { cache: 'no-store' });
-            if (!response.ok) return;
+            const response = await fetch(path, { cache: 'no-store' });
+            if (!response.ok) return [];
             const text = await response.text();
-            censorWords = text
+            return text
                 .split(/\r?\n/)
                 .map((word) => word.trim().toLowerCase())
                 .filter(Boolean);
         } catch (err) {
             console.warn('[Chat] Failed to load censor words', err);
+            return [];
         }
+    }
+
+    async function loadCensorWords() {
+        const [primaryWords, secondaryWords] = await Promise.all([
+            loadCensorWordsFromPath(CENSOR_WORDS_PATH),
+            loadCensorWordsFromPath(CENCOR_WORDS_PATH),
+        ]);
+        censorWords = Array.from(new Set([...primaryWords, ...secondaryWords]));
     }
 
     function escapeRegExp(value) {
@@ -182,7 +191,7 @@
                     <p><strong>/set reach</strong> &lt;amount&gt; — set interaction reach in blocks (default 5).</p>
                     <p><strong>/gamemode creative</strong> — switch to creative and open creative menu.</p>
                     <p><strong>/enchant</strong> &lt;holding|itemId&gt; &lt;knockback&gt; &lt;amount&gt; — apply knockback enchant (max 400).</p>
-                    <p><strong>/effect</strong> &lt;me|player&gt; &lt;nausea&gt; &lt;duration[s|m|h]&gt; — apply nausea for a duration (example: <em>/effect me nausea 20s</em>).</p>
+                    <p><strong>/effect</strong> &lt;me|player &lt;player_name&gt;&gt; &lt;nausea&gt; &lt;duration[s|m|h]&gt; — apply nausea for a duration (examples: <em>/effect me nausea 20s</em>, <em>/effect player 3cjoa39 nausea 20s</em>).</p>
                     <p><strong>/grantme</strong> &lt;fly|speed|noclip|all&gt; — grant yourself movement privileges.</p>
                     <p><strong>/ungrantme</strong> &lt;fly|speed|noclip|all&gt; — remove movement privileges.</p>
                     <p><strong>/help</strong> — open this command help panel.</p>
