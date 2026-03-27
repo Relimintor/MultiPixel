@@ -95,20 +95,42 @@
     }
 
     function updateState(state, deltaSec) {
-      if (state.burnTime > 0) state.burnTime = Math.max(0, state.burnTime - deltaSec);
-      if (state.burnTime <= 0 && canSmelt(state) && state.fuel) consumeFuel(state);
-      if (canSmelt(state)) {
-        const recipe = getRecipe(state.input.id);
-        state.cookTimeTarget = recipe?.cookTimeSec || cfg.cookTimeSec;
-        if (state.burnTime > 0) {
-          state.cookTime += deltaSec;
-          if (state.cookTime >= state.cookTimeTarget) {
-            smeltOne(state);
-            state.cookTime = 0;
-          }
+      const stepSec = Number(deltaSec);
+      if (!Number.isFinite(stepSec) || stepSec <= 0) return;
+
+      let remaining = Math.min(60, stepSec);
+      while (remaining > 0) {
+        if (state.burnTime <= 0 && canSmelt(state) && state.fuel) {
+          consumeFuel(state);
         }
-      } else {
-        state.cookTime = 0;
+
+        const smeltable = canSmelt(state);
+        if (!smeltable) {
+          state.cookTime = 0;
+          if (state.burnTime <= 0) break;
+          const idleBurnStep = Math.min(remaining, state.burnTime);
+          state.burnTime = Math.max(0, state.burnTime - idleBurnStep);
+          remaining -= idleBurnStep;
+          continue;
+        }
+
+        const recipe = getRecipe(state.input?.id);
+        state.cookTimeTarget = recipe?.cookTimeSec || cfg.cookTimeSec;
+
+        if (state.burnTime <= 0) break;
+
+        const cookRemaining = Math.max(0, state.cookTimeTarget - state.cookTime);
+        const appliedStep = Math.min(remaining, state.burnTime, cookRemaining);
+        if (appliedStep <= 0) break;
+
+        state.cookTime += appliedStep;
+        state.burnTime = Math.max(0, state.burnTime - appliedStep);
+        remaining -= appliedStep;
+
+        if (state.cookTime >= state.cookTimeTarget) {
+          if (!smeltOne(state)) break;
+          state.cookTime = Math.max(0, state.cookTime - state.cookTimeTarget);
+        }
       }
     }
 
