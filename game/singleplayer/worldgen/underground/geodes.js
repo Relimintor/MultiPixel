@@ -12,6 +12,27 @@
       if (hashRand2D(cx, cz, 12001) > spawnChance) return;
 
       const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
+      const STONE_ID = 3;
+      const isStoneLike = (blockId) => blockId === STONE_ID || blockId === 2 || blockId === 13 || blockId === 28;
+      const hasEnoughStoneAround = (lx, ly, lz) => {
+        let stoneHits = 0;
+        let samples = 0;
+        for (let ox = -1; ox <= 1; ox++) {
+          for (let oy = -1; oy <= 1; oy++) {
+            for (let oz = -1; oz <= 1; oz++) {
+              const sx = lx + ox;
+              const sy = ly + oy;
+              const sz = lz + oz;
+              if (sx < 1 || sx >= CHUNK_SIZE - 1 || sy < 1 || sy >= CHUNK_HEIGHT - 1 || sz < 1 || sz >= CHUNK_SIZE - 1) continue;
+              const sampleId = data[idx(sx, sy, sz)];
+              if (sampleId === 0 || sampleId === 4) continue;
+              samples++;
+              if (isStoneLike(sampleId)) stoneHits++;
+            }
+          }
+        }
+        return samples >= 8 && (stoneHits / samples) >= 0.65;
+      };
       const maxPerChunk = Math.max(1, Math.floor(Number(geodeCfg.maxPerChunk) || 2));
       const geodeCount = maxPerChunk <= 1 ? 1 : (hashRand2D(cx * 7, cz * 11, 12002) > 0.84 ? maxPerChunk : 1);
 
@@ -23,6 +44,8 @@
 
         const centerY = 10 + Math.floor(hashRand2D(wx, wz, 12005 + g) * Math.max(18, CHUNK_HEIGHT * 0.45));
         if (centerY < 8 || centerY > CHUNK_HEIGHT - 8) continue;
+        if (!isStoneLike(data[idx(lx, centerY, lz)])) continue;
+        if (!hasEnoughStoneAround(lx, centerY, lz)) continue;
 
         const radiusX = 3.2 + hashRand2D(wx + 17, wz - 9, 12006 + g) * 2.4;
         const radiusY = 2.7 + hashRand2D(wx - 31, wz + 21, 12007 + g) * 2.0;
@@ -59,6 +82,7 @@
               const at = idx(x, y, z);
               const current = data[at];
               if (current === 14 || current === 33 || current === 4) continue;
+              if (!isStoneLike(current)) continue;
 
               if (norm > middleRim) data[at] = BASALT_ID;
               else if (norm > 0.48) data[at] = CHALK_ID;
