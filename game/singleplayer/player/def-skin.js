@@ -142,8 +142,9 @@
 
       function buildPartFaceRects(x, y, w, h, d) {
         return {
-          0: [x + d + w, y + d, d, h],
-          1: [x, y + d, d, h],
+          // BoxGeometry material order: right, left, top, bottom, front, back
+          0: [x, y + d, d, h],
+          1: [x + d + w, y + d, d, h],
           2: [x + d, y, w, d],
           3: [x + d + w, y, w, d],
           4: [x + d, y + d, w, h],
