@@ -20,6 +20,8 @@ const chatHistory = [];
 const CHAT_HISTORY_LIMIT = 80;
 let persistTimer = null;
 let worldDirty = false;
+let worldRevision = 0;
+let persistedRevision = 0;
 
 function blockKey(x, y, z) {
   return `${x},${y},${z}`;
@@ -38,6 +40,7 @@ function loadWorldState() {
       const z = Number(entry?.z);
       const type = Number(entry?.type);
       if (![x, y, z, type].every(Number.isFinite)) continue;
+      if (type === 0) continue;
       worldBlocks.set(blockKey(x, y, z), { x, y, z, type });
     }
     console.log(`Loaded ${worldBlocks.size} persisted block updates.`);
@@ -49,16 +52,26 @@ function loadWorldState() {
 function schedulePersistWorldState() {
   if (persistTimer) return;
   persistTimer = setTimeout(() => {
+    const snapshotRevision = worldRevision;
     const payload = {
       updatedAt: Date.now(),
       blocks: Array.from(worldBlocks.values())
     };
     fs.writeFile(STATE_PATH, JSON.stringify(payload), (err) => {
       if (err) console.error('Failed persisting world state:', err);
-      else worldDirty = false;
+      else {
+        persistedRevision = Math.max(persistedRevision, snapshotRevision);
+        worldDirty = persistedRevision < worldRevision;
+      }
+      persistTimer = null;
+      if (worldDirty) schedulePersistWorldState();
     });
-    persistTimer = null;
   }, 50);
+}
+
+function markWorldDirty() {
+  worldRevision++;
+  worldDirty = true;
 }
 
 loadWorldState();
@@ -144,12 +157,10 @@ io.on('connection', (socket) => {
     const z = Math.floor(Number(payload?.z));
     const type = Number(payload?.type);
     if (![x, y, z, type].every(Number.isFinite)) return;
-    const sourceX = Number(payload?.sourcePos?.x);
-    const sourceY = Number(payload?.sourcePos?.y);
-    const sourceZ = Number(payload?.sourcePos?.z);
-    const px = Number.isFinite(sourceX) ? sourceX : actor.x;
-    const py = Number.isFinite(sourceY) ? sourceY : actor.y;
-    const pz = Number.isFinite(sourceZ) ? sourceZ : actor.z;
+    const px = Number(actor.x);
+    const py = Number(actor.y);
+    const pz = Number(actor.z);
+    if (![px, py, pz].every(Number.isFinite)) return;
 
     const dx = px - (x + 0.5);
     const dy = py - (y + 0.5);
@@ -158,8 +169,12 @@ io.on('connection', (socket) => {
     if (distance > 7.5) return;
 
     const next = { x, y, z, type };
-    worldBlocks.set(blockKey(x, y, z), next);
-    worldDirty = true;
+    if (type === 0) {
+      worldBlocks.delete(blockKey(x, y, z));
+    } else {
+      worldBlocks.set(blockKey(x, y, z), next);
+    }
+    markWorldDirty();
     socket.broadcast.emit('blockUpdate', next);
   });
 
