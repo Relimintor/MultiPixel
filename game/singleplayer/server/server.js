@@ -38,6 +38,7 @@ function loadWorldState() {
       const z = Number(entry?.z);
       const type = Number(entry?.type);
       if (![x, y, z, type].every(Number.isFinite)) continue;
+      if (type === 0) continue;
       worldBlocks.set(blockKey(x, y, z), { x, y, z, type });
     }
     console.log(`Loaded ${worldBlocks.size} persisted block updates.`);
@@ -144,12 +145,10 @@ io.on('connection', (socket) => {
     const z = Math.floor(Number(payload?.z));
     const type = Number(payload?.type);
     if (![x, y, z, type].every(Number.isFinite)) return;
-    const sourceX = Number(payload?.sourcePos?.x);
-    const sourceY = Number(payload?.sourcePos?.y);
-    const sourceZ = Number(payload?.sourcePos?.z);
-    const px = Number.isFinite(sourceX) ? sourceX : actor.x;
-    const py = Number.isFinite(sourceY) ? sourceY : actor.y;
-    const pz = Number.isFinite(sourceZ) ? sourceZ : actor.z;
+    const px = Number(actor.x);
+    const py = Number(actor.y);
+    const pz = Number(actor.z);
+    if (![px, py, pz].every(Number.isFinite)) return;
 
     const dx = px - (x + 0.5);
     const dy = py - (y + 0.5);
@@ -158,7 +157,11 @@ io.on('connection', (socket) => {
     if (distance > 7.5) return;
 
     const next = { x, y, z, type };
-    worldBlocks.set(blockKey(x, y, z), next);
+    if (type === 0) {
+      worldBlocks.delete(blockKey(x, y, z));
+    } else {
+      worldBlocks.set(blockKey(x, y, z), next);
+    }
     worldDirty = true;
     socket.broadcast.emit('blockUpdate', next);
   });
