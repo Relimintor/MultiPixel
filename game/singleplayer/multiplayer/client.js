@@ -2,6 +2,7 @@
   const SERVER_URL = 'https://multipixel-yzoq.onrender.com';
   const EMIT_INTERVAL_MS = 50;
   const WORLD_RESYNC_INTERVAL_MS = 12000;
+  const MAX_PENDING_BLOCK_UPDATES = 4096;
 
   let socket = null;
   let moveInterval = null;
@@ -9,6 +10,31 @@
   let flushTimer = null;
   let worldResyncTimer = null;
   const pendingBlockUpdates = [];
+
+  function enqueuePendingBlockUpdate(payload) {
+    pendingBlockUpdates.push(payload);
+    if (pendingBlockUpdates.length <= MAX_PENDING_BLOCK_UPDATES) return;
+    const overflow = pendingBlockUpdates.length - MAX_PENDING_BLOCK_UPDATES;
+    pendingBlockUpdates.splice(0, overflow);
+  }
+
+  function reconcileRemotePlayers(players) {
+    const bridge = getBridge();
+    const listedIds = new Set();
+    players.forEach((entry) => {
+      const id = String(entry?.id || '').trim();
+      if (!id || id === socket?.id) return;
+      listedIds.add(id);
+      updateOtherPlayer(entry);
+    });
+
+    const knownIds = bridge?.getRemotePlayerIds?.() || [];
+    knownIds.forEach((id) => {
+      const key = String(id || '').trim();
+      if (!key || listedIds.has(key)) return;
+      bridge?.removeOtherPlayer?.(key);
+    });
+  }
 
   function getBridge() {
     return window.MultiPixelMultiplayerBridge || null;
@@ -83,7 +109,7 @@
       const ok = bridge.applyNetworkBlockChange(payload);
       if (ok) return true;
     }
-    pendingBlockUpdates.push(payload);
+    enqueuePendingBlockUpdate(payload);
     return false;
   }
 
@@ -119,11 +145,12 @@
         clearInterval(moveInterval);
         moveInterval = null;
       }
+      getBridge()?.clearOtherPlayers?.();
     });
 
     socket.on('bootstrap', (payload) => {
       const players = Array.isArray(payload?.players) ? payload.players : [];
-      players.forEach(updateOtherPlayer);
+      reconcileRemotePlayers(players);
 
       const blocks = Array.isArray(payload?.blocks) ? payload.blocks : [];
       blocks.forEach((entry) => {
@@ -143,10 +170,7 @@
 
     socket.on('worldSnapshot', (payload) => {
       const players = Array.isArray(payload?.players) ? payload.players : [];
-      players.forEach((entry) => {
-        if (entry?.id === socket.id) return;
-        updateOtherPlayer(entry);
-      });
+      reconcileRemotePlayers(players);
       const blocks = Array.isArray(payload?.blocks) ? payload.blocks : [];
       blocks.forEach((entry) => {
         applyIncomingBlockUpdate(entry);
@@ -190,6 +214,7 @@
       console.warn('[Multiplayer] socket.io client missing.');
       return;
     }
+    if (socket) return;
 
     socket = window.io(SERVER_URL, {
       transports: ['websocket', 'polling'],
