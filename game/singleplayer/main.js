@@ -244,7 +244,10 @@
         }
 
         let lastTime = 0; // For delta time calculation
-        let inventoryEntityUpdateAccumulatorMs = 0;
+        const FIXED_SIM_STEP_MS = 50;
+        const MAX_SIM_STEPS_PER_FRAME = 5;
+        let simAccumulatorMs = 0;
+        let simClockMs = 0;
         let ambientLight, hemiLight, moonLight, dirLight; // global lighting rig
         let dayNightCycle = null;
 
@@ -8313,6 +8316,57 @@ window.perlin = perlinInstance;
             dirtToGrassLoop?.updateGrassSpread?.(deltaMs);
         }
 
+        function runSimulationStep(stepMs, simTimeMs) {
+            dayNightCycle?.tick?.(stepMs);
+            tickCommandEffects(simTimeMs);
+            glowstonePortalDimension1?.update?.({
+                deltaMs: stepMs,
+                inPortalBlock: isPlayerInsideGlowstonePortal() || hasActiveCommandEffect('nausea', simTimeMs),
+                portalIgnited: true,
+            });
+
+            const liquidState = getPlayerLiquidState();
+            updateBreathing(stepMs / 1000, liquidState.isUnderLiquid);
+
+            if (!isInventoryOpen) {
+                updatePlayerMovement();
+                updateMining(stepMs);
+                maybeSpawnLavaParticles(stepMs);
+                updateWorldParticles(stepMs);
+                applyBlockPhysics(simTimeMs);
+                ensureChunksAroundPlayer(false, simTimeMs);
+                maybeUpdateChunkFrustumCulling(simTimeMs);
+                updateGnomes(simTimeMs);
+                pigMob?.update?.(simTimeMs, stepMs);
+                wolfMob?.update?.(simTimeMs, stepMs);
+                pandaMob?.update?.(simTimeMs, stepMs);
+                villagerMob?.update?.(simTimeMs, stepMs);
+                updateBambooGrowth(stepMs);
+                updateGrassSpread(stepMs);
+                zombieMob?.trySpawnNight?.(stepMs);
+                zombieMob?.update?.(simTimeMs, stepMs);
+                resolveMobEntityPushing();
+            } else {
+                pigMob?.update?.(simTimeMs, stepMs);
+                wolfMob?.update?.(simTimeMs, stepMs);
+                pandaMob?.update?.(simTimeMs, stepMs);
+                villagerMob?.update?.(simTimeMs, stepMs);
+                zombieMob?.update?.(simTimeMs, stepMs);
+                resolveMobEntityPushing();
+                miningState.active = false;
+                updateBreakingOverlay();
+            }
+
+            const dtSec = stepMs / 1000;
+            if (window.FurnaceSystem) {
+                for (const [furnaceKey, state] of furnaceStates.entries()) {
+                    window.FurnaceSystem.updateState(state, dtSec);
+                    syncFurnaceVisualState(furnaceKey, state);
+                }
+                if (isInventoryOpen && isFurnaceOpen) renderInventoryScreen();
+            }
+        }
+
         function animate(time) {
 
             requestAnimationFrame(animate);
@@ -8322,70 +8376,21 @@ window.perlin = perlinInstance;
             frameTimeEmaMs = frameTimeEmaMs * 0.9 + delta * 0.1;
             maybeApplyAdaptiveQuality(time);
             refreshEntityActivationFrustum();
-
-            dayNightCycle?.tick?.(delta);
             applyCaveLighting(time);
-            tickCommandEffects(time);
-            glowstonePortalDimension1?.update?.({
-                deltaMs: delta,
-                inPortalBlock: isPlayerInsideGlowstonePortal() || hasActiveCommandEffect('nausea', time),
-                portalIgnited: true,
-            });
 
-            const liquidState = getPlayerLiquidState();
-            updateBreathing(delta / 1000, liquidState.isUnderLiquid);
-
-            if(!isInventoryOpen) {
-                updatePlayerMovement();
-                updateMining(delta);
-                maybeSpawnLavaParticles(delta);
-                updateWorldParticles(delta);
-                applyBlockPhysics(time);
-                ensureChunksAroundPlayer(false, time);
-                maybeUpdateChunkFrustumCulling(time);
-                updateGnomes(time);
-                pigMob?.update?.(time, delta);
-                wolfMob?.update?.(time, delta);
-                pandaMob?.update?.(time, delta);
-                villagerMob?.update?.(time, delta);
-                updateBambooGrowth(delta);
-                updateGrassSpread(delta);
-                zombieMob?.trySpawnNight?.(delta);
-                zombieMob?.update?.(time, delta);
-                resolveMobEntityPushing();
-                updateEatingAnimation(delta, time);
-                updatePlayerAvatarVisuals(time);
-                updateFirstPersonHand(time);
-                processMeshUpdateQueue();
-                const dtSec = delta / 1000;
-                if (window.FurnaceSystem) {
-                    for (const [furnaceKey, state] of furnaceStates.entries()) {
-                        window.FurnaceSystem.updateState(state, dtSec);
-                        syncFurnaceVisualState(furnaceKey, state);
-                    }
-                    if (isInventoryOpen && isFurnaceOpen) renderInventoryScreen();
-                }
-            } else {
-                updatePlayerAvatarVisuals(time);
-                updateFirstPersonHand(time);
-                inventoryEntityUpdateAccumulatorMs += delta;
-                if (inventoryEntityUpdateAccumulatorMs >= INVENTORY_ENTITY_UPDATE_INTERVAL_MS) {
-                    const simDelta = Math.min(250, inventoryEntityUpdateAccumulatorMs);
-                    inventoryEntityUpdateAccumulatorMs = 0;
-                    pigMob?.update?.(time, simDelta);
-                    wolfMob?.update?.(time, simDelta);
-                    pandaMob?.update?.(time, simDelta);
-                    villagerMob?.update?.(time, simDelta);
-                    zombieMob?.update?.(time, simDelta);
-                    resolveMobEntityPushing();
-                }
-                updateEatingAnimation(delta, time);
-                maybeSpawnLavaParticles(delta);
-                updateWorldParticles(delta);
-                processMeshUpdateQueue();
-                miningState.active = false;
-                updateBreakingOverlay();
+            simAccumulatorMs = Math.min(simAccumulatorMs + delta, FIXED_SIM_STEP_MS * MAX_SIM_STEPS_PER_FRAME);
+            let simSteps = 0;
+            while (simAccumulatorMs >= FIXED_SIM_STEP_MS && simSteps < MAX_SIM_STEPS_PER_FRAME) {
+                simClockMs += FIXED_SIM_STEP_MS;
+                runSimulationStep(FIXED_SIM_STEP_MS, simClockMs);
+                simAccumulatorMs -= FIXED_SIM_STEP_MS;
+                simSteps++;
             }
+
+            updateEatingAnimation(delta, time);
+            updatePlayerAvatarVisuals(time);
+            updateFirstPersonHand(time);
+            processMeshUpdateQueue();
             updateAdaptiveCrosshair();
             updateCoordinatesUI(time);
             waypointsMod?.update?.(time, delta);
