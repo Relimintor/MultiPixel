@@ -244,7 +244,10 @@
         }
 
         let lastTime = 0; // For delta time calculation
-        let inventoryEntityUpdateAccumulatorMs = 0;
+        const FIXED_SIM_STEP_MS = 50;
+        const MAX_SIM_STEPS_PER_FRAME = 5;
+        let simAccumulatorMs = 0;
+        let simClockMs = 0;
         let ambientLight, hemiLight, moonLight, dirLight; // global lighting rig
         let dayNightCycle = null;
 
@@ -784,6 +787,12 @@ window.perlin = perlinInstance;
         const torchLightsByChunk = new Map();
         const chunks = new Map();
         const sparseAirChunkKeys = new Set();
+        let chunkMeshWorker = null;
+        let chunkMeshWorkerReady = false;
+        let chunkMeshWorkerSeq = 0;
+        const chunkMeshWorkerPending = new Map();
+        const chunkMeshWorkerCache = new Map();
+        let chunkMeshWorkerBlockMeta = null;
         const worldGroup = new THREE.Group();
         let frustumOptimizations = null;
         let chunkStreamOptimizations = null;
@@ -797,6 +806,87 @@ window.perlin = perlinInstance;
         let villagerMob = null;
         let glowstonePortalDimension1 = null;
         let dimension1WorldController = null;
+
+        function snapshotChunkMeshBlockMeta() {
+            const out = {};
+            Object.entries(blockMaterials || {}).forEach(([id, mat]) => {
+                out[String(id)] = {
+                    transparent: Boolean(mat?.transparent),
+                    textured: Boolean(mat?.textured),
+                    textureKey: mat?.textureKey || null,
+                    shape: mat?.shape || null,
+                };
+            });
+            return out;
+        }
+
+        function initChunkMeshWorker() {
+            if (typeof window.Worker !== 'function') return;
+            try {
+                chunkMeshWorker = new Worker('./optimiations/chunk_mesh_worker.js?v=1');
+                chunkMeshWorkerReady = true;
+                chunkMeshWorker.onmessage = (event) => {
+                    const msg = event?.data || {};
+                    if (msg.type !== 'meshResult') return;
+                    const pending = chunkMeshWorkerPending.get(msg.requestId);
+                    if (!pending) return;
+                    chunkMeshWorkerPending.delete(msg.requestId);
+                    chunkMeshWorkerCache.set(pending.chunkKey, { hash: pending.hash, quads: Array.isArray(msg.quads) ? msg.quads : [] });
+                    const group = chunks.get(pending.chunkKey);
+                    if (group?.userData?.chunkData && group.userData.meshHash === pending.hash) {
+                        updateChunkGeometry(group, group.userData.chunkData, true);
+                    }
+                };
+                chunkMeshWorker.onerror = (err) => {
+                    console.warn('[ChunkMeshWorker] Worker error, falling back to main-thread meshing.', err);
+                    chunkMeshWorkerReady = false;
+                    chunkMeshWorker = null;
+                    chunkMeshWorkerPending.clear();
+                    chunkMeshWorkerCache.clear();
+                };
+            } catch (err) {
+                console.warn('[ChunkMeshWorker] Failed to start worker, using main-thread meshing.', err);
+                chunkMeshWorkerReady = false;
+                chunkMeshWorker = null;
+            }
+        }
+
+        function requestChunkMeshWorkerQuads(group, data, hash) {
+            if (!chunkMeshWorkerReady || !chunkMeshWorker || !group?.userData) return false;
+            const chunkKey = `${group.userData.cx},${group.userData.cz}`;
+            const cached = chunkMeshWorkerCache.get(chunkKey);
+            if (cached?.hash === hash) return true;
+
+            for (const pending of chunkMeshWorkerPending.values()) {
+                if (pending.chunkKey === chunkKey && pending.hash === hash) return false;
+            }
+
+            const cx = Number(group.userData.cx) || 0;
+            const cz = Number(group.userData.cz) || 0;
+            const east = chunks.get(`${cx + 1},${cz}`)?.userData?.chunkData || null;
+            const west = chunks.get(`${cx - 1},${cz}`)?.userData?.chunkData || null;
+            const south = chunks.get(`${cx},${cz + 1}`)?.userData?.chunkData || null;
+            const north = chunks.get(`${cx},${cz - 1}`)?.userData?.chunkData || null;
+            const requestId = ++chunkMeshWorkerSeq;
+            chunkMeshWorkerPending.set(requestId, { chunkKey, hash });
+            chunkMeshWorker.postMessage({
+                type: 'mesh',
+                requestId,
+                chunkKey,
+                CS: CHUNK_SIZE,
+                CH: CHUNK_HEIGHT,
+                data: data,
+                east,
+                west,
+                north,
+                south,
+                blockMeta: chunkMeshWorkerBlockMeta || (chunkMeshWorkerBlockMeta = snapshotChunkMeshBlockMeta()),
+            });
+            return false;
+        }
+
+        initChunkMeshWorker();
+
         remeshOptimizations = window.SingleplayerChunkRemeshOptimizations?.create?.({
             getChunkKey: chunkKeyFromCoords,
             getChunk: (key) => chunks.get(key),
@@ -1153,6 +1243,15 @@ window.perlin = perlinInstance;
             remotePlayers.delete(key);
         }
 
+        function clearRemotePlayers() {
+            const ids = Array.from(remotePlayers.keys());
+            ids.forEach((id) => removeRemotePlayer(id));
+        }
+
+        function getRemotePlayerIds() {
+            return Array.from(remotePlayers.keys());
+        }
+
         function refreshRemotePlayerLabels() {
             if (!camera || !renderer) return;
             remotePlayers.forEach((entry) => {
@@ -1322,6 +1421,8 @@ window.perlin = perlinInstance;
                 getLocalPlayerState: getLocalMultiplayerState,
                 updateOtherPlayer: updateRemotePlayerState,
                 removeOtherPlayer: removeRemotePlayer,
+                clearOtherPlayers: clearRemotePlayers,
+                getRemotePlayerIds,
                 pushNetworkChatMessage(payload) {
                     window.SingleplayerChat?.receiveNetworkMessage?.(payload);
                 },
@@ -2797,7 +2898,28 @@ window.perlin = perlinInstance;
             if (!yawObject || !position) return true;
             const dx = position.x - yawObject.position.x;
             const dz = position.z - yawObject.position.z;
-            return (dx * dx + dz * dz) <= rangeSq;
+            if ((dx * dx + dz * dz) > rangeSq) return false;
+            if (!entityActivationFrustumReady) return true;
+            entityActivationSphere.center.set(position.x, position.y, position.z);
+            entityActivationSphere.radius = ENTITY_ACTIVATION_FRUSTUM_RADIUS;
+            return entityActivationFrustum.intersectsSphere(entityActivationSphere);
+        }
+
+        const entityActivationFrustum = new THREE.Frustum();
+        const entityActivationProjectionMatrix = new THREE.Matrix4();
+        const entityActivationSphere = new THREE.Sphere(new THREE.Vector3(), 0.75);
+        const ENTITY_ACTIVATION_FRUSTUM_RADIUS = 1.35;
+        let entityActivationFrustumReady = false;
+
+        function refreshEntityActivationFrustum() {
+            if (!camera) {
+                entityActivationFrustumReady = false;
+                return;
+            }
+            camera.updateMatrixWorld?.(true);
+            entityActivationProjectionMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+            entityActivationFrustum.setFromProjectionMatrix(entityActivationProjectionMatrix);
+            entityActivationFrustumReady = true;
         }
 
         function updateGnomes(time) {
@@ -6848,6 +6970,7 @@ window.perlin = perlinInstance;
             if (chunkGroup.userData?.meshesByKey) {
                 chunkGroup.userData.meshesByKey.clear();
             }
+            chunkMeshWorkerCache.delete(chunkKey);
             chunks.delete(chunkKey);
         }
 
@@ -7010,14 +7133,24 @@ window.perlin = perlinInstance;
             group.userData.meshesByKey = meshesByKey;
 
             // Map to hold CPU-side staging arrays before single VBO upload per chunk material.
-            const geometryData = {}; 
+            const geometryData = group.userData.geometryDataScratch || Object.create(null);
+            for (const key of Object.keys(geometryData)) {
+                const cached = geometryData[key];
+                if (!cached) continue;
+                cached.pos.length = 0;
+                cached.norm.length = 0;
+                cached.col.length = 0;
+                cached.uv.length = 0;
+                cached.used = false;
+            }
+            group.userData.geometryDataScratch = geometryData;
             
             const cx = group.userData.cx;
             const cz = group.userData.cz;
             const torchPositions = [];
             const glowstonePositions = [];
 
-            const faces = [
+            const faces = updateChunkGeometry._faceDefs?.faces || [
                 { name: 'posX', dir: [1,0,0], corners: [[1,1,1],[1,0,1],[1,0,0],[1,1,0]], uv: [0,1, 0,0, 1,0, 1,1] },
                 { name: 'negX', dir: [-1,0,0], corners: [[0,1,0],[0,0,0],[0,0,1],[0,1,1]], uv: [0,1, 0,0, 1,0, 1,1] },
                 { name: 'top', dir: [0,1,0], corners: [[0,1,1],[1,1,1],[1,1,0],[0,1,0]], uv: [0,1, 0,0, 1,0, 1,1] },
@@ -7025,7 +7158,7 @@ window.perlin = perlinInstance;
                 { name: 'posZ', dir: [0,0,1], corners: [[0,1,1],[0,0,1],[1,0,1],[1,1,1]], uv: [0,1, 0,0, 1,0, 1,1] },
                 { name: 'negZ', dir: [0,0,-1], corners: [[1,1,0],[1,0,0],[0,0,0],[0,1,0]], uv: [0,1, 0,0, 1,0, 1,1] }
             ];
-            const slabFaces = [
+            const slabFaces = updateChunkGeometry._faceDefs?.slabFaces || [
                 { name: 'posX', dir: [1,0,0], corners: [[1,0.5,1],[1,0,1],[1,0,0],[1,0.5,0]], uv: [0,0.5, 0,0, 1,0, 1,0.5] },
                 { name: 'negX', dir: [-1,0,0], corners: [[0,0.5,0],[0,0,0],[0,0,1],[0,0.5,1]], uv: [0,0.5, 0,0, 1,0, 1,0.5] },
                 { name: 'top', dir: [0,1,0], corners: [[0,0.5,1],[1,0.5,1],[1,0.5,0],[0,0.5,0]], uv: [0,1, 0,0, 1,0, 1,1] },
@@ -7033,7 +7166,7 @@ window.perlin = perlinInstance;
                 { name: 'posZ', dir: [0,0,1], corners: [[0,0.5,1],[0,0,1],[1,0,1],[1,0.5,1]], uv: [0,0.5, 0,0, 1,0, 1,0.5] },
                 { name: 'negZ', dir: [0,0,-1], corners: [[1,0.5,0],[1,0,0],[0,0,0],[0,0.5,0]], uv: [0,0.5, 0,0, 1,0, 1,0.5] }
             ];
-            const waterFaces = [
+            const waterFaces = updateChunkGeometry._faceDefs?.waterFaces || [
                 { name: 'posX', dir: [1,0,0], corners: [[1,0.875,1],[1,0,1],[1,0,0],[1,0.875,0]], uv: [0,0.875, 0,0, 1,0, 1,0.875] },
                 { name: 'negX', dir: [-1,0,0], corners: [[0,0.875,0],[0,0,0],[0,0,1],[0,0.875,1]], uv: [0,0.875, 0,0, 1,0, 1,0.875] },
                 { name: 'top', dir: [0,1,0], corners: [[0,0.875,1],[1,0.875,1],[1,0.875,0],[0,0.875,0]], uv: [0,1, 0,0, 1,0, 1,1] },
@@ -7041,7 +7174,7 @@ window.perlin = perlinInstance;
                 { name: 'posZ', dir: [0,0,1], corners: [[0,0.875,1],[0,0,1],[1,0,1],[1,0.875,1]], uv: [0,0.875, 0,0, 1,0, 1,0.875] },
                 { name: 'negZ', dir: [0,0,-1], corners: [[1,0.875,0],[1,0,0],[0,0,0],[0,0.875,0]], uv: [0,0.875, 0,0, 1,0, 1,0.875] }
             ];
-            const torchFaces = [
+            const torchFaces = updateChunkGeometry._faceDefs?.torchFaces || [
                 { name: 'posX', dir: [1,0,0], corners: [[0.5625,0.8,0.5625],[0.5625,0.05,0.5625],[0.5625,0.05,0.4375],[0.5625,0.8,0.4375]], uv: [0,1,0,0,1,0,1,1] },
                 { name: 'negX', dir: [-1,0,0], corners: [[0.4375,0.8,0.4375],[0.4375,0.05,0.4375],[0.4375,0.05,0.5625],[0.4375,0.8,0.5625]], uv: [0,1,0,0,1,0,1,1] },
                 { name: 'top', dir: [0,1,0], corners: [[0.4375,0.8,0.5625],[0.5625,0.8,0.5625],[0.5625,0.8,0.4375],[0.4375,0.8,0.4375]], uv: [0,1,0,0,1,0,1,1] },
@@ -7050,7 +7183,7 @@ window.perlin = perlinInstance;
                 { name: 'negZ', dir: [0,0,-1], corners: [[0.5625,0.8,0.4375],[0.5625,0.05,0.4375],[0.4375,0.05,0.4375],[0.4375,0.8,0.4375]], uv: [0,1,0,0,1,0,1,1] }
             ];
 
-            const bambooStageFaces = [
+            const bambooStageFaces = updateChunkGeometry._faceDefs?.bambooStageFaces || [
                 { name: 'posX', dir: [1,0,0], corners: [[0.56,0.72,0.56],[0.56,0.0,0.56],[0.56,0.0,0.44],[0.56,0.72,0.44]], uv: [0,1,0,0,1,0,1,1] },
                 { name: 'negX', dir: [-1,0,0], corners: [[0.44,0.72,0.44],[0.44,0.0,0.44],[0.44,0.0,0.56],[0.44,0.72,0.56]], uv: [0,1,0,0,1,0,1,1] },
                 { name: 'top', dir: [0,1,0], corners: [[0.44,0.72,0.56],[0.56,0.72,0.56],[0.56,0.72,0.44],[0.44,0.72,0.44]], uv: [0,1,0,0,1,0,1,1] },
@@ -7058,7 +7191,7 @@ window.perlin = perlinInstance;
                 { name: 'posZ', dir: [0,0,1], corners: [[0.44,0.72,0.56],[0.44,0.0,0.56],[0.56,0.0,0.56],[0.56,0.72,0.56]], uv: [0,1,0,0,1,0,1,1] },
                 { name: 'negZ', dir: [0,0,-1], corners: [[0.56,0.72,0.44],[0.56,0.0,0.44],[0.44,0.0,0.44],[0.44,0.72,0.44]], uv: [0,1,0,0,1,0,1,1] }
             ];
-            const bambooStalkFaces = [
+            const bambooStalkFaces = updateChunkGeometry._faceDefs?.bambooStalkFaces || [
                 { name: 'posX', dir: [1,0,0], corners: [[0.55,1.0,0.55],[0.55,0.0,0.55],[0.55,0.0,0.45],[0.55,1.0,0.45]], uv: [0,1,0,0,1,0,1,1] },
                 { name: 'negX', dir: [-1,0,0], corners: [[0.45,1.0,0.45],[0.45,0.0,0.45],[0.45,0.0,0.55],[0.45,1.0,0.55]], uv: [0,1,0,0,1,0,1,1] },
                 { name: 'top', dir: [0,1,0], corners: [[0.45,1.0,0.55],[0.55,1.0,0.55],[0.55,1.0,0.45],[0.45,1.0,0.45]], uv: [0,1,0,0,1,0,1,1] },
@@ -7066,25 +7199,41 @@ window.perlin = perlinInstance;
                 { name: 'posZ', dir: [0,0,1], corners: [[0.45,1.0,0.55],[0.45,0.0,0.55],[0.55,0.0,0.55],[0.55,1.0,0.55]], uv: [0,1,0,0,1,0,1,1] },
                 { name: 'negZ', dir: [0,0,-1], corners: [[0.55,1.0,0.45],[0.55,0.0,0.45],[0.45,0.0,0.45],[0.45,1.0,0.45]], uv: [0,1,0,0,1,0,1,1] }
             ];
-            const crossPlantFaces = [
+            const crossPlantFaces = updateChunkGeometry._faceDefs?.crossPlantFaces || [
                 { dir: [0.7071, 0, -0.7071], corners: [[0.1464,1,0.1464],[0.1464,0,0.1464],[0.8536,0,0.8536],[0.8536,1,0.8536]], uv: [0,1,0,0,1,0,1,1] },
                 { dir: [-0.7071, 0, 0.7071], corners: [[0.8536,1,0.8536],[0.8536,0,0.8536],[0.1464,0,0.1464],[0.1464,1,0.1464]], uv: [0,1,0,0,1,0,1,1] },
                 { dir: [0.7071, 0, 0.7071], corners: [[0.1464,1,0.8536],[0.1464,0,0.8536],[0.8536,0,0.1464],[0.8536,1,0.1464]], uv: [0,1,0,0,1,0,1,1] },
                 { dir: [-0.7071, 0, -0.7071], corners: [[0.8536,1,0.1464],[0.8536,0,0.1464],[0.1464,0,0.8536],[0.1464,1,0.8536]], uv: [0,1,0,0,1,0,1,1] },
             ];
-            const singlePlaneFaces = [
+            const singlePlaneFaces = updateChunkGeometry._faceDefs?.singlePlaneFaces || [
                 { name: 'posZ', dir: [0, 0, 1], corners: [[0.15,1,0.5],[0.15,0,0.5],[0.85,0,0.5],[0.85,1,0.5]], uv: [0,1,0,0,1,0,1,1] },
             ];
-            const singlePlaneFacesX = [
+            const singlePlaneFacesX = updateChunkGeometry._faceDefs?.singlePlaneFacesX || [
                 { name: 'posX', dir: [1, 0, 0], corners: [[0.5,1,0.15],[0.5,0,0.15],[0.5,0,0.85],[0.5,1,0.85]], uv: [0,1,0,0,1,0,1,1] },
             ];
-            const fullPlaneFaces = [
+            const fullPlaneFaces = updateChunkGeometry._faceDefs?.fullPlaneFaces || [
                 { name: 'posZ', dir: [0, 0, 1], corners: [[0,1,0.5],[0,0,0.5],[1,0,0.5],[1,1,0.5]], uv: [0,1,0,0,1,0,1,1] },
             ];
-            const fullPlaneFacesX = [
+            const fullPlaneFacesX = updateChunkGeometry._faceDefs?.fullPlaneFacesX || [
                 { name: 'posX', dir: [1, 0, 0], corners: [[0.5,1,0],[0.5,0,0],[0.5,0,1],[0.5,1,1]], uv: [0,1,0,0,1,0,1,1] },
             ];
 
+
+            if (!updateChunkGeometry._faceDefs) {
+                updateChunkGeometry._faceDefs = {
+                    faces,
+                    slabFaces,
+                    waterFaces,
+                    torchFaces,
+                    bambooStageFaces,
+                    bambooStalkFaces,
+                    crossPlantFaces,
+                    singlePlaneFaces,
+                    singlePlaneFacesX,
+                    fullPlaneFaces,
+                    fullPlaneFacesX,
+                };
+            }
 
             const CH = CHUNK_HEIGHT;
             const CS = CHUNK_SIZE;
@@ -7153,8 +7302,39 @@ window.perlin = perlinInstance;
                 return out;
             };
 
+            const isPowerOfTwo = (value) => Number.isInteger(value) && value > 0 && (value & (value - 1)) === 0;
+
+            const canUseScaledWrappedUv = (materialKey, uv) => {
+                const mat = materials[materialKey];
+                const tex = mat?.map;
+                if (!tex) return false;
+                const u0 = Math.min(uv[0], uv[2], uv[4], uv[6]);
+                const u1 = Math.max(uv[0], uv[2], uv[4], uv[6]);
+                const v0 = Math.min(uv[1], uv[3], uv[5], uv[7]);
+                const v1 = Math.max(uv[1], uv[3], uv[5], uv[7]);
+                const fullTextureUv = Math.abs(u0) < 0.000001 && Math.abs(v0) < 0.000001 && Math.abs(u1 - 1) < 0.000001 && Math.abs(v1 - 1) < 0.000001;
+                if (!fullTextureUv) return false;
+                const imageW = Number(tex.image?.naturalWidth || tex.image?.width || 0);
+                const imageH = Number(tex.image?.naturalHeight || tex.image?.height || 0);
+                if (!isPowerOfTwo(imageW) || !isPowerOfTwo(imageH)) return false;
+                return tex.wrapS === THREE.RepeatWrapping && tex.wrapT === THREE.RepeatWrapping;
+            };
+
+            const lerpVec3 = (a, b, t) => ([
+                a[0] + (b[0] - a[0]) * t,
+                a[1] + (b[1] - a[1]) * t,
+                a[2] + (b[2] - a[2]) * t,
+            ]);
+
+            const sampleQuadPoint = (corners, u, v) => {
+                const left = lerpVec3(corners[1], corners[0], v);
+                const right = lerpVec3(corners[2], corners[3], v);
+                return lerpVec3(left, right, u);
+            };
+
             const ensureGeometryData = (materialKey) => {
                 if (!geometryData[materialKey]) geometryData[materialKey] = { pos: [], norm: [], col: [], uv: [] };
+                geometryData[materialKey].used = true;
                 return geometryData[materialKey];
             };
 
@@ -7235,6 +7415,109 @@ window.perlin = perlinInstance;
                 }
             };
 
+            const emitGreedyQuad = (id, materialKey, dir, corners, uvInfo, repeatU, repeatV) => {
+                const tileU = Math.max(1, Math.floor(Number(repeatU) || 1));
+                const tileV = Math.max(1, Math.floor(Number(repeatV) || 1));
+                if (!uvInfo?.canTile || (tileU === 1 && tileV === 1)) {
+                    emitQuad(id, materialKey, dir, corners, uvInfo?.uv || [0, 1, 0, 0, 1, 0, 1, 1]);
+                    return;
+                }
+                if (canUseScaledWrappedUv(materialKey, uvInfo.uv)) {
+                    emitQuad(id, materialKey, dir, corners, scaledUv(uvInfo.uv, tileU, tileV));
+                    return;
+                }
+
+                // Fallback for atlas / NPOT textures: subdivide merged quad into unit tiles.
+                for (let tv = 0; tv < tileV; tv++) {
+                    const vMin = tv / tileV;
+                    const vMax = (tv + 1) / tileV;
+                    for (let tu = 0; tu < tileU; tu++) {
+                        const uMin = tu / tileU;
+                        const uMax = (tu + 1) / tileU;
+                        const tileCorners = [
+                            sampleQuadPoint(corners, uMin, vMax),
+                            sampleQuadPoint(corners, uMin, vMin),
+                            sampleQuadPoint(corners, uMax, vMin),
+                            sampleQuadPoint(corners, uMax, vMax),
+                        ];
+                        emitQuad(id, materialKey, dir, tileCorners, uvInfo.uv);
+                    }
+                }
+            };
+
+            const workerQuads = (() => {
+                if (!chunkMeshWorkerReady) return null;
+                const chunkKey = `${cx},${cz}`;
+                const cached = chunkMeshWorkerCache.get(chunkKey);
+                if (cached?.hash === nextHash && Array.isArray(cached.quads)) return cached.quads;
+                const ready = requestChunkMeshWorkerQuads(group, data, nextHash);
+                if (!ready) return null;
+                const nextCached = chunkMeshWorkerCache.get(chunkKey);
+                if (nextCached?.hash === nextHash && Array.isArray(nextCached.quads)) return nextCached.quads;
+                return null;
+            })();
+
+            const workerFaceDir = (faceName) => {
+                if (faceName === 'top') return [0, 1, 0];
+                if (faceName === 'bottom') return [0, -1, 0];
+                if (faceName === 'posX') return [1, 0, 0];
+                if (faceName === 'negX') return [-1, 0, 0];
+                if (faceName === 'posZ') return [0, 0, 1];
+                if (faceName === 'negZ') return [0, 0, -1];
+                return null;
+            };
+
+            const emitWorkerQuad = (quad) => {
+                const id = Number(quad?.id);
+                const faceName = String(quad?.face || '');
+                const dir = workerFaceDir(faceName);
+                if (!Number.isFinite(id) || !dir) return;
+                const x = Math.floor(Number(quad?.x));
+                const y = Math.floor(Number(quad?.y));
+                const z = Math.floor(Number(quad?.z));
+                const w = Math.max(1, Math.floor(Number(quad?.w) || 1));
+                const h = Math.max(1, Math.floor(Number(quad?.h) || 1));
+                const wx = cx * CS + x;
+                const wz = cz * CS + z;
+                const materialKey = getMaterialKey(id, dir);
+                const uvInfo = getFaceUvInfo(id, faceName, [0, 1, 0, 0, 1, 0, 1, 1]);
+
+                let corners = null;
+                if (faceName === 'top') {
+                    corners = [[wx, y + 1, wz + h], [wx + w, y + 1, wz + h], [wx + w, y + 1, wz], [wx, y + 1, wz]];
+                    emitGreedyQuad(id, materialKey, dir, corners, uvInfo, w, h);
+                    return;
+                }
+                if (faceName === 'bottom') {
+                    corners = [[wx, y, wz], [wx + w, y, wz], [wx + w, y, wz + h], [wx, y, wz + h]];
+                    emitGreedyQuad(id, materialKey, dir, corners, uvInfo, w, h);
+                    return;
+                }
+                if (faceName === 'posX') {
+                    const px = wx + 1;
+                    corners = [[px, y + w, wz + h], [px, y, wz + h], [px, y, wz], [px, y + w, wz]];
+                    emitGreedyQuad(id, materialKey, dir, corners, uvInfo, h, w);
+                    return;
+                }
+                if (faceName === 'negX') {
+                    const px = wx;
+                    corners = [[px, y + w, wz], [px, y, wz], [px, y, wz + h], [px, y + w, wz + h]];
+                    emitGreedyQuad(id, materialKey, dir, corners, uvInfo, h, w);
+                    return;
+                }
+                if (faceName === 'posZ') {
+                    const pz = wz + 1;
+                    corners = [[wx, y + w, pz], [wx, y, pz], [wx + h, y, pz], [wx + h, y + w, pz]];
+                    emitGreedyQuad(id, materialKey, dir, corners, uvInfo, h, w);
+                    return;
+                }
+                if (faceName === 'negZ') {
+                    const pz = wz;
+                    corners = [[wx + h, y + w, pz], [wx + h, y, pz], [wx, y, pz], [wx, y + w, pz]];
+                    emitGreedyQuad(id, materialKey, dir, corners, uvInfo, h, w);
+                }
+            };
+
             const greedyFaces = [
                 { name: 'top', dir: [0, 1, 0], axis: 'y', sign: 1 },
                 { name: 'bottom', dir: [0, -1, 0], axis: 'y', sign: -1 },
@@ -7244,10 +7527,12 @@ window.perlin = perlinInstance;
                 { name: 'negZ', dir: [0, 0, -1], axis: 'z', sign: -1 },
             ];
 
-            for (const face of greedyFaces) {
+            if (workerQuads) {
+                workerQuads.forEach((quad) => emitWorkerQuad(quad));
+            } else for (const face of greedyFaces) {
                 if (face.axis === 'y') {
                     for (let y = 0; y < CH; y++) {
-                        const visited = Array(CS * CS).fill(false);
+                        const visited = new Uint8Array(CS * CS);
                         for (let z = 0; z < CS; z++) {
                             for (let x = 0; x < CS; x++) {
                                 const mi = x + z * CS;
@@ -7290,14 +7575,13 @@ window.perlin = perlinInstance;
                                 const corners = face.sign > 0
                                     ? [[wx, py, wz + h], [wx + w, py, wz + h], [wx + w, py, wz], [wx, py, wz]]
                                     : [[wx, py, wz], [wx + w, py, wz], [wx + w, py, wz + h], [wx, py, wz + h]];
-                                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, w, h) : uvInfo.uv;
-                                emitQuad(id, materialKey, face.dir, corners, uv);
+                                emitGreedyQuad(id, materialKey, face.dir, corners, uvInfo, w, h);
                             }
                         }
                     }
                 } else if (face.axis === 'x') {
                     for (let x = 0; x < CS; x++) {
-                        const visited = Array(CH * CS).fill(false);
+                        const visited = new Uint8Array(CH * CS);
                         for (let z = 0; z < CS; z++) {
                             for (let y = 0; y < CH; y++) {
                                 const mi = y + z * CH;
@@ -7340,14 +7624,13 @@ window.perlin = perlinInstance;
                                 const corners = face.sign > 0
                                     ? [[px, y + w, wz + h], [px, y, wz + h], [px, y, wz], [px, y + w, wz]]
                                     : [[px, y + w, wz], [px, y, wz], [px, y, wz + h], [px, y + w, wz + h]];
-                                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, h, w) : uvInfo.uv;
-                                emitQuad(id, materialKey, face.dir, corners, uv);
+                                emitGreedyQuad(id, materialKey, face.dir, corners, uvInfo, h, w);
                             }
                         }
                     }
                 } else {
                     for (let z = 0; z < CS; z++) {
-                        const visited = Array(CH * CS).fill(false);
+                        const visited = new Uint8Array(CH * CS);
                         for (let x = 0; x < CS; x++) {
                             for (let y = 0; y < CH; y++) {
                                 const mi = y + x * CH;
@@ -7390,8 +7673,7 @@ window.perlin = perlinInstance;
                                 const corners = face.sign > 0
                                     ? [[wx, y + w, pz], [wx, y, pz], [wx + h, y, pz], [wx + h, y + w, pz]]
                                     : [[wx + h, y + w, pz], [wx + h, y, pz], [wx, y, pz], [wx, y + w, pz]];
-                                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, h, w) : uvInfo.uv;
-                                emitQuad(id, materialKey, face.dir, corners, uv);
+                                emitGreedyQuad(id, materialKey, face.dir, corners, uvInfo, h, w);
                             }
                         }
                     }
@@ -8034,6 +8316,57 @@ window.perlin = perlinInstance;
             dirtToGrassLoop?.updateGrassSpread?.(deltaMs);
         }
 
+        function runSimulationStep(stepMs, simTimeMs) {
+            dayNightCycle?.tick?.(stepMs);
+            tickCommandEffects(simTimeMs);
+            glowstonePortalDimension1?.update?.({
+                deltaMs: stepMs,
+                inPortalBlock: isPlayerInsideGlowstonePortal() || hasActiveCommandEffect('nausea', simTimeMs),
+                portalIgnited: true,
+            });
+
+            const liquidState = getPlayerLiquidState();
+            updateBreathing(stepMs / 1000, liquidState.isUnderLiquid);
+
+            if (!isInventoryOpen) {
+                updatePlayerMovement();
+                updateMining(stepMs);
+                maybeSpawnLavaParticles(stepMs);
+                updateWorldParticles(stepMs);
+                applyBlockPhysics(simTimeMs);
+                ensureChunksAroundPlayer(false, simTimeMs);
+                maybeUpdateChunkFrustumCulling(simTimeMs);
+                updateGnomes(simTimeMs);
+                pigMob?.update?.(simTimeMs, stepMs);
+                wolfMob?.update?.(simTimeMs, stepMs);
+                pandaMob?.update?.(simTimeMs, stepMs);
+                villagerMob?.update?.(simTimeMs, stepMs);
+                updateBambooGrowth(stepMs);
+                updateGrassSpread(stepMs);
+                zombieMob?.trySpawnNight?.(stepMs);
+                zombieMob?.update?.(simTimeMs, stepMs);
+                resolveMobEntityPushing();
+            } else {
+                pigMob?.update?.(simTimeMs, stepMs);
+                wolfMob?.update?.(simTimeMs, stepMs);
+                pandaMob?.update?.(simTimeMs, stepMs);
+                villagerMob?.update?.(simTimeMs, stepMs);
+                zombieMob?.update?.(simTimeMs, stepMs);
+                resolveMobEntityPushing();
+                miningState.active = false;
+                updateBreakingOverlay();
+            }
+
+            const dtSec = stepMs / 1000;
+            if (window.FurnaceSystem) {
+                for (const [furnaceKey, state] of furnaceStates.entries()) {
+                    window.FurnaceSystem.updateState(state, dtSec);
+                    syncFurnaceVisualState(furnaceKey, state);
+                }
+                if (isInventoryOpen && isFurnaceOpen) renderInventoryScreen();
+            }
+        }
+
         function animate(time) {
 
             requestAnimationFrame(animate);
@@ -8042,70 +8375,22 @@ window.perlin = perlinInstance;
             lastTime = time;
             frameTimeEmaMs = frameTimeEmaMs * 0.9 + delta * 0.1;
             maybeApplyAdaptiveQuality(time);
-
-            dayNightCycle?.tick?.(delta);
+            refreshEntityActivationFrustum();
             applyCaveLighting(time);
-            tickCommandEffects(time);
-            glowstonePortalDimension1?.update?.({
-                deltaMs: delta,
-                inPortalBlock: isPlayerInsideGlowstonePortal() || hasActiveCommandEffect('nausea', time),
-                portalIgnited: true,
-            });
 
-            const liquidState = getPlayerLiquidState();
-            updateBreathing(delta / 1000, liquidState.isUnderLiquid);
-
-            if(!isInventoryOpen) {
-                updatePlayerMovement();
-                updateMining(delta);
-                maybeSpawnLavaParticles(delta);
-                updateWorldParticles(delta);
-                applyBlockPhysics(time);
-                ensureChunksAroundPlayer(false, time);
-                maybeUpdateChunkFrustumCulling(time);
-                updateGnomes(time);
-                pigMob?.update?.(time, delta);
-                wolfMob?.update?.(time, delta);
-                pandaMob?.update?.(time, delta);
-                villagerMob?.update?.(time, delta);
-                updateBambooGrowth(delta);
-                updateGrassSpread(delta);
-                zombieMob?.trySpawnNight?.(delta);
-                zombieMob?.update?.(time, delta);
-                resolveMobEntityPushing();
-                updateEatingAnimation(delta, time);
-                updatePlayerAvatarVisuals(time);
-                updateFirstPersonHand(time);
-                processMeshUpdateQueue();
-                const dtSec = delta / 1000;
-                if (window.FurnaceSystem) {
-                    for (const [furnaceKey, state] of furnaceStates.entries()) {
-                        window.FurnaceSystem.updateState(state, dtSec);
-                        syncFurnaceVisualState(furnaceKey, state);
-                    }
-                    if (isInventoryOpen && isFurnaceOpen) renderInventoryScreen();
-                }
-            } else {
-                updatePlayerAvatarVisuals(time);
-                updateFirstPersonHand(time);
-                inventoryEntityUpdateAccumulatorMs += delta;
-                if (inventoryEntityUpdateAccumulatorMs >= INVENTORY_ENTITY_UPDATE_INTERVAL_MS) {
-                    const simDelta = Math.min(250, inventoryEntityUpdateAccumulatorMs);
-                    inventoryEntityUpdateAccumulatorMs = 0;
-                    pigMob?.update?.(time, simDelta);
-                    wolfMob?.update?.(time, simDelta);
-                    pandaMob?.update?.(time, simDelta);
-                    villagerMob?.update?.(time, simDelta);
-                    zombieMob?.update?.(time, simDelta);
-                    resolveMobEntityPushing();
-                }
-                updateEatingAnimation(delta, time);
-                maybeSpawnLavaParticles(delta);
-                updateWorldParticles(delta);
-                processMeshUpdateQueue();
-                miningState.active = false;
-                updateBreakingOverlay();
+            simAccumulatorMs = Math.min(simAccumulatorMs + delta, FIXED_SIM_STEP_MS * MAX_SIM_STEPS_PER_FRAME);
+            let simSteps = 0;
+            while (simAccumulatorMs >= FIXED_SIM_STEP_MS && simSteps < MAX_SIM_STEPS_PER_FRAME) {
+                simClockMs += FIXED_SIM_STEP_MS;
+                runSimulationStep(FIXED_SIM_STEP_MS, simClockMs);
+                simAccumulatorMs -= FIXED_SIM_STEP_MS;
+                simSteps++;
             }
+
+            updateEatingAnimation(delta, time);
+            updatePlayerAvatarVisuals(time);
+            updateFirstPersonHand(time);
+            processMeshUpdateQueue();
             updateAdaptiveCrosshair();
             updateCoordinatesUI(time);
             waypointsMod?.update?.(time, delta);
