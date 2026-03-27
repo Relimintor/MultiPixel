@@ -18,12 +18,26 @@
              continentalNoise > 0.45 &&
              weirdnessNoise > 0.32;
     },
-    getHeight({ BASE_LAND_Y, continentalMask, bigDuneNoise, duneDetailNoise, rockMaskNoise, erosionNoise }) {
-      const mesaPlateau = continentalMask * 17;
-      const mesaRidges = bigDuneNoise * 5.6 + duneDetailNoise * 1.8;
-      const hardScarps = Math.max(0, rockMaskNoise - 0.66) * 18;
-      const erosionSoftening = erosionNoise * 2.2;
-      return BASE_LAND_Y + 3 + mesaPlateau + mesaRidges + hardScarps - erosionSoftening;
+    getHeight({ BASE_LAND_Y, continentalMask, bigDuneNoise, duneDetailNoise, rockMaskNoise, erosionNoise, weirdness = 0 }) {
+      // Eroded Badlands profile: high mesa shelves + carved gullies + tall hoodoo spikes.
+      const mesaShelf = continentalMask * 22;
+      const broadMesaShape = Math.pow(Math.max(0, bigDuneNoise - 0.32), 1.2) * 11;
+
+      // Terraced plateaus to mimic stepped clay shelves.
+      const terraceSample = (bigDuneNoise * 0.72) + (duneDetailNoise * 0.28);
+      const terraceBands = Math.floor(terraceSample * 8) / 8;
+      const terraceLift = terraceBands * 6.5;
+
+      // Erosion carves canyons between spires.
+      const canyonCut = Math.pow(Math.max(0, erosionNoise - 0.42), 1.45) * 11.5;
+
+      // Hoodoos (Bryce spires): sharp, tall peaks where rock mask is strongest.
+      const hoodooMask = Math.pow(Math.max(0, rockMaskNoise - 0.5), 2.35);
+      const weirdnessAmp = 0.6 + Math.min(1.4, Math.abs(weirdness) * 1.15);
+      const hoodooHeight = hoodooMask * (12 + duneDetailNoise * 22) * (1 - canyonCut / 15) * weirdnessAmp;
+
+      const height = BASE_LAND_Y + 2 + mesaShelf + broadMesaShape + terraceLift + hoodooHeight - canyonCut;
+      return Math.max(BASE_LAND_Y - 3, height);
     },
   };
 
