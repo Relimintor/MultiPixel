@@ -5280,7 +5280,7 @@ window.perlin = perlinInstance;
             return h / 4294967296;
         }
 
-        function sampleCaveShape(wx, y, wz) {
+        function sampleCaveShape(wx, y, wz, caveColumnProfile = null) {
             return window.UndergroundCavesWorldgen?.sampleCaveShape?.({
                 wx,
                 y,
@@ -5289,6 +5289,7 @@ window.perlin = perlinInstance;
                 wasmRuntime,
                 CAVE_SCALE,
                 perlin,
+                caveColumnProfile,
             });
         }
 
@@ -5364,6 +5365,8 @@ window.perlin = perlinInstance;
             let h = lerp(blendedHeight, selectedBiomeHeight, dominantBlend);
 
             const mountainWeight = Number(weights['Mountains'] || 0);
+            const badlandsWeight = Number(weights['Badlands'] || 0);
+            const desertWeight = Number(weights['Desert'] || 0);
             const terrainBoost = 1.28;
             h += detailNoise * (0.42 + mountainWeight * 0.78) * terrainBoost;
             const macroTerrainNoise = octaveNoise2D(wx, wz, 4, 0.52, 2.0, 0.0068, 940, -530);
@@ -5371,11 +5374,27 @@ window.perlin = perlinInstance;
             h += macroTerrainNoise * 2.15;
             h += (ridgeTerrainNoise - 0.5) * (1.1 + mountainWeight * 2.5);
 
+            // Extra valley and cliff shaping to reduce flatness in non-ocean biomes.
+            const oceanWeight = Number(weights['Ocean'] || 0);
+            if (oceanWeight < 0.7) {
+                const valleyNoise = 1 - Math.abs(octaveNoise2D(wx, wz, 4, 0.52, 2.08, 0.0046, -1610, 480));
+                const valleyMask = Math.pow(Math.max(0, valleyNoise - 0.74), 1.55);
+                const valleyDepth = valleyMask * (6.2 + mountainWeight * 2.1 + badlandsWeight * 3.1 + desertWeight * 1.6);
+                h -= valleyDepth;
+
+                const cliffNoise1 = Math.abs(octaveNoise2D(wx, wz, 4, 0.46, 2.24, 0.0105, 730, -1160));
+                const cliffNoise2 = Math.abs(perlin.noise2D(wx * 0.021 - 510, wz * 0.021 + 350));
+                const cliffMask = Math.max(0, cliffNoise1 - 0.79) * (0.8 + Math.max(0, cliffNoise2 - 0.48) * 1.6);
+                if (cliffMask > 0) {
+                    const cliffStep = Math.pow(cliffMask, 1.2) * (3.8 + badlandsWeight * 3.7 + mountainWeight * 2.4);
+                    h += cliffStep;
+                }
+            }
+
             const riverInfluence = getRiverMask(wx, wz);
             h = TerrainModules['river'].applyHeight({ height: h, riverInfluence, SEA_LEVEL });
 
             const ravine = getRavineMask(wx, wz);
-            const oceanWeight = Number(weights['Ocean'] || 0);
             if (ravine > 0.84 && oceanWeight < 0.72) h -= (ravine - 0.84) * 55;
 
             if (mountainWeight > 0.52 && h < SEA_LEVEL + 8) h = SEA_LEVEL + 8;
@@ -5787,6 +5806,12 @@ window.perlin = perlinInstance;
                         RAVINE_ACTIVATION_THRESHOLD,
                         CHUNK_HEIGHT,
                      }) || { canCarveRavine: false, ravineStrength: 0, ravineTop: 0, ravineBottom: 0, ravineMask: 0, ravineMaxDepth: 0 };
+                     const caveColumnProfile = window.UndergroundCavesWorldgen?.createColumnProfile?.({
+                        wx,
+                        wz,
+                        perlin,
+                        CAVE_SCALE,
+                     }) || null;
                      for (let y = 0; y < CHUNK_HEIGHT; y++) {
                          let t = 0; // Block type
 
@@ -5885,6 +5910,7 @@ window.perlin = perlinInstance;
                             CAVE_MAX_Y_OFFSET,
                             CAVE_SURFACE_SAFETY_DEPTH,
                             sampleCaveShape,
+                            caveColumnProfile,
                         }) ?? t;
                          
                          
