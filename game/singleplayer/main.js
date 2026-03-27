@@ -2895,7 +2895,28 @@ window.perlin = perlinInstance;
             if (!yawObject || !position) return true;
             const dx = position.x - yawObject.position.x;
             const dz = position.z - yawObject.position.z;
-            return (dx * dx + dz * dz) <= rangeSq;
+            if ((dx * dx + dz * dz) > rangeSq) return false;
+            if (!entityActivationFrustumReady) return true;
+            entityActivationSphere.center.set(position.x, position.y, position.z);
+            entityActivationSphere.radius = ENTITY_ACTIVATION_FRUSTUM_RADIUS;
+            return entityActivationFrustum.intersectsSphere(entityActivationSphere);
+        }
+
+        const entityActivationFrustum = new THREE.Frustum();
+        const entityActivationProjectionMatrix = new THREE.Matrix4();
+        const entityActivationSphere = new THREE.Sphere(new THREE.Vector3(), 0.75);
+        const ENTITY_ACTIVATION_FRUSTUM_RADIUS = 1.35;
+        let entityActivationFrustumReady = false;
+
+        function refreshEntityActivationFrustum() {
+            if (!camera) {
+                entityActivationFrustumReady = false;
+                return;
+            }
+            camera.updateMatrixWorld?.(true);
+            entityActivationProjectionMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+            entityActivationFrustum.setFromProjectionMatrix(entityActivationProjectionMatrix);
+            entityActivationFrustumReady = true;
         }
 
         function updateGnomes(time) {
@@ -8300,6 +8321,7 @@ window.perlin = perlinInstance;
             lastTime = time;
             frameTimeEmaMs = frameTimeEmaMs * 0.9 + delta * 0.1;
             maybeApplyAdaptiveQuality(time);
+            refreshEntityActivationFrustum();
 
             dayNightCycle?.tick?.(delta);
             applyCaveLighting(time);
