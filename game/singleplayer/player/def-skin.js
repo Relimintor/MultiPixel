@@ -53,6 +53,26 @@
         return getPlayerAssetCandidates(fileName)[0];
       }
 
+      function resolvePlayerAssetPath(fileName, onResolved) {
+        const candidates = getPlayerAssetCandidates(fileName);
+        if (!candidates.length) {
+          onResolved(null);
+          return;
+        }
+        const probe = new Image();
+        const tryLoad = (index) => {
+          if (index >= candidates.length) {
+            onResolved(null);
+            return;
+          }
+          const candidate = candidates[index];
+          probe.onload = () => onResolved(candidate);
+          probe.onerror = () => tryLoad(index + 1);
+          probe.src = candidate;
+        };
+        tryLoad(0);
+      }
+
       function ensureSteveSkinTextureLoaded() {
         if (state.steveSkinReady && state.steveSkinTexture) return Promise.resolve(true);
         if (state.steveSkinFailed) return Promise.resolve(false);
@@ -203,21 +223,22 @@
         const held = document.createElement('div');
         held.id = 'firstperson-held-item';
 
-        const wieldPath = getPreferredPlayerAssetPath('wieldhand.png');
-        const skinPath = getPreferredPlayerAssetPath('character.png');
-        const probe = new Image();
-        probe.onload = () => {
-          hand.style.backgroundImage = `url('${wieldPath}')`;
-          hand.style.backgroundSize = '100% 100%';
-          hand.style.backgroundPosition = 'center';
-        };
-        probe.onerror = () => {
-          hand.style.backgroundImage = `url('${skinPath}')`;
-          hand.style.backgroundSize = '64px 64px';
-          hand.style.backgroundPosition = '-44px -20px';
-          hand.classList.add('fallback');
-        };
-        probe.src = wieldPath;
+        resolvePlayerAssetPath('wieldhand.png', (wieldPath) => {
+          if (wieldPath) {
+            hand.style.backgroundImage = `url('${wieldPath}')`;
+            hand.style.backgroundSize = '100% 100%';
+            hand.style.backgroundPosition = 'center';
+            hand.classList.remove('fallback');
+            return;
+          }
+          resolvePlayerAssetPath('character.png', (skinPath) => {
+            if (!skinPath) return;
+            hand.style.backgroundImage = `url('${skinPath}')`;
+            hand.style.backgroundSize = '64px 64px';
+            hand.style.backgroundPosition = '-44px -20px';
+            hand.classList.add('fallback');
+          });
+        });
 
         document.body.appendChild(held);
         document.body.appendChild(hand);
@@ -229,7 +250,7 @@
       function setupInventorySkinRig() {
         const preview = document.getElementById('inventory-skin-preview');
         if (!preview || state.inventorySkinRigEl) return;
-        const skinPath = getPreferredPlayerAssetPath('character.png');
+        let skinPath = getPreferredPlayerAssetPath('character.png');
 
         const rig = document.createElement('div');
         rig.id = 'inventory-skin-rig';
@@ -254,13 +275,25 @@
           el.style.height = `${h}px`;
         };
 
-        const modern = isModernSkinLayout();
-        setPart('inv-skin-head', 8, 8, 8, 8);
-        setPart('inv-skin-body', 20, 20, 8, 12);
-        setPart('inv-skin-arm-left', ...(modern ? [36, 52, 4, 12] : [44, 20, 4, 12]));
-        setPart('inv-skin-arm-right', 44, 20, 4, 12);
-        setPart('inv-skin-leg-left', ...(modern ? [20, 52, 4, 12] : [4, 20, 4, 12]));
-        setPart('inv-skin-leg-right', 4, 20, 4, 12);
+        const applyRigParts = () => {
+          const modern = isModernSkinLayout();
+          setPart('inv-skin-head', 8, 8, 8, 8);
+          setPart('inv-skin-body', 20, 20, 8, 12);
+          setPart('inv-skin-arm-left', ...(modern ? [36, 52, 4, 12] : [44, 20, 4, 12]));
+          setPart('inv-skin-arm-right', 44, 20, 4, 12);
+          setPart('inv-skin-leg-left', ...(modern ? [20, 52, 4, 12] : [4, 20, 4, 12]));
+          setPart('inv-skin-leg-right', 4, 20, 4, 12);
+        };
+
+        applyRigParts();
+        resolvePlayerAssetPath('character.png', (resolvedPath) => {
+          if (!resolvedPath) return;
+          skinPath = resolvedPath;
+          applyRigParts();
+        });
+        ensureSteveSkinTextureLoaded().then(() => {
+          applyRigParts();
+        });
         syncRuntimeState();
       }
 

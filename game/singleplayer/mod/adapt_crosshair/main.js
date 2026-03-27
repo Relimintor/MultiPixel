@@ -3,7 +3,7 @@ window.SingleplayerAdaptiveCrosshair = (() => {
     const TEXTURE_FILES = Object.freeze({
         clear: 'adaptive_crosshair_clear.png',
         default: 'adaptive_crosshair_default.png',
-        interact: 'daptive_crosshair_interact.png',
+        interact: ['adaptive_crosshair_interact.png', 'daptive_crosshair_interact.png'],
         mine: 'adaptive_crosshair_mine.png',
         use: 'adaptive_crosshair_use.png',
         use_self: 'adaptive_crosshair_use_self.png',
@@ -29,7 +29,13 @@ window.SingleplayerAdaptiveCrosshair = (() => {
     function buildTextureMap(basePath = DEFAULT_BASE_PATH) {
         const normalizedBase = String(basePath || DEFAULT_BASE_PATH).replace(/\/+$/, '');
         return Object.fromEntries(
-            Object.entries(TEXTURE_FILES).map(([key, filename]) => [key, `${normalizedBase}/${filename}`])
+            Object.entries(TEXTURE_FILES).map(([key, filenames]) => {
+                const filenameList = Array.isArray(filenames) ? filenames : [filenames];
+                const cssValue = filenameList
+                    .map((filename) => `url('${normalizedBase}/${filename}')`)
+                    .join(', ');
+                return [key, cssValue];
+            })
         );
     }
 
@@ -53,7 +59,7 @@ window.SingleplayerAdaptiveCrosshair = (() => {
             const element = resolveElement();
             if (!element) return null;
             element.dataset.crosshairState = currentState;
-            element.style.backgroundImage = `url('${textureMap[currentState]}')`;
+            element.style.backgroundImage = textureMap[currentState];
             element.classList.toggle('crosshair-hidden', !isVisible);
             element.setAttribute('aria-hidden', isVisible ? 'false' : 'true');
             return element;
@@ -69,7 +75,7 @@ window.SingleplayerAdaptiveCrosshair = (() => {
             const element = resolveElement();
             if (element) {
                 element.dataset.crosshairState = resolvedState;
-                element.style.backgroundImage = `url('${textureMap[resolvedState]}')`;
+                element.style.backgroundImage = textureMap[resolvedState];
             }
             return resolvedState;
         }
