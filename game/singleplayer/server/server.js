@@ -14,14 +14,20 @@ const io = new Server(server, {
 });
 
 const STATE_PATH = path.join(__dirname, 'world-state.json');
+const CLIENT_CONFIG_PATH = path.join(__dirname, '..', 'config.js');
 const players = new Map();
 const worldBlocks = new Map();
 const chatHistory = [];
 const CHAT_HISTORY_LIMIT = 80;
+const AIR_BLOCK_ID = 0;
+const MAX_PLAYER_MOVE_SPEED = 18;
+const MAX_PLAYER_TELEPORT_DISTANCE = 12;
+const MAX_MOVE_DELTA_SECONDS = 0.35;
 let persistTimer = null;
 let worldDirty = false;
 let worldRevision = 0;
 let persistedRevision = 0;
+let validBlockTypes = new Set([AIR_BLOCK_ID]);
 
 function blockKey(x, y, z) {
   return `${x},${y},${z}`;
@@ -40,13 +46,52 @@ function loadWorldState() {
       const z = Number(entry?.z);
       const type = Number(entry?.type);
       if (![x, y, z, type].every(Number.isFinite)) continue;
-      if (type === 0) continue;
+      if (type === AIR_BLOCK_ID) continue;
+      if (!validBlockTypes.has(type)) continue;
       worldBlocks.set(blockKey(x, y, z), { x, y, z, type });
     }
     console.log(`Loaded ${worldBlocks.size} persisted block updates.`);
   } catch (err) {
     console.error('Failed loading world state:', err);
   }
+}
+
+function loadValidBlockTypes() {
+  try {
+    if (!fs.existsSync(CLIENT_CONFIG_PATH)) return;
+    const rawConfig = fs.readFileSync(CLIENT_CONFIG_PATH, 'utf8');
+    const blockKeys = new Set([AIR_BLOCK_ID]);
+    const materialsMatch = rawConfig.match(/const\s+baseBlockMaterials\s*=\s*\{([\s\S]*?)\n\s*\};/);
+    if (!materialsMatch) return;
+    const body = materialsMatch[1];
+    const numericKeyPattern = /^\s*(\d+)\s*:/gm;
+    let match = numericKeyPattern.exec(body);
+    while (match) {
+      const blockId = Number(match[1]);
+      if (Number.isInteger(blockId) && blockId >= 0) blockKeys.add(blockId);
+      match = numericKeyPattern.exec(body);
+    }
+    if (blockKeys.size > 1) validBlockTypes = blockKeys;
+    console.log(`Loaded ${validBlockTypes.size} valid block ids from config.`);
+  } catch (err) {
+    console.error('Failed loading valid block ids:', err);
+  }
+}
+
+function canApplyMove(existing, nextX, nextY, nextZ, now) {
+  const prevUpdatedAt = Number(existing.updatedAt);
+  const elapsedMs = Number.isFinite(prevUpdatedAt) ? Math.max(0, now - prevUpdatedAt) : 0;
+  const elapsedSec = Math.min(MAX_MOVE_DELTA_SECONDS, elapsedMs / 1000);
+  const dx = nextX - Number(existing.x);
+  const dy = nextY - Number(existing.y);
+  const dz = nextZ - Number(existing.z);
+  const distance = Math.hypot(dx, dy, dz);
+
+  if (!Number.isFinite(distance)) return false;
+  if (distance > MAX_PLAYER_TELEPORT_DISTANCE) return false;
+
+  const maxAllowedDistance = 0.2 + (MAX_PLAYER_MOVE_SPEED * Math.max(0.05, elapsedSec));
+  return distance <= maxAllowedDistance;
 }
 
 function schedulePersistWorldState() {
@@ -74,6 +119,7 @@ function markWorldDirty() {
   worldDirty = true;
 }
 
+loadValidBlockTypes();
 loadWorldState();
 
 setInterval(() => {
@@ -134,6 +180,9 @@ io.on('connection', (socket) => {
 
     if (![nextX, nextY, nextZ, nextRot].every(Number.isFinite)) return;
 
+    const now = Date.now();
+    if (!canApplyMove(existing, nextX, nextY, nextZ, now)) return;
+
     const updated = {
       id: socket.id,
       x: nextX,
@@ -142,7 +191,7 @@ io.on('connection', (socket) => {
       rot: nextRot,
       moving,
       mining,
-      updatedAt: Date.now()
+      updatedAt: now
     };
 
     players.set(socket.id, updated);
@@ -157,6 +206,8 @@ io.on('connection', (socket) => {
     const z = Math.floor(Number(payload?.z));
     const type = Number(payload?.type);
     if (![x, y, z, type].every(Number.isFinite)) return;
+    if (!Number.isInteger(type)) return;
+    if (!validBlockTypes.has(type)) return;
     const px = Number(actor.x);
     const py = Number(actor.y);
     const pz = Number(actor.z);
@@ -169,7 +220,7 @@ io.on('connection', (socket) => {
     if (distance > 7.5) return;
 
     const next = { x, y, z, type };
-    if (type === 0) {
+    if (type === AIR_BLOCK_ID) {
       worldBlocks.delete(blockKey(x, y, z));
     } else {
       worldBlocks.set(blockKey(x, y, z), next);
