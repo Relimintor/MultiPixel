@@ -7109,14 +7109,24 @@ window.perlin = perlinInstance;
             group.userData.meshesByKey = meshesByKey;
 
             // Map to hold CPU-side staging arrays before single VBO upload per chunk material.
-            const geometryData = {}; 
+            const geometryData = group.userData.geometryDataScratch || Object.create(null);
+            for (const key of Object.keys(geometryData)) {
+                const cached = geometryData[key];
+                if (!cached) continue;
+                cached.pos.length = 0;
+                cached.norm.length = 0;
+                cached.col.length = 0;
+                cached.uv.length = 0;
+                cached.used = false;
+            }
+            group.userData.geometryDataScratch = geometryData;
             
             const cx = group.userData.cx;
             const cz = group.userData.cz;
             const torchPositions = [];
             const glowstonePositions = [];
 
-            const faces = [
+            const faces = updateChunkGeometry._faceDefs?.faces || [
                 { name: 'posX', dir: [1,0,0], corners: [[1,1,1],[1,0,1],[1,0,0],[1,1,0]], uv: [0,1, 0,0, 1,0, 1,1] },
                 { name: 'negX', dir: [-1,0,0], corners: [[0,1,0],[0,0,0],[0,0,1],[0,1,1]], uv: [0,1, 0,0, 1,0, 1,1] },
                 { name: 'top', dir: [0,1,0], corners: [[0,1,1],[1,1,1],[1,1,0],[0,1,0]], uv: [0,1, 0,0, 1,0, 1,1] },
@@ -7124,7 +7134,7 @@ window.perlin = perlinInstance;
                 { name: 'posZ', dir: [0,0,1], corners: [[0,1,1],[0,0,1],[1,0,1],[1,1,1]], uv: [0,1, 0,0, 1,0, 1,1] },
                 { name: 'negZ', dir: [0,0,-1], corners: [[1,1,0],[1,0,0],[0,0,0],[0,1,0]], uv: [0,1, 0,0, 1,0, 1,1] }
             ];
-            const slabFaces = [
+            const slabFaces = updateChunkGeometry._faceDefs?.slabFaces || [
                 { name: 'posX', dir: [1,0,0], corners: [[1,0.5,1],[1,0,1],[1,0,0],[1,0.5,0]], uv: [0,0.5, 0,0, 1,0, 1,0.5] },
                 { name: 'negX', dir: [-1,0,0], corners: [[0,0.5,0],[0,0,0],[0,0,1],[0,0.5,1]], uv: [0,0.5, 0,0, 1,0, 1,0.5] },
                 { name: 'top', dir: [0,1,0], corners: [[0,0.5,1],[1,0.5,1],[1,0.5,0],[0,0.5,0]], uv: [0,1, 0,0, 1,0, 1,1] },
@@ -7132,7 +7142,7 @@ window.perlin = perlinInstance;
                 { name: 'posZ', dir: [0,0,1], corners: [[0,0.5,1],[0,0,1],[1,0,1],[1,0.5,1]], uv: [0,0.5, 0,0, 1,0, 1,0.5] },
                 { name: 'negZ', dir: [0,0,-1], corners: [[1,0.5,0],[1,0,0],[0,0,0],[0,0.5,0]], uv: [0,0.5, 0,0, 1,0, 1,0.5] }
             ];
-            const waterFaces = [
+            const waterFaces = updateChunkGeometry._faceDefs?.waterFaces || [
                 { name: 'posX', dir: [1,0,0], corners: [[1,0.875,1],[1,0,1],[1,0,0],[1,0.875,0]], uv: [0,0.875, 0,0, 1,0, 1,0.875] },
                 { name: 'negX', dir: [-1,0,0], corners: [[0,0.875,0],[0,0,0],[0,0,1],[0,0.875,1]], uv: [0,0.875, 0,0, 1,0, 1,0.875] },
                 { name: 'top', dir: [0,1,0], corners: [[0,0.875,1],[1,0.875,1],[1,0.875,0],[0,0.875,0]], uv: [0,1, 0,0, 1,0, 1,1] },
@@ -7140,7 +7150,7 @@ window.perlin = perlinInstance;
                 { name: 'posZ', dir: [0,0,1], corners: [[0,0.875,1],[0,0,1],[1,0,1],[1,0.875,1]], uv: [0,0.875, 0,0, 1,0, 1,0.875] },
                 { name: 'negZ', dir: [0,0,-1], corners: [[1,0.875,0],[1,0,0],[0,0,0],[0,0.875,0]], uv: [0,0.875, 0,0, 1,0, 1,0.875] }
             ];
-            const torchFaces = [
+            const torchFaces = updateChunkGeometry._faceDefs?.torchFaces || [
                 { name: 'posX', dir: [1,0,0], corners: [[0.5625,0.8,0.5625],[0.5625,0.05,0.5625],[0.5625,0.05,0.4375],[0.5625,0.8,0.4375]], uv: [0,1,0,0,1,0,1,1] },
                 { name: 'negX', dir: [-1,0,0], corners: [[0.4375,0.8,0.4375],[0.4375,0.05,0.4375],[0.4375,0.05,0.5625],[0.4375,0.8,0.5625]], uv: [0,1,0,0,1,0,1,1] },
                 { name: 'top', dir: [0,1,0], corners: [[0.4375,0.8,0.5625],[0.5625,0.8,0.5625],[0.5625,0.8,0.4375],[0.4375,0.8,0.4375]], uv: [0,1,0,0,1,0,1,1] },
@@ -7149,7 +7159,7 @@ window.perlin = perlinInstance;
                 { name: 'negZ', dir: [0,0,-1], corners: [[0.5625,0.8,0.4375],[0.5625,0.05,0.4375],[0.4375,0.05,0.4375],[0.4375,0.8,0.4375]], uv: [0,1,0,0,1,0,1,1] }
             ];
 
-            const bambooStageFaces = [
+            const bambooStageFaces = updateChunkGeometry._faceDefs?.bambooStageFaces || [
                 { name: 'posX', dir: [1,0,0], corners: [[0.56,0.72,0.56],[0.56,0.0,0.56],[0.56,0.0,0.44],[0.56,0.72,0.44]], uv: [0,1,0,0,1,0,1,1] },
                 { name: 'negX', dir: [-1,0,0], corners: [[0.44,0.72,0.44],[0.44,0.0,0.44],[0.44,0.0,0.56],[0.44,0.72,0.56]], uv: [0,1,0,0,1,0,1,1] },
                 { name: 'top', dir: [0,1,0], corners: [[0.44,0.72,0.56],[0.56,0.72,0.56],[0.56,0.72,0.44],[0.44,0.72,0.44]], uv: [0,1,0,0,1,0,1,1] },
@@ -7157,7 +7167,7 @@ window.perlin = perlinInstance;
                 { name: 'posZ', dir: [0,0,1], corners: [[0.44,0.72,0.56],[0.44,0.0,0.56],[0.56,0.0,0.56],[0.56,0.72,0.56]], uv: [0,1,0,0,1,0,1,1] },
                 { name: 'negZ', dir: [0,0,-1], corners: [[0.56,0.72,0.44],[0.56,0.0,0.44],[0.44,0.0,0.44],[0.44,0.72,0.44]], uv: [0,1,0,0,1,0,1,1] }
             ];
-            const bambooStalkFaces = [
+            const bambooStalkFaces = updateChunkGeometry._faceDefs?.bambooStalkFaces || [
                 { name: 'posX', dir: [1,0,0], corners: [[0.55,1.0,0.55],[0.55,0.0,0.55],[0.55,0.0,0.45],[0.55,1.0,0.45]], uv: [0,1,0,0,1,0,1,1] },
                 { name: 'negX', dir: [-1,0,0], corners: [[0.45,1.0,0.45],[0.45,0.0,0.45],[0.45,0.0,0.55],[0.45,1.0,0.55]], uv: [0,1,0,0,1,0,1,1] },
                 { name: 'top', dir: [0,1,0], corners: [[0.45,1.0,0.55],[0.55,1.0,0.55],[0.55,1.0,0.45],[0.45,1.0,0.45]], uv: [0,1,0,0,1,0,1,1] },
@@ -7165,25 +7175,41 @@ window.perlin = perlinInstance;
                 { name: 'posZ', dir: [0,0,1], corners: [[0.45,1.0,0.55],[0.45,0.0,0.55],[0.55,0.0,0.55],[0.55,1.0,0.55]], uv: [0,1,0,0,1,0,1,1] },
                 { name: 'negZ', dir: [0,0,-1], corners: [[0.55,1.0,0.45],[0.55,0.0,0.45],[0.45,0.0,0.45],[0.45,1.0,0.45]], uv: [0,1,0,0,1,0,1,1] }
             ];
-            const crossPlantFaces = [
+            const crossPlantFaces = updateChunkGeometry._faceDefs?.crossPlantFaces || [
                 { dir: [0.7071, 0, -0.7071], corners: [[0.1464,1,0.1464],[0.1464,0,0.1464],[0.8536,0,0.8536],[0.8536,1,0.8536]], uv: [0,1,0,0,1,0,1,1] },
                 { dir: [-0.7071, 0, 0.7071], corners: [[0.8536,1,0.8536],[0.8536,0,0.8536],[0.1464,0,0.1464],[0.1464,1,0.1464]], uv: [0,1,0,0,1,0,1,1] },
                 { dir: [0.7071, 0, 0.7071], corners: [[0.1464,1,0.8536],[0.1464,0,0.8536],[0.8536,0,0.1464],[0.8536,1,0.1464]], uv: [0,1,0,0,1,0,1,1] },
                 { dir: [-0.7071, 0, -0.7071], corners: [[0.8536,1,0.1464],[0.8536,0,0.1464],[0.1464,0,0.8536],[0.1464,1,0.8536]], uv: [0,1,0,0,1,0,1,1] },
             ];
-            const singlePlaneFaces = [
+            const singlePlaneFaces = updateChunkGeometry._faceDefs?.singlePlaneFaces || [
                 { name: 'posZ', dir: [0, 0, 1], corners: [[0.15,1,0.5],[0.15,0,0.5],[0.85,0,0.5],[0.85,1,0.5]], uv: [0,1,0,0,1,0,1,1] },
             ];
-            const singlePlaneFacesX = [
+            const singlePlaneFacesX = updateChunkGeometry._faceDefs?.singlePlaneFacesX || [
                 { name: 'posX', dir: [1, 0, 0], corners: [[0.5,1,0.15],[0.5,0,0.15],[0.5,0,0.85],[0.5,1,0.85]], uv: [0,1,0,0,1,0,1,1] },
             ];
-            const fullPlaneFaces = [
+            const fullPlaneFaces = updateChunkGeometry._faceDefs?.fullPlaneFaces || [
                 { name: 'posZ', dir: [0, 0, 1], corners: [[0,1,0.5],[0,0,0.5],[1,0,0.5],[1,1,0.5]], uv: [0,1,0,0,1,0,1,1] },
             ];
-            const fullPlaneFacesX = [
+            const fullPlaneFacesX = updateChunkGeometry._faceDefs?.fullPlaneFacesX || [
                 { name: 'posX', dir: [1, 0, 0], corners: [[0.5,1,0],[0.5,0,0],[0.5,0,1],[0.5,1,1]], uv: [0,1,0,0,1,0,1,1] },
             ];
 
+
+            if (!updateChunkGeometry._faceDefs) {
+                updateChunkGeometry._faceDefs = {
+                    faces,
+                    slabFaces,
+                    waterFaces,
+                    torchFaces,
+                    bambooStageFaces,
+                    bambooStalkFaces,
+                    crossPlantFaces,
+                    singlePlaneFaces,
+                    singlePlaneFacesX,
+                    fullPlaneFaces,
+                    fullPlaneFacesX,
+                };
+            }
 
             const CH = CHUNK_HEIGHT;
             const CS = CHUNK_SIZE;
@@ -7284,6 +7310,7 @@ window.perlin = perlinInstance;
 
             const ensureGeometryData = (materialKey) => {
                 if (!geometryData[materialKey]) geometryData[materialKey] = { pos: [], norm: [], col: [], uv: [] };
+                geometryData[materialKey].used = true;
                 return geometryData[materialKey];
             };
 
@@ -7481,7 +7508,7 @@ window.perlin = perlinInstance;
             } else for (const face of greedyFaces) {
                 if (face.axis === 'y') {
                     for (let y = 0; y < CH; y++) {
-                        const visited = Array(CS * CS).fill(false);
+                        const visited = new Uint8Array(CS * CS);
                         for (let z = 0; z < CS; z++) {
                             for (let x = 0; x < CS; x++) {
                                 const mi = x + z * CS;
@@ -7530,7 +7557,7 @@ window.perlin = perlinInstance;
                     }
                 } else if (face.axis === 'x') {
                     for (let x = 0; x < CS; x++) {
-                        const visited = Array(CH * CS).fill(false);
+                        const visited = new Uint8Array(CH * CS);
                         for (let z = 0; z < CS; z++) {
                             for (let y = 0; y < CH; y++) {
                                 const mi = y + z * CH;
@@ -7579,7 +7606,7 @@ window.perlin = perlinInstance;
                     }
                 } else {
                     for (let z = 0; z < CS; z++) {
-                        const visited = Array(CH * CS).fill(false);
+                        const visited = new Uint8Array(CH * CS);
                         for (let x = 0; x < CS; x++) {
                             for (let y = 0; y < CH; y++) {
                                 const mi = y + x * CH;
