@@ -3,13 +3,61 @@
   const EMIT_INTERVAL_MS = 50;
   const WORLD_RESYNC_INTERVAL_MS = 12000;
   const MAX_PENDING_BLOCK_UPDATES = 4096;
+  const MAX_PENDING_BLOCK_AGE_MS = 30000;
 
   let socket = null;
   let moveInterval = null;
   let isConnected = false;
   let flushTimer = null;
   let worldResyncTimer = null;
-  const pendingBlockUpdates = [];
+  const pendingBlockUpdates = new Map();
+
+  function getBlockKey(payload) {
+    const x = Math.floor(Number(payload?.x));
+    const y = Math.floor(Number(payload?.y));
+    const z = Math.floor(Number(payload?.z));
+    if (![x, y, z].every(Number.isFinite)) return null;
+    return `${x},${y},${z}`;
+  }
+
+  function enqueuePendingBlockUpdate(payload) {
+    const key = getBlockKey(payload);
+    if (!key) return;
+    if (pendingBlockUpdates.has(key)) pendingBlockUpdates.delete(key);
+    pendingBlockUpdates.set(key, { payload, queuedAt: Date.now() });
+    while (pendingBlockUpdates.size > MAX_PENDING_BLOCK_UPDATES) {
+      const oldestKey = pendingBlockUpdates.keys().next().value;
+      if (!oldestKey) break;
+      pendingBlockUpdates.delete(oldestKey);
+    }
+  }
+
+  function dropExpiredPendingBlockUpdates(now = Date.now()) {
+    if (!pendingBlockUpdates.size) return;
+    for (const [key, entry] of pendingBlockUpdates) {
+      if ((now - Number(entry?.queuedAt || 0)) <= MAX_PENDING_BLOCK_AGE_MS) continue;
+      pendingBlockUpdates.delete(key);
+    }
+  }
+
+  function reconcileRemotePlayers(players) {
+    const bridge = getBridge();
+    const listedIds = new Set();
+    players.forEach((entry) => {
+      const id = String(entry?.id || '').trim();
+      if (!id || id === socket?.id) return;
+      listedIds.add(id);
+      updateOtherPlayer(entry);
+    });
+
+    const knownIds = bridge?.getRemotePlayerIds?.();
+    if (!Array.isArray(knownIds)) return;
+    knownIds.forEach((id) => {
+      const key = String(id || '').trim();
+      if (!key || listedIds.has(key)) return;
+      bridge?.removeOtherPlayer?.(key);
+    });
+  }
 
   function enqueuePendingBlockUpdate(payload) {
     pendingBlockUpdates.push(payload);
@@ -115,16 +163,18 @@
 
   function flushPendingBlockUpdates(limit = 120) {
     const bridge = getBridge();
-    if (!bridge?.applyNetworkBlockChange || !pendingBlockUpdates.length) return;
+    if (!bridge?.applyNetworkBlockChange || !pendingBlockUpdates.size) return;
+    dropExpiredPendingBlockUpdates();
+    if (!pendingBlockUpdates.size) return;
 
     let applied = 0;
-    while (pendingBlockUpdates.length && applied < limit) {
-      const payload = pendingBlockUpdates.shift();
-      const ok = bridge.applyNetworkBlockChange(payload);
+    for (const [key, entry] of pendingBlockUpdates) {
+      if (applied >= limit) break;
+      const ok = bridge.applyNetworkBlockChange(entry.payload);
       if (!ok) {
-        pendingBlockUpdates.push(payload);
-        break;
+        continue;
       }
+      pendingBlockUpdates.delete(key);
       applied++;
     }
   }
@@ -150,6 +200,7 @@
 
     socket.on('bootstrap', (payload) => {
       const players = Array.isArray(payload?.players) ? payload.players : [];
+      if (!getBridge()?.getRemotePlayerIds?.()) getBridge()?.clearOtherPlayers?.();
       reconcileRemotePlayers(players);
 
       const blocks = Array.isArray(payload?.blocks) ? payload.blocks : [];
@@ -170,6 +221,7 @@
 
     socket.on('worldSnapshot', (payload) => {
       const players = Array.isArray(payload?.players) ? payload.players : [];
+      if (!getBridge()?.getRemotePlayerIds?.()) getBridge()?.clearOtherPlayers?.();
       reconcileRemotePlayers(players);
       const blocks = Array.isArray(payload?.blocks) ? payload.blocks : [];
       blocks.forEach((entry) => {
