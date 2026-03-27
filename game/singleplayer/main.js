@@ -5280,7 +5280,7 @@ window.perlin = perlinInstance;
             return h / 4294967296;
         }
 
-        function sampleCaveShape(wx, y, wz) {
+        function sampleCaveShape(wx, y, wz, caveColumnProfile = null) {
             return window.UndergroundCavesWorldgen?.sampleCaveShape?.({
                 wx,
                 y,
@@ -5289,6 +5289,7 @@ window.perlin = perlinInstance;
                 wasmRuntime,
                 CAVE_SCALE,
                 perlin,
+                caveColumnProfile,
             });
         }
 
@@ -5805,6 +5806,12 @@ window.perlin = perlinInstance;
                         RAVINE_ACTIVATION_THRESHOLD,
                         CHUNK_HEIGHT,
                      }) || { canCarveRavine: false, ravineStrength: 0, ravineTop: 0, ravineBottom: 0, ravineMask: 0, ravineMaxDepth: 0 };
+                     const caveColumnProfile = window.UndergroundCavesWorldgen?.createColumnProfile?.({
+                        wx,
+                        wz,
+                        perlin,
+                        CAVE_SCALE,
+                     }) || null;
                      for (let y = 0; y < CHUNK_HEIGHT; y++) {
                          let t = 0; // Block type
 
@@ -5903,6 +5910,7 @@ window.perlin = perlinInstance;
                             CAVE_MAX_Y_OFFSET,
                             CAVE_SURFACE_SAFETY_DEPTH,
                             sampleCaveShape,
+                            caveColumnProfile,
                         }) ?? t;
                          
                          
