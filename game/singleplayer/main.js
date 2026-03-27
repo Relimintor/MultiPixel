@@ -784,6 +784,12 @@ window.perlin = perlinInstance;
         const torchLightsByChunk = new Map();
         const chunks = new Map();
         const sparseAirChunkKeys = new Set();
+        let chunkMeshWorker = null;
+        let chunkMeshWorkerReady = false;
+        let chunkMeshWorkerSeq = 0;
+        const chunkMeshWorkerPending = new Map();
+        const chunkMeshWorkerCache = new Map();
+        let chunkMeshWorkerBlockMeta = null;
         const worldGroup = new THREE.Group();
         let frustumOptimizations = null;
         let chunkStreamOptimizations = null;
@@ -797,6 +803,87 @@ window.perlin = perlinInstance;
         let villagerMob = null;
         let glowstonePortalDimension1 = null;
         let dimension1WorldController = null;
+
+        function snapshotChunkMeshBlockMeta() {
+            const out = {};
+            Object.entries(blockMaterials || {}).forEach(([id, mat]) => {
+                out[String(id)] = {
+                    transparent: Boolean(mat?.transparent),
+                    textured: Boolean(mat?.textured),
+                    textureKey: mat?.textureKey || null,
+                    shape: mat?.shape || null,
+                };
+            });
+            return out;
+        }
+
+        function initChunkMeshWorker() {
+            if (typeof window.Worker !== 'function') return;
+            try {
+                chunkMeshWorker = new Worker('./optimiations/chunk_mesh_worker.js?v=1');
+                chunkMeshWorkerReady = true;
+                chunkMeshWorker.onmessage = (event) => {
+                    const msg = event?.data || {};
+                    if (msg.type !== 'meshResult') return;
+                    const pending = chunkMeshWorkerPending.get(msg.requestId);
+                    if (!pending) return;
+                    chunkMeshWorkerPending.delete(msg.requestId);
+                    chunkMeshWorkerCache.set(pending.chunkKey, { hash: pending.hash, quads: Array.isArray(msg.quads) ? msg.quads : [] });
+                    const group = chunks.get(pending.chunkKey);
+                    if (group?.userData?.chunkData && group.userData.meshHash === pending.hash) {
+                        updateChunkGeometry(group, group.userData.chunkData, true);
+                    }
+                };
+                chunkMeshWorker.onerror = (err) => {
+                    console.warn('[ChunkMeshWorker] Worker error, falling back to main-thread meshing.', err);
+                    chunkMeshWorkerReady = false;
+                    chunkMeshWorker = null;
+                    chunkMeshWorkerPending.clear();
+                    chunkMeshWorkerCache.clear();
+                };
+            } catch (err) {
+                console.warn('[ChunkMeshWorker] Failed to start worker, using main-thread meshing.', err);
+                chunkMeshWorkerReady = false;
+                chunkMeshWorker = null;
+            }
+        }
+
+        function requestChunkMeshWorkerQuads(group, data, hash) {
+            if (!chunkMeshWorkerReady || !chunkMeshWorker || !group?.userData) return false;
+            const chunkKey = `${group.userData.cx},${group.userData.cz}`;
+            const cached = chunkMeshWorkerCache.get(chunkKey);
+            if (cached?.hash === hash) return true;
+
+            for (const pending of chunkMeshWorkerPending.values()) {
+                if (pending.chunkKey === chunkKey && pending.hash === hash) return false;
+            }
+
+            const cx = Number(group.userData.cx) || 0;
+            const cz = Number(group.userData.cz) || 0;
+            const east = chunks.get(`${cx + 1},${cz}`)?.userData?.chunkData || null;
+            const west = chunks.get(`${cx - 1},${cz}`)?.userData?.chunkData || null;
+            const south = chunks.get(`${cx},${cz + 1}`)?.userData?.chunkData || null;
+            const north = chunks.get(`${cx},${cz - 1}`)?.userData?.chunkData || null;
+            const requestId = ++chunkMeshWorkerSeq;
+            chunkMeshWorkerPending.set(requestId, { chunkKey, hash });
+            chunkMeshWorker.postMessage({
+                type: 'mesh',
+                requestId,
+                chunkKey,
+                CS: CHUNK_SIZE,
+                CH: CHUNK_HEIGHT,
+                data: data,
+                east,
+                west,
+                north,
+                south,
+                blockMeta: chunkMeshWorkerBlockMeta || (chunkMeshWorkerBlockMeta = snapshotChunkMeshBlockMeta()),
+            });
+            return false;
+        }
+
+        initChunkMeshWorker();
+
         remeshOptimizations = window.SingleplayerChunkRemeshOptimizations?.create?.({
             getChunkKey: chunkKeyFromCoords,
             getChunk: (key) => chunks.get(key),
@@ -1153,6 +1240,15 @@ window.perlin = perlinInstance;
             remotePlayers.delete(key);
         }
 
+        function clearRemotePlayers() {
+            const ids = Array.from(remotePlayers.keys());
+            ids.forEach((id) => removeRemotePlayer(id));
+        }
+
+        function getRemotePlayerIds() {
+            return Array.from(remotePlayers.keys());
+        }
+
         function refreshRemotePlayerLabels() {
             if (!camera || !renderer) return;
             remotePlayers.forEach((entry) => {
@@ -1322,6 +1418,8 @@ window.perlin = perlinInstance;
                 getLocalPlayerState: getLocalMultiplayerState,
                 updateOtherPlayer: updateRemotePlayerState,
                 removeOtherPlayer: removeRemotePlayer,
+                clearOtherPlayers: clearRemotePlayers,
+                getRemotePlayerIds,
                 pushNetworkChatMessage(payload) {
                     window.SingleplayerChat?.receiveNetworkMessage?.(payload);
                 },
@@ -6848,6 +6946,7 @@ window.perlin = perlinInstance;
             if (chunkGroup.userData?.meshesByKey) {
                 chunkGroup.userData.meshesByKey.clear();
             }
+            chunkMeshWorkerCache.delete(chunkKey);
             chunks.delete(chunkKey);
         }
 
@@ -7153,6 +7252,36 @@ window.perlin = perlinInstance;
                 return out;
             };
 
+            const isPowerOfTwo = (value) => Number.isInteger(value) && value > 0 && (value & (value - 1)) === 0;
+
+            const canUseScaledWrappedUv = (materialKey, uv) => {
+                const mat = materials[materialKey];
+                const tex = mat?.map;
+                if (!tex) return false;
+                const u0 = Math.min(uv[0], uv[2], uv[4], uv[6]);
+                const u1 = Math.max(uv[0], uv[2], uv[4], uv[6]);
+                const v0 = Math.min(uv[1], uv[3], uv[5], uv[7]);
+                const v1 = Math.max(uv[1], uv[3], uv[5], uv[7]);
+                const fullTextureUv = Math.abs(u0) < 0.000001 && Math.abs(v0) < 0.000001 && Math.abs(u1 - 1) < 0.000001 && Math.abs(v1 - 1) < 0.000001;
+                if (!fullTextureUv) return false;
+                const imageW = Number(tex.image?.naturalWidth || tex.image?.width || 0);
+                const imageH = Number(tex.image?.naturalHeight || tex.image?.height || 0);
+                if (!isPowerOfTwo(imageW) || !isPowerOfTwo(imageH)) return false;
+                return tex.wrapS === THREE.RepeatWrapping && tex.wrapT === THREE.RepeatWrapping;
+            };
+
+            const lerpVec3 = (a, b, t) => ([
+                a[0] + (b[0] - a[0]) * t,
+                a[1] + (b[1] - a[1]) * t,
+                a[2] + (b[2] - a[2]) * t,
+            ]);
+
+            const sampleQuadPoint = (corners, u, v) => {
+                const left = lerpVec3(corners[1], corners[0], v);
+                const right = lerpVec3(corners[2], corners[3], v);
+                return lerpVec3(left, right, u);
+            };
+
             const ensureGeometryData = (materialKey) => {
                 if (!geometryData[materialKey]) geometryData[materialKey] = { pos: [], norm: [], col: [], uv: [] };
                 return geometryData[materialKey];
@@ -7235,6 +7364,109 @@ window.perlin = perlinInstance;
                 }
             };
 
+            const emitGreedyQuad = (id, materialKey, dir, corners, uvInfo, repeatU, repeatV) => {
+                const tileU = Math.max(1, Math.floor(Number(repeatU) || 1));
+                const tileV = Math.max(1, Math.floor(Number(repeatV) || 1));
+                if (!uvInfo?.canTile || (tileU === 1 && tileV === 1)) {
+                    emitQuad(id, materialKey, dir, corners, uvInfo?.uv || [0, 1, 0, 0, 1, 0, 1, 1]);
+                    return;
+                }
+                if (canUseScaledWrappedUv(materialKey, uvInfo.uv)) {
+                    emitQuad(id, materialKey, dir, corners, scaledUv(uvInfo.uv, tileU, tileV));
+                    return;
+                }
+
+                // Fallback for atlas / NPOT textures: subdivide merged quad into unit tiles.
+                for (let tv = 0; tv < tileV; tv++) {
+                    const vMin = tv / tileV;
+                    const vMax = (tv + 1) / tileV;
+                    for (let tu = 0; tu < tileU; tu++) {
+                        const uMin = tu / tileU;
+                        const uMax = (tu + 1) / tileU;
+                        const tileCorners = [
+                            sampleQuadPoint(corners, uMin, vMax),
+                            sampleQuadPoint(corners, uMin, vMin),
+                            sampleQuadPoint(corners, uMax, vMin),
+                            sampleQuadPoint(corners, uMax, vMax),
+                        ];
+                        emitQuad(id, materialKey, dir, tileCorners, uvInfo.uv);
+                    }
+                }
+            };
+
+            const workerQuads = (() => {
+                if (!chunkMeshWorkerReady) return null;
+                const chunkKey = `${cx},${cz}`;
+                const cached = chunkMeshWorkerCache.get(chunkKey);
+                if (cached?.hash === nextHash && Array.isArray(cached.quads)) return cached.quads;
+                const ready = requestChunkMeshWorkerQuads(group, data, nextHash);
+                if (!ready) return null;
+                const nextCached = chunkMeshWorkerCache.get(chunkKey);
+                if (nextCached?.hash === nextHash && Array.isArray(nextCached.quads)) return nextCached.quads;
+                return null;
+            })();
+
+            const workerFaceDir = (faceName) => {
+                if (faceName === 'top') return [0, 1, 0];
+                if (faceName === 'bottom') return [0, -1, 0];
+                if (faceName === 'posX') return [1, 0, 0];
+                if (faceName === 'negX') return [-1, 0, 0];
+                if (faceName === 'posZ') return [0, 0, 1];
+                if (faceName === 'negZ') return [0, 0, -1];
+                return null;
+            };
+
+            const emitWorkerQuad = (quad) => {
+                const id = Number(quad?.id);
+                const faceName = String(quad?.face || '');
+                const dir = workerFaceDir(faceName);
+                if (!Number.isFinite(id) || !dir) return;
+                const x = Math.floor(Number(quad?.x));
+                const y = Math.floor(Number(quad?.y));
+                const z = Math.floor(Number(quad?.z));
+                const w = Math.max(1, Math.floor(Number(quad?.w) || 1));
+                const h = Math.max(1, Math.floor(Number(quad?.h) || 1));
+                const wx = cx * CS + x;
+                const wz = cz * CS + z;
+                const materialKey = getMaterialKey(id, dir);
+                const uvInfo = getFaceUvInfo(id, faceName, [0, 1, 0, 0, 1, 0, 1, 1]);
+
+                let corners = null;
+                if (faceName === 'top') {
+                    corners = [[wx, y + 1, wz + h], [wx + w, y + 1, wz + h], [wx + w, y + 1, wz], [wx, y + 1, wz]];
+                    emitGreedyQuad(id, materialKey, dir, corners, uvInfo, w, h);
+                    return;
+                }
+                if (faceName === 'bottom') {
+                    corners = [[wx, y, wz], [wx + w, y, wz], [wx + w, y, wz + h], [wx, y, wz + h]];
+                    emitGreedyQuad(id, materialKey, dir, corners, uvInfo, w, h);
+                    return;
+                }
+                if (faceName === 'posX') {
+                    const px = wx + 1;
+                    corners = [[px, y + w, wz + h], [px, y, wz + h], [px, y, wz], [px, y + w, wz]];
+                    emitGreedyQuad(id, materialKey, dir, corners, uvInfo, h, w);
+                    return;
+                }
+                if (faceName === 'negX') {
+                    const px = wx;
+                    corners = [[px, y + w, wz], [px, y, wz], [px, y, wz + h], [px, y + w, wz + h]];
+                    emitGreedyQuad(id, materialKey, dir, corners, uvInfo, h, w);
+                    return;
+                }
+                if (faceName === 'posZ') {
+                    const pz = wz + 1;
+                    corners = [[wx, y + w, pz], [wx, y, pz], [wx + h, y, pz], [wx + h, y + w, pz]];
+                    emitGreedyQuad(id, materialKey, dir, corners, uvInfo, h, w);
+                    return;
+                }
+                if (faceName === 'negZ') {
+                    const pz = wz;
+                    corners = [[wx + h, y + w, pz], [wx + h, y, pz], [wx, y, pz], [wx, y + w, pz]];
+                    emitGreedyQuad(id, materialKey, dir, corners, uvInfo, h, w);
+                }
+            };
+
             const greedyFaces = [
                 { name: 'top', dir: [0, 1, 0], axis: 'y', sign: 1 },
                 { name: 'bottom', dir: [0, -1, 0], axis: 'y', sign: -1 },
@@ -7244,7 +7476,9 @@ window.perlin = perlinInstance;
                 { name: 'negZ', dir: [0, 0, -1], axis: 'z', sign: -1 },
             ];
 
-            for (const face of greedyFaces) {
+            if (workerQuads) {
+                workerQuads.forEach((quad) => emitWorkerQuad(quad));
+            } else for (const face of greedyFaces) {
                 if (face.axis === 'y') {
                     for (let y = 0; y < CH; y++) {
                         const visited = Array(CS * CS).fill(false);
@@ -7290,8 +7524,7 @@ window.perlin = perlinInstance;
                                 const corners = face.sign > 0
                                     ? [[wx, py, wz + h], [wx + w, py, wz + h], [wx + w, py, wz], [wx, py, wz]]
                                     : [[wx, py, wz], [wx + w, py, wz], [wx + w, py, wz + h], [wx, py, wz + h]];
-                                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, w, h) : uvInfo.uv;
-                                emitQuad(id, materialKey, face.dir, corners, uv);
+                                emitGreedyQuad(id, materialKey, face.dir, corners, uvInfo, w, h);
                             }
                         }
                     }
@@ -7340,8 +7573,7 @@ window.perlin = perlinInstance;
                                 const corners = face.sign > 0
                                     ? [[px, y + w, wz + h], [px, y, wz + h], [px, y, wz], [px, y + w, wz]]
                                     : [[px, y + w, wz], [px, y, wz], [px, y, wz + h], [px, y + w, wz + h]];
-                                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, h, w) : uvInfo.uv;
-                                emitQuad(id, materialKey, face.dir, corners, uv);
+                                emitGreedyQuad(id, materialKey, face.dir, corners, uvInfo, h, w);
                             }
                         }
                     }
@@ -7390,8 +7622,7 @@ window.perlin = perlinInstance;
                                 const corners = face.sign > 0
                                     ? [[wx, y + w, pz], [wx, y, pz], [wx + h, y, pz], [wx + h, y + w, pz]]
                                     : [[wx + h, y + w, pz], [wx + h, y, pz], [wx, y, pz], [wx, y + w, pz]];
-                                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, h, w) : uvInfo.uv;
-                                emitQuad(id, materialKey, face.dir, corners, uv);
+                                emitGreedyQuad(id, materialKey, face.dir, corners, uvInfo, h, w);
                             }
                         }
                     }
