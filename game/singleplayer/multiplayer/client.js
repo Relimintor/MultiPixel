@@ -214,6 +214,7 @@
       console.warn('[Multiplayer] socket.io client missing.');
       return;
     }
+    if (socket) return;
 
     socket = window.io(SERVER_URL, {
       transports: ['websocket', 'polling'],

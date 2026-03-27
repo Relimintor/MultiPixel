@@ -14,18 +14,19 @@
 
   function execute(parts, ctx) {
     const targetRaw = String(parts[1] || '').toLowerCase();
-    const playerTargetRaw = String(parts[2] || '').trim();
-    const usesNamedTarget = targetRaw === 'player';
-    const effectIndex = usesNamedTarget ? 3 : 2;
-    const durationIndex = usesNamedTarget ? 4 : 3;
-    const effectRaw = String(parts[effectIndex] || '').toLowerCase();
-    const durationRaw = parts[durationIndex];
-    if (!targetRaw || !effectRaw || !durationRaw || (usesNamedTarget && !playerTargetRaw)) {
-      return { handled: true, ok: false, message: 'Usage: /effect <me|player <player_name>> <nausea|badlands> <duration[s|m|h]>' };
-    }
     if (targetRaw !== 'me' && targetRaw !== 'player') {
       return { handled: true, ok: false, message: 'Target must be "me" or "player <player_name>".' };
     }
+
+    const usesNamedTarget = targetRaw === 'player';
+    const expectedPartCount = usesNamedTarget ? 5 : 4;
+    if (parts.length !== expectedPartCount) {
+      return { handled: true, ok: false, message: 'Usage: /effect <me|player <player_name>> <nausea|badlands> <duration[s|m|h]>' };
+    }
+
+    const playerTargetRaw = usesNamedTarget ? String(parts[2] || '').trim() : 'me';
+    const effectRaw = String(parts[usesNamedTarget ? 3 : 2] || '').toLowerCase();
+    const durationRaw = parts[usesNamedTarget ? 4 : 3];
     if (effectRaw !== 'nausea' && effectRaw !== 'badlands') {
       return { handled: true, ok: false, message: 'Only nausea and badlands are supported right now.' };
     }
@@ -34,7 +35,7 @@
       return { handled: true, ok: false, message: 'Invalid duration. Example: 15s, 30, 2m.' };
     }
 
-    const targetIdentity = usesNamedTarget ? playerTargetRaw : 'me';
+    const targetIdentity = playerTargetRaw;
     if (!ctx.applyPlayerEffect || !ctx.applyPlayerEffect(effectRaw, durationSeconds, { source: 'command', target: targetIdentity })) {
       return { handled: true, ok: false, message: 'Could not apply effect.' };
     }

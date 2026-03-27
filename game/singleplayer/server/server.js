@@ -20,6 +20,8 @@ const chatHistory = [];
 const CHAT_HISTORY_LIMIT = 80;
 let persistTimer = null;
 let worldDirty = false;
+let worldRevision = 0;
+let persistedRevision = 0;
 
 function blockKey(x, y, z) {
   return `${x},${y},${z}`;
@@ -50,16 +52,26 @@ function loadWorldState() {
 function schedulePersistWorldState() {
   if (persistTimer) return;
   persistTimer = setTimeout(() => {
+    const snapshotRevision = worldRevision;
     const payload = {
       updatedAt: Date.now(),
       blocks: Array.from(worldBlocks.values())
     };
     fs.writeFile(STATE_PATH, JSON.stringify(payload), (err) => {
       if (err) console.error('Failed persisting world state:', err);
-      else worldDirty = false;
+      else {
+        persistedRevision = Math.max(persistedRevision, snapshotRevision);
+        worldDirty = persistedRevision < worldRevision;
+      }
+      persistTimer = null;
+      if (worldDirty) schedulePersistWorldState();
     });
-    persistTimer = null;
   }, 50);
+}
+
+function markWorldDirty() {
+  worldRevision++;
+  worldDirty = true;
 }
 
 loadWorldState();
@@ -162,7 +174,7 @@ io.on('connection', (socket) => {
     } else {
       worldBlocks.set(blockKey(x, y, z), next);
     }
-    worldDirty = true;
+    markWorldDirty();
     socket.broadcast.emit('blockUpdate', next);
   });
 
