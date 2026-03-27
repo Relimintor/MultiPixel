@@ -1153,6 +1153,15 @@ window.perlin = perlinInstance;
             remotePlayers.delete(key);
         }
 
+        function clearRemotePlayers() {
+            const ids = Array.from(remotePlayers.keys());
+            ids.forEach((id) => removeRemotePlayer(id));
+        }
+
+        function getRemotePlayerIds() {
+            return Array.from(remotePlayers.keys());
+        }
+
         function refreshRemotePlayerLabels() {
             if (!camera || !renderer) return;
             remotePlayers.forEach((entry) => {
@@ -1322,6 +1331,8 @@ window.perlin = perlinInstance;
                 getLocalPlayerState: getLocalMultiplayerState,
                 updateOtherPlayer: updateRemotePlayerState,
                 removeOtherPlayer: removeRemotePlayer,
+                clearOtherPlayers: clearRemotePlayers,
+                getRemotePlayerIds,
                 pushNetworkChatMessage(payload) {
                     window.SingleplayerChat?.receiveNetworkMessage?.(payload);
                 },
@@ -7153,6 +7164,36 @@ window.perlin = perlinInstance;
                 return out;
             };
 
+            const isPowerOfTwo = (value) => Number.isInteger(value) && value > 0 && (value & (value - 1)) === 0;
+
+            const canUseScaledWrappedUv = (materialKey, uv) => {
+                const mat = materials[materialKey];
+                const tex = mat?.map;
+                if (!tex) return false;
+                const u0 = Math.min(uv[0], uv[2], uv[4], uv[6]);
+                const u1 = Math.max(uv[0], uv[2], uv[4], uv[6]);
+                const v0 = Math.min(uv[1], uv[3], uv[5], uv[7]);
+                const v1 = Math.max(uv[1], uv[3], uv[5], uv[7]);
+                const fullTextureUv = Math.abs(u0) < 0.000001 && Math.abs(v0) < 0.000001 && Math.abs(u1 - 1) < 0.000001 && Math.abs(v1 - 1) < 0.000001;
+                if (!fullTextureUv) return false;
+                const imageW = Number(tex.image?.naturalWidth || tex.image?.width || 0);
+                const imageH = Number(tex.image?.naturalHeight || tex.image?.height || 0);
+                if (!isPowerOfTwo(imageW) || !isPowerOfTwo(imageH)) return false;
+                return tex.wrapS === THREE.RepeatWrapping && tex.wrapT === THREE.RepeatWrapping;
+            };
+
+            const lerpVec3 = (a, b, t) => ([
+                a[0] + (b[0] - a[0]) * t,
+                a[1] + (b[1] - a[1]) * t,
+                a[2] + (b[2] - a[2]) * t,
+            ]);
+
+            const sampleQuadPoint = (corners, u, v) => {
+                const left = lerpVec3(corners[1], corners[0], v);
+                const right = lerpVec3(corners[2], corners[3], v);
+                return lerpVec3(left, right, u);
+            };
+
             const ensureGeometryData = (materialKey) => {
                 if (!geometryData[materialKey]) geometryData[materialKey] = { pos: [], norm: [], col: [], uv: [] };
                 return geometryData[materialKey];
@@ -7235,6 +7276,36 @@ window.perlin = perlinInstance;
                 }
             };
 
+            const emitGreedyQuad = (id, materialKey, dir, corners, uvInfo, repeatU, repeatV) => {
+                const tileU = Math.max(1, Math.floor(Number(repeatU) || 1));
+                const tileV = Math.max(1, Math.floor(Number(repeatV) || 1));
+                if (!uvInfo?.canTile || (tileU === 1 && tileV === 1)) {
+                    emitQuad(id, materialKey, dir, corners, uvInfo?.uv || [0, 1, 0, 0, 1, 0, 1, 1]);
+                    return;
+                }
+                if (canUseScaledWrappedUv(materialKey, uvInfo.uv)) {
+                    emitQuad(id, materialKey, dir, corners, scaledUv(uvInfo.uv, tileU, tileV));
+                    return;
+                }
+
+                // Fallback for atlas / NPOT textures: subdivide merged quad into unit tiles.
+                for (let tv = 0; tv < tileV; tv++) {
+                    const vMin = tv / tileV;
+                    const vMax = (tv + 1) / tileV;
+                    for (let tu = 0; tu < tileU; tu++) {
+                        const uMin = tu / tileU;
+                        const uMax = (tu + 1) / tileU;
+                        const tileCorners = [
+                            sampleQuadPoint(corners, uMin, vMax),
+                            sampleQuadPoint(corners, uMin, vMin),
+                            sampleQuadPoint(corners, uMax, vMin),
+                            sampleQuadPoint(corners, uMax, vMax),
+                        ];
+                        emitQuad(id, materialKey, dir, tileCorners, uvInfo.uv);
+                    }
+                }
+            };
+
             const greedyFaces = [
                 { name: 'top', dir: [0, 1, 0], axis: 'y', sign: 1 },
                 { name: 'bottom', dir: [0, -1, 0], axis: 'y', sign: -1 },
@@ -7290,8 +7361,7 @@ window.perlin = perlinInstance;
                                 const corners = face.sign > 0
                                     ? [[wx, py, wz + h], [wx + w, py, wz + h], [wx + w, py, wz], [wx, py, wz]]
                                     : [[wx, py, wz], [wx + w, py, wz], [wx + w, py, wz + h], [wx, py, wz + h]];
-                                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, w, h) : uvInfo.uv;
-                                emitQuad(id, materialKey, face.dir, corners, uv);
+                                emitGreedyQuad(id, materialKey, face.dir, corners, uvInfo, w, h);
                             }
                         }
                     }
@@ -7340,8 +7410,7 @@ window.perlin = perlinInstance;
                                 const corners = face.sign > 0
                                     ? [[px, y + w, wz + h], [px, y, wz + h], [px, y, wz], [px, y + w, wz]]
                                     : [[px, y + w, wz], [px, y, wz], [px, y, wz + h], [px, y + w, wz + h]];
-                                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, h, w) : uvInfo.uv;
-                                emitQuad(id, materialKey, face.dir, corners, uv);
+                                emitGreedyQuad(id, materialKey, face.dir, corners, uvInfo, h, w);
                             }
                         }
                     }
@@ -7390,8 +7459,7 @@ window.perlin = perlinInstance;
                                 const corners = face.sign > 0
                                     ? [[wx, y + w, pz], [wx, y, pz], [wx + h, y, pz], [wx + h, y + w, pz]]
                                     : [[wx + h, y + w, pz], [wx + h, y, pz], [wx, y, pz], [wx, y + w, pz]];
-                                const uv = uvInfo.canTile ? scaledUv(uvInfo.uv, h, w) : uvInfo.uv;
-                                emitQuad(id, materialKey, face.dir, corners, uv);
+                                emitGreedyQuad(id, materialKey, face.dir, corners, uvInfo, h, w);
                             }
                         }
                     }
