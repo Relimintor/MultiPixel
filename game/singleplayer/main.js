@@ -2866,6 +2866,78 @@ window.perlin = perlinInstance;
             return { ok: true, message: `Spawned village/${requested}.json in ${biomeKey} at ${placed.x}, ${placed.y}, ${placed.z}.` };
         }
 
+        function spawnBadlandsSpire() {
+            if (!yawObject) return { ok: false, message: 'Player not ready.' };
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(yawObject.quaternion);
+            const coreX = Math.floor(yawObject.position.x + forward.x * 14);
+            const coreZ = Math.floor(yawObject.position.z + forward.z * 14);
+            const biome = getBiome(coreX, coreZ);
+            if (biome !== 'Badlands') {
+                return { ok: false, message: 'Badlands spire can only be spawned in badlands.' };
+            }
+            const groundY = Math.floor(getNoiseGroundHeight(coreX, coreZ, biome));
+            if (groundY < (window.BadlandsSpireGeneration?.BADLANDS_SPIRE_MIN_GROUND_Y || 74)) {
+                return { ok: false, message: 'Find a higher badlands mesa before spawning a spire.' };
+            }
+
+            const placeSolid = (x, y, z, id) => setBlockTypeRaw(x, y, z, id, true);
+            const terracottaIds = [2, 11, 17];
+            const accentIds = [13, 30, 35, 40];
+            const topHeight = 11 + Math.floor(hashRand2D(coreX, coreZ, 44290) * 6);
+
+            for (let ox = -3; ox <= 3; ox++) {
+                for (let oz = -3; oz <= 3; oz++) {
+                    const wx = coreX + ox;
+                    const wz = coreZ + oz;
+                    const gy = Math.floor(getNoiseGroundHeight(wx, wz, biome));
+                    const radial = Math.sqrt(ox * ox + oz * oz);
+                    if (radial > 3.3) continue;
+                    const taper = Math.max(1, Math.floor(topHeight - radial * 2.1));
+                    for (let yOff = 1; yOff <= taper; yOff++) {
+                        const accents = hashRand2D(wx + yOff * 7, wz - yOff * 13, 44291) < 0.1;
+                        const palette = accents ? accentIds : terracottaIds;
+                        const block = palette[Math.floor(hashRand2D(wx + yOff, wz - yOff, 44292) * palette.length) % palette.length];
+                        placeSolid(wx, gy + yOff, wz, block);
+                    }
+                }
+            }
+
+            const chestY = groundY + 4;
+            placeSolid(coreX, chestY, coreZ, 82);
+            placeSolid(coreX, chestY - 1, coreZ, 11);
+            seedChestStateWithLoot(`${coreX},${chestY},${coreZ}`, window.BadlandsSpireChestLoot?.generateLoot?.({ hashRand2D, seedX: coreX, seedZ: coreZ }) || []);
+            ensureChunksAroundPlayer(true);
+            return { ok: true, message: `Spawned badlands spire at ${coreX}, ${chestY}, ${coreZ}.` };
+        }
+
+        function spawnMineshaft(rawBiomeName) {
+            if (!yawObject) return { ok: false, message: 'Player not ready.' };
+            const mg = window.MineshaftGeneration || {};
+            if (rawBiomeName && !mg.isAllowedBiome?.(rawBiomeName)) {
+                return { ok: false, message: 'Mineshaft biome must be one of: badlands, desert, plains, oak_forest, jungle_forest.' };
+            }
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(yawObject.quaternion);
+            const coreX = Math.floor(yawObject.position.x + forward.x * 14);
+            const coreZ = Math.floor(yawObject.position.z + forward.z * 14);
+            const biome = getBiome(coreX, coreZ);
+            if (rawBiomeName && mg.normalizeBiomeKey?.(rawBiomeName) !== mg.normalizeBiomeKey?.(biome)) {
+                return { ok: false, message: `Current biome is ${biome}, not ${rawBiomeName}.` };
+            }
+            if (!mg.isAllowedBiome?.(biome)) {
+                return { ok: false, message: `Biome ${biome} is not valid for mineshafts.` };
+            }
+            const y = 26;
+            for (let x = coreX - 2; x <= coreX + 2; x++) {
+                for (let yy = y; yy <= y + 3; yy++) {
+                    for (let z = coreZ - 2; z <= coreZ + 2; z++) setBlockTypeRaw(x, yy, z, 0, true);
+                }
+            }
+            setBlockTypeRaw(coreX, y + 1, coreZ, 82, true);
+            seedChestStateWithLoot(`${coreX},${y + 1},${coreZ}`, window.MineshaftChestLoot?.generateLoot?.({ hashRand2D, seedX: coreX, seedZ: coreZ }) || []);
+            ensureChunksAroundPlayer(true);
+            return { ok: true, message: `Spawned mineshaft chamber at ${coreX}, ${y + 1}, ${coreZ}.` };
+        }
+
         function spawnGnomeAt(wx, wy, wz) {
             const gnome = new THREE.Group();
             gnome.position.set(wx + 0.5, wy, wz + 0.5);
@@ -3118,6 +3190,8 @@ window.perlin = perlinInstance;
                 getMobById: (id) => window.SingleplayerMobConfig?.byId?.[id] || null,
                 spawnMobById,
                 spawnVillageStructure,
+                spawnBadlandsSpire,
+                spawnMineshaft,
                 setTimeByClock,
                 setRenderDistance,
                 getRenderDistance: () => currentChunkLoadRadius,
@@ -3141,6 +3215,8 @@ window.perlin = perlinInstance;
                 teleportToBiome,
                 teleportToVillageStructure,
                 teleportToRuinStructure,
+                teleportToBadlandsSpire,
+                teleportToMineshaft,
                 openCommandHelp: () => window.SingleplayerChat?.openCommandHelp?.(),
                 mobileAssetBase: MOBILE_ASSET_BASE,
                 onSendMessage: (text) => window.MultiPixelMultiplayerClient?.sendChatMessage?.(text) || false,
@@ -6001,6 +6077,8 @@ window.perlin = perlinInstance;
              });
              const placedVillage = placeVillageInChunk(data, cx, cz, spawnedVillagers);
              placeRuinsInChunk(data, cx, cz);
+             placeBadlandsSpiresInChunk(data, cx, cz);
+             placeMineshaftsInChunk(data, cx, cz);
              if (!placedVillage) {
                  window.DesertWorldgen?.placeDesertWellInChunk?.({
                      data,
@@ -6868,6 +6946,228 @@ window.perlin = perlinInstance;
                 }
             }
 
+            return placedAny;
+        }
+
+        function placeBadlandsSpiresInChunk(data, cx, cz) {
+            const sg = window.BadlandsSpireGeneration || {};
+            if (!sg.getSpireRegionCandidate) return false;
+
+            const regionSize = Number(sg.BADLANDS_SPIRE_REGION_SIZE) || 448;
+            const chance = Number(sg.BADLANDS_SPIRE_CHANCE_PER_REGION) || 0.07;
+            const minGroundY = Number(sg.BADLANDS_SPIRE_MIN_GROUND_Y) || 74;
+            const influenceRadius = 24;
+            const chunkMinX = cx * CHUNK_SIZE;
+            const chunkMinZ = cz * CHUNK_SIZE;
+            const chunkMaxX = chunkMinX + CHUNK_SIZE - 1;
+            const chunkMaxZ = chunkMinZ + CHUNK_SIZE - 1;
+            const regionMinX = Math.floor((chunkMinX - influenceRadius) / regionSize);
+            const regionMaxX = Math.floor((chunkMaxX + influenceRadius) / regionSize);
+            const regionMinZ = Math.floor((chunkMinZ - influenceRadius) / regionSize);
+            const regionMaxZ = Math.floor((chunkMaxZ + influenceRadius) / regionSize);
+
+            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
+            const getColumnTop = (lx, lz) => {
+                for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
+                    const topBlock = data[idx(lx, y, lz)];
+                    if (topBlock !== 0 && topBlock !== 4) return y;
+                }
+                return -1;
+            };
+            const getGroundYAt = (wx, wz) => {
+                if (wx < chunkMinX || wx > chunkMaxX || wz < chunkMinZ || wz > chunkMaxZ) return null;
+                const lx = wx - chunkMinX;
+                const lz = wz - chunkMinZ;
+                const top = getColumnTop(lx, lz);
+                return top > 0 ? top : null;
+            };
+            const placeSolid = (wx, wy, wz, blockId) => {
+                if (wx < chunkMinX || wx > chunkMaxX || wz < chunkMinZ || wz > chunkMaxZ) return false;
+                if (wy < 1 || wy >= CHUNK_HEIGHT - 1) return false;
+                data[idx(wx - chunkMinX, wy, wz - chunkMinZ)] = blockId;
+                return true;
+            };
+            const placedSpires = new Set();
+            let placedAny = false;
+
+            function placeSpireAt(coreX, coreZ) {
+                const coreGround = getGroundYAt(coreX, coreZ);
+                if (!Number.isFinite(coreGround) || coreGround < minGroundY) return false;
+
+                const terracottaIds = [2, 11, 17];
+                const accentIds = [13, 30, 35, 40];
+                const topHeight = 8 + Math.floor(hashRand2D(coreX, coreZ, 44150) * 8);
+
+                for (let ox = -3; ox <= 3; ox++) {
+                    for (let oz = -3; oz <= 3; oz++) {
+                        const wx = coreX + ox;
+                        const wz = coreZ + oz;
+                        const groundY = getGroundYAt(wx, wz);
+                        if (!Number.isFinite(groundY)) continue;
+                        const radial = Math.sqrt(ox * ox + oz * oz);
+                        if (radial > 3.4) continue;
+                        const taper = Math.max(1, Math.floor(topHeight - radial * 2.2));
+                        for (let yOff = 1; yOff <= taper; yOff++) {
+                            const useAccent = hashRand2D(wx + yOff * 7, wz - yOff * 11, 44151) < 0.08;
+                            const palette = useAccent ? accentIds : terracottaIds;
+                            const pick = Math.floor(hashRand2D(wx + yOff, wz - yOff, 44152) * palette.length) % palette.length;
+                            placeSolid(wx, groundY + yOff, wz, palette[pick]);
+                        }
+                    }
+                }
+
+                // Rare loot core: up to two chest ledges carved into the spire.
+                const chestCandidates = [{ x: 1, z: 0 }, { x: -1, z: 0 }, { x: 0, z: 1 }, { x: 0, z: -1 }, { x: 0, z: 0 }];
+                const chestCount = hashRand2D(coreX, coreZ, 44153) < 0.32 ? 2 : 1;
+                let placed = 0;
+                for (let i = 0; i < chestCandidates.length && placed < chestCount; i++) {
+                    const cand = chestCandidates[(i + Math.floor(hashRand2D(coreX, coreZ, 44154) * chestCandidates.length)) % chestCandidates.length];
+                    const wx = coreX + cand.x;
+                    const wz = coreZ + cand.z;
+                    const groundY = getGroundYAt(wx, wz);
+                    if (!Number.isFinite(groundY)) continue;
+                    const shelfY = groundY + 2 + Math.floor(hashRand2D(wx, wz, 44155 + i) * 3);
+                    if (!placeSolid(wx, shelfY, wz, 82)) continue;
+                    placeSolid(wx, shelfY - 1, wz, 11);
+                    const chestKey = `${wx},${shelfY},${wz}`;
+                    const loot = window.BadlandsSpireChestLoot?.generateLoot?.({ hashRand2D, seedX: coreX, seedZ: coreZ }) || [];
+                    seedChestStateWithLoot(chestKey, loot);
+                    placed++;
+                }
+
+                // Surface ore traces around the spire so players can visually discover the unique ore halo below.
+                for (let i = 0; i < 20; i++) {
+                    const ox = Math.floor(hashRand2D(coreX, coreZ, 44170 + i) * 17) - 8;
+                    const oz = Math.floor(hashRand2D(coreX, coreZ, 44200 + i) * 17) - 8;
+                    const wx = coreX + ox;
+                    const wz = coreZ + oz;
+                    const groundY = getGroundYAt(wx, wz);
+                    if (!Number.isFinite(groundY)) continue;
+                    const d = Math.sqrt(ox * ox + oz * oz);
+                    if (d < 2 || d > 8.7) continue;
+                    const roll = hashRand2D(wx * 3, wz * 7, 44240 + i);
+                    const oreId = d < 4 ? (roll < 0.5 ? 35 : 30) : (roll < 0.75 ? 40 : 54);
+                    placeSolid(wx, groundY, wz, oreId);
+                }
+
+                return true;
+            }
+
+            for (let rx = regionMinX; rx <= regionMaxX; rx++) {
+                for (let rz = regionMinZ; rz <= regionMaxZ; rz++) {
+                    const candidateInfo = sg.getSpireRegionCandidate({
+                        regionX: rx,
+                        regionZ: rz,
+                        hashRand2D,
+                        getBiomeAt: (x, z) => getBiome(Math.floor(x), Math.floor(z)),
+                        chance,
+                        regionSize,
+                    });
+                    if (!candidateInfo?.allowed || !candidateInfo?.candidate) continue;
+                    const coreX = Math.floor(candidateInfo.candidate.worldX);
+                    const coreZ = Math.floor(candidateInfo.candidate.worldZ);
+                    const spireKey = `${coreX},${coreZ}`;
+                    if (placedSpires.has(spireKey)) continue;
+                    if (coreX + influenceRadius < chunkMinX || coreX - influenceRadius > chunkMaxX || coreZ + influenceRadius < chunkMinZ || coreZ - influenceRadius > chunkMaxZ) continue;
+                    if (getBiome(coreX, coreZ) !== 'Badlands') continue;
+                    if (!placeSpireAt(coreX, coreZ)) continue;
+                    placedSpires.add(spireKey);
+                    placedAny = true;
+                }
+            }
+
+            return placedAny;
+        }
+
+        function placeMineshaftsInChunk(data, cx, cz) {
+            const mg = window.MineshaftGeneration || {};
+            if (!mg.getMineshaftRegionCandidate) return false;
+
+            const regionSize = Number(mg.DEFAULT_MINESHAFT_REGION_SIZE) || 320;
+            const chance = Number(mg.DEFAULT_MINESHAFT_CHANCE_PER_REGION) || 0.16;
+            const influenceRadius = 34;
+            const chunkMinX = cx * CHUNK_SIZE;
+            const chunkMinZ = cz * CHUNK_SIZE;
+            const chunkMaxX = chunkMinX + CHUNK_SIZE - 1;
+            const chunkMaxZ = chunkMinZ + CHUNK_SIZE - 1;
+            const regionMinX = Math.floor((chunkMinX - influenceRadius) / regionSize);
+            const regionMaxX = Math.floor((chunkMaxX + influenceRadius) / regionSize);
+            const regionMinZ = Math.floor((chunkMinZ - influenceRadius) / regionSize);
+            const regionMaxZ = Math.floor((chunkMaxZ + influenceRadius) / regionSize);
+            const placed = new Set();
+            let placedAny = false;
+
+            const idx = (lx, ly, lz) => lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT;
+            const setLocal = (wx, wy, wz, blockId) => {
+                if (wx < chunkMinX || wx > chunkMaxX || wz < chunkMinZ || wz > chunkMaxZ) return false;
+                if (wy < 2 || wy > CHUNK_HEIGHT - 3) return false;
+                data[idx(wx - chunkMinX, wy, wz - chunkMinZ)] = blockId;
+                return true;
+            };
+            const clearTunnelAt = (wx, wy, wz) => {
+                for (let y = wy; y <= wy + 2; y++) {
+                    for (let x = wx - 1; x <= wx + 1; x++) {
+                        for (let z = wz - 1; z <= wz + 1; z++) {
+                            setLocal(x, y, z, 0);
+                        }
+                    }
+                }
+            };
+
+            function placeMineshaftAt(coreX, coreY, coreZ) {
+                const dirs = [{ dx: 1, dz: 0 }, { dx: -1, dz: 0 }, { dx: 0, dz: 1 }, { dx: 0, dz: -1 }];
+                for (const dir of dirs) {
+                    const branchLen = 12 + Math.floor(hashRand2D(coreX + dir.dx, coreZ + dir.dz, 45400) * 12);
+                    for (let step = 0; step <= branchLen; step++) {
+                        const wx = coreX + dir.dx * step;
+                        const wz = coreZ + dir.dz * step;
+                        const wy = coreY + Math.floor(Math.sin(step * 0.24 + hashRand2D(coreX, coreZ, 45401) * Math.PI) * 1.2);
+                        clearTunnelAt(wx, wy, wz);
+
+                        // support arches
+                        if (step % 4 === 0) {
+                            setLocal(wx - (dir.dz !== 0 ? 1 : 0), wy, wz - (dir.dx !== 0 ? 1 : 0), 17);
+                            setLocal(wx + (dir.dz !== 0 ? 1 : 0), wy, wz + (dir.dx !== 0 ? 1 : 0), 17);
+                            setLocal(wx, wy + 2, wz, 17);
+                        }
+                    }
+                }
+
+                // central chest room
+                for (let x = coreX - 2; x <= coreX + 2; x++) {
+                    for (let y = coreY; y <= coreY + 3; y++) {
+                        for (let z = coreZ - 2; z <= coreZ + 2; z++) setLocal(x, y, z, 0);
+                    }
+                }
+                setLocal(coreX, coreY + 1, coreZ, 82);
+                const chestKey = `${coreX},${coreY + 1},${coreZ}`;
+                const loot = window.MineshaftChestLoot?.generateLoot?.({ hashRand2D, seedX: coreX, seedZ: coreZ }) || [];
+                seedChestStateWithLoot(chestKey, loot);
+                return true;
+            }
+
+            for (let rx = regionMinX; rx <= regionMaxX; rx++) {
+                for (let rz = regionMinZ; rz <= regionMaxZ; rz++) {
+                    const candidateInfo = mg.getMineshaftRegionCandidate({
+                        regionX: rx,
+                        regionZ: rz,
+                        hashRand2D,
+                        getBiomeAt: (x, z) => getBiome(Math.floor(x), Math.floor(z)),
+                        chance,
+                        regionSize
+                    });
+                    if (!candidateInfo?.allowed || !candidateInfo?.candidate) continue;
+                    const coreX = Math.floor(candidateInfo.candidate.worldX);
+                    const coreZ = Math.floor(candidateInfo.candidate.worldZ);
+                    const coreY = Math.max(10, Math.min(CHUNK_HEIGHT - 8, Math.floor(candidateInfo.candidate.y)));
+                    const key = `${coreX},${coreY},${coreZ}`;
+                    if (placed.has(key)) continue;
+                    if (coreX + influenceRadius < chunkMinX || coreX - influenceRadius > chunkMaxX || coreZ + influenceRadius < chunkMinZ || coreZ - influenceRadius > chunkMaxZ) continue;
+                    if (!placeMineshaftAt(coreX, coreY, coreZ)) continue;
+                    placed.add(key);
+                    placedAny = true;
+                }
+            }
             return placedAny;
         }
 
@@ -8127,6 +8427,92 @@ window.perlin = perlinInstance;
             }
 
             return { ok: false, message: `Could not find ruins candidate in biome ${targetBiomeKey}.` };
+        }
+
+        function teleportToBadlandsSpire(rawBiomeName) {
+            const sg = window.BadlandsSpireGeneration || {};
+            const targetBiomeKey = sg.normalizeBiomeKey?.(rawBiomeName);
+            if (targetBiomeKey !== 'badlands') {
+                return { ok: false, message: 'Spire biome must be badlands.' };
+            }
+
+            const regionSize = Number(sg.BADLANDS_SPIRE_REGION_SIZE) || 448;
+            const chance = Number(sg.BADLANDS_SPIRE_CHANCE_PER_REGION) || 0.07;
+            const minGroundY = Number(sg.BADLANDS_SPIRE_MIN_GROUND_Y) || 74;
+            const searchRegionRadius = 36;
+
+            for (let r = 0; r <= searchRegionRadius; r++) {
+                for (let rx = -r; rx <= r; rx++) {
+                    for (const rz of [-r, r]) {
+                        const candidateInfo = sg.getSpireRegionCandidate?.({
+                            regionX: rx,
+                            regionZ: rz,
+                            hashRand2D,
+                            getBiomeAt: (x, z) => getBiome(Math.floor(x), Math.floor(z)),
+                            chance,
+                            regionSize,
+                        });
+                        if (!candidateInfo?.allowed || !candidateInfo?.candidate) continue;
+                        const wx = Math.floor(candidateInfo.candidate.worldX);
+                        const wz = Math.floor(candidateInfo.candidate.worldZ);
+                        const biome = getBiome(wx, wz);
+                        if (biome !== 'Badlands') continue;
+                        const ground = Math.floor(getNoiseGroundHeight(wx, wz, biome));
+                        if (ground < minGroundY) continue;
+                        const y = Math.max(4, ground + 10);
+                        yawObject.position.set(wx + 0.5, y, wz + 0.5);
+                        player.velocity.set(0, 0, 0);
+                        player.isJumping = false;
+                        ensureChunksAroundPlayer(true);
+                        return {
+                            ok: true,
+                            structure: 'spire',
+                            biome: 'Badlands',
+                            message: `Teleported to badlands spire at ${wx}, ${Math.floor(y)}, ${wz}.`,
+                        };
+                    }
+                }
+            }
+
+            return { ok: false, message: 'Could not find a high badlands spire candidate nearby.' };
+        }
+
+        function teleportToMineshaft(rawBiomeName) {
+            const mg = window.MineshaftGeneration || {};
+            const target = mg.normalizeBiomeKey?.(rawBiomeName || '');
+            if (target && !mg.isAllowedBiome?.(target)) {
+                return { ok: false, message: 'Mineshaft biome must be one of: badlands, desert, plains, oak_forest, jungle_forest.' };
+            }
+            const regionSize = Number(mg.DEFAULT_MINESHAFT_REGION_SIZE) || 320;
+            const chance = Number(mg.DEFAULT_MINESHAFT_CHANCE_PER_REGION) || 0.16;
+            const searchRegionRadius = 32;
+
+            for (let r = 0; r <= searchRegionRadius; r++) {
+                for (let rx = -r; rx <= r; rx++) {
+                    for (const rz of [-r, r]) {
+                        const candidateInfo = mg.getMineshaftRegionCandidate?.({
+                            regionX: rx,
+                            regionZ: rz,
+                            hashRand2D,
+                            getBiomeAt: (x, z) => getBiome(Math.floor(x), Math.floor(z)),
+                            chance,
+                            regionSize
+                        });
+                        if (!candidateInfo?.allowed || !candidateInfo?.candidate) continue;
+                        const wx = Math.floor(candidateInfo.candidate.worldX);
+                        const wz = Math.floor(candidateInfo.candidate.worldZ);
+                        const biome = getBiome(wx, wz);
+                        if (target && mg.normalizeBiomeKey?.(biome) !== target) continue;
+                        const y = Math.floor(candidateInfo.candidate.y) + 2;
+                        yawObject.position.set(wx + 0.5, y, wz + 0.5);
+                        player.velocity.set(0, 0, 0);
+                        player.isJumping = false;
+                        ensureChunksAroundPlayer(true);
+                        return { ok: true, structure: 'mineshaft', biome, message: `Teleported to mineshaft in ${biome} at ${wx}, ${y}, ${wz}.` };
+                    }
+                }
+            }
+            return { ok: false, message: 'Could not find mineshaft candidate nearby.' };
         }
 
         function setInitialPlayerPosition() {

@@ -43,6 +43,48 @@
       }
 
       if (nextBlockId === 3 || nextBlockId === 13) {
+        const spireGen = window.BadlandsSpireGeneration;
+        const isBadlands = biome === 'Badlands';
+        if (isBadlands && spireGen?.getSpireRegionCandidate && y > CHUNK_HEIGHT * 0.28 && y < CHUNK_HEIGHT * 0.78) {
+          const regionSize = Number(spireGen.BADLANDS_SPIRE_REGION_SIZE) || 448;
+          const chance = Number(spireGen.BADLANDS_SPIRE_CHANCE_PER_REGION) || 0.07;
+          const regionX = Math.floor(wx / regionSize);
+          const regionZ = Math.floor(wz / regionSize);
+          const candidateInfo = spireGen.getSpireRegionCandidate({
+            regionX,
+            regionZ,
+            hashRand2D,
+            getBiomeAt: () => 'Badlands',
+            chance,
+            regionSize,
+          });
+          const candidate = candidateInfo?.allowed ? candidateInfo?.candidate : null;
+          if (candidate) {
+            const dx = wx - candidate.worldX;
+            const dz = wz - candidate.worldZ;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            const ringNoise = octaveNoise2D(wx + dx * 0.3, wz + dz * 0.3, 2, 0.55, 2.0, 0.11, 44101, -2210);
+            const deepBand = y < CHUNK_HEIGHT * 0.45;
+
+            // Unique ore halo around badlands spires:
+            // - inner magnetite-like copper/iron density
+            // - middle auric ring (gold heavy)
+            // - rare outer emerald sparks.
+            if (dist <= 22 && deepBand) {
+              const denseRoll = hashRand2D(wx + y * 23, wz - y * 19, 44102);
+              if (ringNoise > 0.14 && denseRoll < 0.18) nextBlockId = denseRoll < 0.10 ? 30 : 35;
+            } else if (dist > 22 && dist <= 38) {
+              const auricRoll = hashRand2D(wx + y * 29, wz - y * 7, 44103);
+              if (ringNoise > 0.08 && auricRoll < (deepBand ? 0.12 : 0.08)) nextBlockId = 40;
+            } else if (dist > 38 && dist <= 52 && y < CHUNK_HEIGHT * 0.35) {
+              const emeraldRoll = hashRand2D(wx + y * 31, wz - y * 27, 44104);
+              if (ringNoise > 0.19 && emeraldRoll < 0.035) nextBlockId = 54;
+            }
+          }
+        }
+      }
+
+      if (nextBlockId === 3 || nextBlockId === 13) {
         if (y > 2 && y < CHUNK_HEIGHT * 0.2) {
           const diamondNoise = octaveNoise2D(wx, wz, 3, 0.5, 2.0, 0.08, 11111, -8930);
           const diamondDepthBias = 1 - (y / CHUNK_HEIGHT);
