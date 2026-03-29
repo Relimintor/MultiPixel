@@ -81,8 +81,22 @@
     const named = parseStructureArgs(parts);
 
     if (named.structureName || named.biomeName || named.buildingName) {
+      if (named.structureName === 'spire') {
+        if (named.biomeName !== 'badlands') {
+          return { handled: true, ok: false, message: 'Usage: /spawn structure:spire biome:badlands' };
+        }
+        if (!ctx.spawnBadlandsSpire) {
+          return { handled: true, ok: false, message: 'Structure spawn system unavailable.' };
+        }
+        const result = ctx.spawnBadlandsSpire();
+        if (!result?.ok) {
+          return { handled: true, ok: false, message: result?.message || 'Could not spawn structure.' };
+        }
+        return { handled: true, ok: true, message: result.message || 'Spawned spire in badlands.' };
+      }
+
       if (named.structureName !== 'village') {
-        return { handled: true, ok: false, message: 'Usage: /spawn structure:village biome:<name> building:<json_name>' };
+        return { handled: true, ok: false, message: 'Usage: /spawn structure:village biome:<name> building:<json_name> OR /spawn structure:spire biome:badlands' };
       }
       if (!named.biomeName || !named.buildingName) {
         return { handled: true, ok: false, message: 'Usage: /spawn structure:village biome:<name> building:<json_name>' };
@@ -102,7 +116,7 @@
     const parsedMobArgs = parseMobSpawnArgs(parts);
 
     if (!Number.isFinite(mobId)) {
-      return { handled: true, ok: false, message: 'Usage: /spawn <mobId|mobName> [amount] [height:<blocks>] OR /spawn structure:village biome:<name> building:<json_name>' };
+      return { handled: true, ok: false, message: 'Usage: /spawn <mobId|mobName> [amount] [height:<blocks>] OR /spawn structure:village biome:<name> building:<json_name> OR /spawn structure:spire biome:badlands' };
     }
 
     if (!parsedMobArgs.ok) {
