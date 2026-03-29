@@ -56,7 +56,7 @@
       return { handled: true, ok: true, message: `FOV set to ${applied}.` };
     }
 
-    return { handled: true, ok: false, message: 'Usage: /set <render_distance|fov|sensitivity|reach> <amount>' };
+    return { handled: true, ok: false, message: 'Usage: /set <render_distance|fov|sensitivity|reach|enable_rtx_mode> <amount|true|false>' };
   }
 
   function execute(rawInput, ctx) {
@@ -123,6 +123,15 @@
         return window.SingleplayerChatCommandSet.execute(parts, ctx);
       }
       return executeSet(parts, ctx || {});
+    }
+
+    if (command === '/save') {
+      if (!ctx?.saveWorldFile) {
+        return { handled: true, ok: false, message: 'Save system unavailable.' };
+      }
+      const result = ctx.saveWorldFile();
+      if (!result?.ok) return { handled: true, ok: false, message: result?.message || 'Could not save world.' };
+      return { handled: true, ok: true, message: result.message || 'World saved.' };
     }
 
     return { handled: true, ok: false, message: `Unknown command: ${command}` };

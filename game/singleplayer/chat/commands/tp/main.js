@@ -37,11 +37,11 @@
     const named = parseTpNamedArgs(parts);
     if (named.structureName || named.biomeName) {
       if (named.structureName) {
-        if (named.structureName !== 'village' && named.structureName !== 'ruins' && named.structureName !== 'ruin') {
-          return { handled: true, ok: false, message: 'Usage: /tp structure:<village|ruins> biome:<name>' };
+        if (named.structureName !== 'village' && named.structureName !== 'ruins' && named.structureName !== 'ruin' && named.structureName !== 'spire' && named.structureName !== 'mineshaft') {
+          return { handled: true, ok: false, message: 'Usage: /tp structure:<village|ruins|spire|mineshaft> biome:<name>' };
         }
         if (!named.biomeName) {
-          return { handled: true, ok: false, message: 'Usage: /tp structure:<village|ruins> biome:<name>' };
+          return { handled: true, ok: false, message: 'Usage: /tp structure:<village|ruins|spire|mineshaft> biome:<name>' };
         }
         if (named.structureName === 'village') {
           if (!ctx.teleportToVillageStructure) {
@@ -52,6 +52,26 @@
             return { handled: true, ok: false, message: result?.message || `Could not find village biome: ${named.biomeName}` };
           }
           return { handled: true, ok: true, message: result.message || `Teleported to ${result.structure || 'village'} in ${result.biome}.` };
+        }
+        if (named.structureName === 'spire') {
+          if (!ctx.teleportToBadlandsSpire) {
+            return { handled: true, ok: false, message: 'Teleport system unavailable.' };
+          }
+          const result = ctx.teleportToBadlandsSpire(named.biomeName);
+          if (!result?.ok) {
+            return { handled: true, ok: false, message: result?.message || `Could not find spire biome: ${named.biomeName}` };
+          }
+          return { handled: true, ok: true, message: result.message || `Teleported to ${result.structure || 'spire'} in ${result.biome}.` };
+        }
+        if (named.structureName === 'mineshaft') {
+          if (!ctx.teleportToMineshaft) {
+            return { handled: true, ok: false, message: 'Teleport system unavailable.' };
+          }
+          const result = ctx.teleportToMineshaft(named.biomeName);
+          if (!result?.ok) {
+            return { handled: true, ok: false, message: result?.message || `Could not find mineshaft biome: ${named.biomeName}` };
+          }
+          return { handled: true, ok: true, message: result.message || `Teleported to ${result.structure || 'mineshaft'} in ${result.biome}.` };
         }
         if (!ctx.teleportToRuinStructure) {
           return { handled: true, ok: false, message: 'Teleport system unavailable.' };
@@ -94,7 +114,7 @@
     const y = Number.parseFloat(parts[2]);
     const z = Number.parseFloat(parts[3]);
     if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
-      return { handled: true, ok: false, message: 'Usage: /tp <x> <y> <z> OR /tp <biome_name> OR /tp biome:<name> OR /tp structure:<village|ruins> biome:<name>' };
+      return { handled: true, ok: false, message: 'Usage: /tp <x> <y> <z> OR /tp <biome_name> OR /tp biome:<name> OR /tp structure:<village|ruins|spire|mineshaft> biome:<name>' };
     }
 
     if (!ctx.teleportToCoordinates) {
