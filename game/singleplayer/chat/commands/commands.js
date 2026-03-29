@@ -56,7 +56,7 @@
       return { handled: true, ok: true, message: `FOV set to ${applied}.` };
     }
 
-    return { handled: true, ok: false, message: 'Usage: /set <render_distance|fov|sensitivity|reach> <amount>' };
+    return { handled: true, ok: false, message: 'Usage: /set <render_distance|fov|sensitivity|reach|enable_rtx_mode> <amount|true|false>' };
   }
 
   function execute(rawInput, ctx) {

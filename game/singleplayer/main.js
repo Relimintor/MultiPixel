@@ -276,6 +276,7 @@
         let simClockMs = 0;
         let ambientLight, hemiLight, moonLight, dirLight; // global lighting rig
         let dayNightCycle = null;
+        let rtxModeEnabled = false;
 
         const BREATH_MAX = 20;
         const playerRuntime = window.SingleplayerPlayerCore.createRuntime({
@@ -577,6 +578,39 @@ window.perlin = perlinInstance;
 
         function getSensitivity() {
             return currentLookSensitivity;
+        }
+
+        function setRtxMode(enabled) {
+            const next = Boolean(enabled);
+            rtxModeEnabled = next;
+
+            if (renderer) {
+                renderer.shadowMap.enabled = next;
+                renderer.shadowMap.type = next ? THREE.PCFSoftShadowMap : THREE.BasicShadowMap;
+                renderer.toneMapping = next ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
+                renderer.toneMappingExposure = next ? 1.3 : 1.0;
+            }
+            if (dirLight) {
+                dirLight.castShadow = next;
+                dirLight.intensity = next ? 1.9 : 1.15;
+            }
+            if (ambientLight) ambientLight.intensity = next ? 1.08 : 0.72;
+            if (hemiLight) hemiLight.intensity = next ? 1.04 : 0.62;
+            if (moonLight) moonLight.intensity = next ? 0.28 : 0.16;
+
+            for (const key of chunks.keys()) {
+                const [sx, sz] = String(key).split(',');
+                const cx = Number(sx);
+                const cz = Number(sz);
+                if (!Number.isFinite(cx) || !Number.isFinite(cz)) continue;
+                requestChunkRemesh(cx, cz, 'rtx_mode');
+            }
+            rebuildDirtyChunkMeshes(true);
+            return true;
+        }
+
+        function getRtxMode() {
+            return rtxModeEnabled;
         }
 
         function setReach(amount) {
@@ -3324,6 +3358,8 @@ window.perlin = perlinInstance;
                 getSensitivity,
                 setReach,
                 getReach,
+                setRtxMode,
+                getRtxMode,
                 setPlayerHeight,
                 getPlayerHeight,
                 applyPlayerEffect,
@@ -7895,7 +7931,9 @@ window.perlin = perlinInstance;
                 }
             };
 
+            const useGreedyMeshing = !rtxModeEnabled;
             const workerQuads = (() => {
+                if (!useGreedyMeshing) return null;
                 if (!chunkMeshWorkerReady) return null;
                 const chunkKey = `${cx},${cz}`;
                 const cached = chunkMeshWorkerCache.get(chunkKey);
@@ -7977,9 +8015,9 @@ window.perlin = perlinInstance;
                 { name: 'negZ', dir: [0, 0, -1], axis: 'z', sign: -1 },
             ];
 
-            if (workerQuads) {
+            if (useGreedyMeshing && workerQuads) {
                 workerQuads.forEach((quad) => emitWorkerQuad(quad));
-            } else for (const face of greedyFaces) {
+            } else if (useGreedyMeshing) for (const face of greedyFaces) {
                 if (face.axis === 'y') {
                     for (let y = 0; y < CH; y++) {
                         const visited = new Uint8Array(CS * CS);
@@ -8150,7 +8188,7 @@ window.perlin = perlinInstance;
                         if (isTorch) torchPositions.push({ x: x + cx * CS, y, z: z + cz * CS });
                         if (id === 119) glowstonePositions.push({ x: x + cx * CS, y, z: z + cz * CS, id });
                         const isTrans = mat.transparent || (mat.textured && mat.textureKey === 'LEAVES');
-                        if (!isTorch && !isBambooStage && !isBambooStalk && !isSlab && !isWater && !isSideRenderBlock && !isTrans) continue;
+                        if (!rtxModeEnabled && !isTorch && !isBambooStage && !isBambooStalk && !isSlab && !isWater && !isSideRenderBlock && !isTrans) continue;
                         let activeFaces;
                         if (isSideRenderBlock) {
                             if (isGlowstonePortalPlane) activeFaces = fullPlaneFaces;

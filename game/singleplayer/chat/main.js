@@ -189,6 +189,7 @@
                     <p><strong>/set fov</strong> &lt;amount&gt; — set camera field of view (no hard upper cap).</p>
                     <p><strong>/set sensitivity</strong> &lt;amount&gt; — set look sensitivity (default 10).</p>
                     <p><strong>/set reach</strong> &lt;amount&gt; — set interaction reach in blocks (default 5).</p>
+                    <p><strong>/set enable_rtx_mode true</strong> — warns about low tier devices (kk continue / Oh shit Bye), disables greedy meshing and boosts lighting/shader path.</p>
                     <p><strong>/gamemode creative</strong> — switch to creative and open creative menu.</p>
                     <p><strong>/enchant</strong> &lt;holding|itemId&gt; &lt;knockback&gt; &lt;amount&gt; — apply knockback enchant (max 400).</p>
                     <p><strong>/effect</strong> &lt;me|player &lt;player_name&gt;&gt; &lt;nausea&gt; &lt;duration[s|m|h]&gt; — apply nausea for a duration (examples: <em>/effect me nausea 20s</em>, <em>/effect player 3cjoa39 nausea 20s</em>).</p>

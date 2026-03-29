@@ -56,7 +56,29 @@
       return { handled: true, ok: true, message: `FOV set to ${applied}.` };
     }
 
-    return { handled: true, ok: false, message: 'Usage: /set <render_distance|fov|sensitivity|reach> <amount>' };
+    if (sub === 'enable_rtx_mode') {
+      const raw = String(parts[2] || '').toLowerCase().trim();
+      const enable = raw === 'true' || raw === '1' || raw === 'on' || raw === 'yes';
+      const disable = raw === 'false' || raw === '0' || raw === 'off' || raw === 'no';
+      if (!enable && !disable) {
+        return { handled: true, ok: false, message: 'Usage: /set enable_rtx_mode <true|false>' };
+      }
+      if (!ctx.setRtxMode) {
+        return { handled: true, ok: false, message: 'RTX mode system unavailable.' };
+      }
+      if (enable) {
+        const proceed = window.confirm('Warning: low tier devices cant handle this.\n\nOK = kk continue\nCancel = Oh shit Bye');
+        if (!proceed) {
+          return { handled: true, ok: false, message: 'Oh shit Bye' };
+        }
+      }
+      if (!ctx.setRtxMode(enable)) {
+        return { handled: true, ok: false, message: 'Could not change RTX mode.' };
+      }
+      return { handled: true, ok: true, message: enable ? 'RTX mode enabled (kk continue).' : 'RTX mode disabled.' };
+    }
+
+    return { handled: true, ok: false, message: 'Usage: /set <render_distance|fov|sensitivity|reach|enable_rtx_mode> <amount|true|false>' };
   }
 
   window.SingleplayerChatCommandSet = { execute };
