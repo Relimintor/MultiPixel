@@ -94,9 +94,22 @@
         }
         return { handled: true, ok: true, message: result.message || 'Spawned spire in badlands.' };
       }
+      if (named.structureName === 'mineshaft') {
+        if (!named.biomeName) {
+          return { handled: true, ok: false, message: 'Usage: /spawn structure:mineshaft biome:<badlands|desert|plains|oak_forest|jungle_forest>' };
+        }
+        if (!ctx.spawnMineshaft) {
+          return { handled: true, ok: false, message: 'Structure spawn system unavailable.' };
+        }
+        const result = ctx.spawnMineshaft(named.biomeName);
+        if (!result?.ok) {
+          return { handled: true, ok: false, message: result?.message || 'Could not spawn structure.' };
+        }
+        return { handled: true, ok: true, message: result.message || 'Spawned mineshaft.' };
+      }
 
       if (named.structureName !== 'village') {
-        return { handled: true, ok: false, message: 'Usage: /spawn structure:village biome:<name> building:<json_name> OR /spawn structure:spire biome:badlands' };
+        return { handled: true, ok: false, message: 'Usage: /spawn structure:village biome:<name> building:<json_name> OR /spawn structure:spire biome:badlands OR /spawn structure:mineshaft biome:<name>' };
       }
       if (!named.biomeName || !named.buildingName) {
         return { handled: true, ok: false, message: 'Usage: /spawn structure:village biome:<name> building:<json_name>' };
@@ -116,7 +129,7 @@
     const parsedMobArgs = parseMobSpawnArgs(parts);
 
     if (!Number.isFinite(mobId)) {
-      return { handled: true, ok: false, message: 'Usage: /spawn <mobId|mobName> [amount] [height:<blocks>] OR /spawn structure:village biome:<name> building:<json_name> OR /spawn structure:spire biome:badlands' };
+      return { handled: true, ok: false, message: 'Usage: /spawn <mobId|mobName> [amount] [height:<blocks>] OR /spawn structure:village biome:<name> building:<json_name> OR /spawn structure:spire biome:badlands OR /spawn structure:mineshaft biome:<name>' };
     }
 
     if (!parsedMobArgs.ok) {
