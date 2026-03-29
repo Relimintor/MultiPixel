@@ -125,6 +125,15 @@
       return executeSet(parts, ctx || {});
     }
 
+    if (command === '/save') {
+      if (!ctx?.saveWorldFile) {
+        return { handled: true, ok: false, message: 'Save system unavailable.' };
+      }
+      const result = ctx.saveWorldFile();
+      if (!result?.ok) return { handled: true, ok: false, message: result?.message || 'Could not save world.' };
+      return { handled: true, ok: true, message: result.message || 'World saved.' };
+    }
+
     return { handled: true, ok: false, message: `Unknown command: ${command}` };
   }
 

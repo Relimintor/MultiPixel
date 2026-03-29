@@ -391,9 +391,16 @@
                 
                 <!-- SINGLEPLAYER -->
                 <div id="view-singleplayer" class="view active">
-                    <div class="centered-view">
-                        <!-- Instantly directs to singleplayer.html -->
-                        <button id="btn-singleplayer" class="action-btn" onclick="window.location.href='singleplayer.html'">
+                    <div class="centered-view" style="flex-direction:column; gap:12px; width:100%; max-width:520px; margin:0 auto;">
+                        <label style="width:100%; font-size:0.95rem;">
+                            World Seed (optional)
+                            <input id="singleplayer-seed-input" type="number" placeholder="Random if empty" style="margin-top:6px; width:100%; padding:10px; border:1px solid #666; background:#1f2328; color:#fff;">
+                        </label>
+                        <label style="width:100%; font-size:0.95rem;">
+                            Import Saved World (.json)
+                            <input id="singleplayer-import-input" type="file" accept="application/json,.json" style="margin-top:6px; width:100%; padding:8px; border:1px solid #666; background:#1f2328; color:#fff;">
+                        </label>
+                        <button id="btn-singleplayer" class="action-btn" onclick="startSingleplayerWorld()">
                             New World
                         </button>
                     </div>
@@ -831,6 +838,44 @@
             const bgSelect = document.querySelector('select[onchange="changeBackgroundMode(this.value)"]');
             bgSelect.value = 'custom';
             changeBackgroundMode('custom');
+        }
+
+        async function startSingleplayerWorld() {
+            const seedInput = document.getElementById('singleplayer-seed-input');
+            const importInput = document.getElementById('singleplayer-import-input');
+            const seedRaw = String(seedInput?.value || '').trim();
+            const seedValue = Number(seedRaw);
+
+            try {
+                if (seedRaw && Number.isFinite(seedValue)) {
+                    sessionStorage.setItem('singleplayer.launchSeed', String(Math.abs(Math.floor(seedValue))));
+                } else {
+                    sessionStorage.removeItem('singleplayer.launchSeed');
+                }
+            } catch {}
+
+            const file = importInput?.files?.[0] || null;
+            if (file) {
+                try {
+                    const text = await file.text();
+                    const parsed = JSON.parse(text);
+                    if (!parsed || !parsed.chunks || typeof parsed.chunks !== 'object') {
+                        alert('Invalid world file: missing chunks object.');
+                        return;
+                    }
+                    sessionStorage.setItem('singleplayer.importWorld', JSON.stringify(parsed));
+                    if (!seedRaw && Number.isFinite(Number(parsed.seed))) {
+                        sessionStorage.setItem('singleplayer.launchSeed', String(Math.abs(Math.floor(Number(parsed.seed)))));
+                    }
+                } catch (err) {
+                    alert('Could not read world file. Please choose a valid JSON export.');
+                    return;
+                }
+            } else {
+                try { sessionStorage.removeItem('singleplayer.importWorld'); } catch {}
+            }
+
+            window.location.href = 'singleplayer.html';
         }
 
     </script>

@@ -84,6 +84,27 @@
             return normalized > 0 ? normalized : 1;
         }
 
+        function consumeSessionStorageItem(key) {
+            if (typeof sessionStorage === 'undefined') return null;
+            try {
+                const value = sessionStorage.getItem(key);
+                sessionStorage.removeItem(key);
+                return value;
+            } catch {
+                return null;
+            }
+        }
+
+        const launchSeedFromSession = normalizeWorldSeed(consumeSessionStorageItem('singleplayer.launchSeed'));
+        let importedWorldSnapshot = null;
+        try {
+            const importedRaw = consumeSessionStorageItem('singleplayer.importWorld');
+            if (importedRaw) importedWorldSnapshot = JSON.parse(importedRaw);
+        } catch (err) {
+            console.warn('[World import] Failed to parse imported world snapshot.', err);
+            importedWorldSnapshot = null;
+        }
+
         function normalizeBiomeLookupKey(value) {
             return String(value || '').toLowerCase().trim().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
         }
@@ -237,6 +258,11 @@
         }
 
         function resolveWorldSeed() {
+            const querySeed = normalizeWorldSeed(new URLSearchParams(window.location.search || '').get('seed'));
+            if (querySeed) return querySeed;
+            if (launchSeedFromSession) return launchSeedFromSession;
+            const importedSeed = normalizeWorldSeed(importedWorldSnapshot?.seed);
+            if (importedSeed) return importedSeed;
             const configuredSeed = normalizeWorldSeed(worldGenSettings.seed);
             if (configuredSeed) return configuredSeed;
             if (IS_1D4P_MULTIPLAYER) return MULTIPLAYER_WORLD_SEED;
@@ -300,6 +326,9 @@ window.perlin = perlinInstance;
         let persistedWorldManifest = { chunkKeys: [], touched: {}, modified: {} };
         const dirtyPersistedChunkKeys = new Set();
         let persistedWorldFlushTimerMs = 0;
+        const importedChunkDataByKey = new Map();
+        let importedPlayerSpawn = null;
+        let importedChestStateEntries = null;
 
         function getPersistedWorldPrefix() {
             return `${PERSISTED_WORLD_NAMESPACE}.${worldSeed}`;
@@ -340,6 +369,32 @@ window.perlin = perlinInstance;
                 out[i] = binary.charCodeAt(offset) | (binary.charCodeAt(offset + 1) << 8);
             }
             return out;
+        }
+
+        function hydrateImportedWorldSnapshot() {
+            importedChunkDataByKey.clear();
+            importedPlayerSpawn = null;
+            importedChestStateEntries = null;
+            if (!importedWorldSnapshot || typeof importedWorldSnapshot !== 'object') return;
+
+            const chunksRaw = importedWorldSnapshot.chunks;
+            if (chunksRaw && typeof chunksRaw === 'object') {
+                Object.entries(chunksRaw).forEach(([chunkKey, encoded]) => {
+                    if (typeof chunkKey !== 'string' || typeof encoded !== 'string') return;
+                    const decoded = decodeChunkDataFromBase64(encoded);
+                    if (!decoded || decoded.length !== CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE) return;
+                    importedChunkDataByKey.set(chunkKey, decoded);
+                });
+            }
+
+            const playerPos = importedWorldSnapshot.player;
+            if (playerPos && Number.isFinite(Number(playerPos.x)) && Number.isFinite(Number(playerPos.y)) && Number.isFinite(Number(playerPos.z))) {
+                importedPlayerSpawn = { x: Number(playerPos.x), y: Number(playerPos.y), z: Number(playerPos.z) };
+            }
+
+            if (importedWorldSnapshot.chests && typeof importedWorldSnapshot.chests === 'object') {
+                importedChestStateEntries = Object.entries(importedWorldSnapshot.chests);
+            }
         }
 
         function loadPersistedWorldManifest() {
@@ -423,6 +478,8 @@ window.perlin = perlinInstance;
         }
 
         function loadPersistedChunkData(cx, cz) {
+            const imported = importedChunkDataByKey.get(`${cx},${cz}`);
+            if (imported) return imported.slice();
             if (!IS_1D4P_MULTIPLAYER || typeof localStorage === 'undefined') return null;
             const chunkKey = `${cx},${cz}`;
             if (!persistedWorldManifest.chunkKeys.includes(chunkKey)) return null;
@@ -452,6 +509,57 @@ window.perlin = perlinInstance;
                 dirtyPersistedChunkKeys.delete(chunkKey);
             } catch (err) {
                 console.warn('[1d4p persist] failed saving chunk snapshot', chunkKey, err);
+            }
+        }
+
+        function saveWorldFile() {
+            try {
+                const outChunks = {};
+                for (const [chunkKey, group] of chunks.entries()) {
+                    const data = group?.userData?.chunkData;
+                    if (!Array.isArray(data) || !data.length) continue;
+                    const encoded = encodeChunkDataToBase64(data);
+                    if (encoded) outChunks[chunkKey] = encoded;
+                }
+                if (!Object.keys(outChunks).length) {
+                    return { ok: false, message: 'No loaded chunks to save yet. Explore first, then run /save.' };
+                }
+
+                const chestDump = {};
+                for (const [key, slots] of chestStates.entries()) {
+                    chestDump[key] = Array.isArray(slots) ? slots : [];
+                }
+
+                const payload = {
+                    version: 1,
+                    savedAt: new Date().toISOString(),
+                    seed: worldSeed,
+                    chunkSize: CHUNK_SIZE,
+                    chunkHeight: CHUNK_HEIGHT,
+                    player: yawObject ? {
+                        x: Number(yawObject.position.x || 0),
+                        y: Number(yawObject.position.y || 0),
+                        z: Number(yawObject.position.z || 0),
+                    } : null,
+                    chests: chestDump,
+                    chunks: outChunks,
+                };
+
+                const json = JSON.stringify(payload);
+                const blob = new Blob([json], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                const stamp = payload.savedAt.replace(/[:.]/g, '-');
+                a.href = url;
+                a.download = `multipixel-world-${worldSeed}-${stamp}.json`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+                return { ok: true, message: `Saved world to ${a.download}.` };
+            } catch (err) {
+                console.warn('[World save] failed', err);
+                return { ok: false, message: 'Failed to save world JSON.' };
             }
         }
 
@@ -652,6 +760,20 @@ window.perlin = perlinInstance;
         let activeChestKey = null;
         const furnaceStates = new Map();
         const chestStates = new Map();
+        if (Array.isArray(importedChestStateEntries)) {
+            for (const [key, slots] of importedChestStateEntries) {
+                if (typeof key !== 'string' || !Array.isArray(slots)) continue;
+                const parsedSlots = slots.slice(0, 27).map((slot) => {
+                    if (!slot || typeof slot !== 'object') return null;
+                    const id = Number(slot.id);
+                    const count = Number(slot.count);
+                    if (!Number.isFinite(id) || !Number.isFinite(count) || count <= 0) return null;
+                    return { id: Math.floor(id), count: Math.max(1, Math.floor(count)) };
+                });
+                while (parsedSlots.length < 27) parsedSlots.push(null);
+                chestStates.set(key, parsedSlots);
+            }
+        }
         let craftingInput = new Array(4).fill(null); // 2x2 Grid
         let craftingTableInput = new Array(9).fill(null); // 3x3 Grid
         let craftingOutput = null; 
@@ -1874,6 +1996,7 @@ window.perlin = perlinInstance;
             if (typeof PerlinNoise !== 'undefined') {
                 worldSeed = resolveWorldSeed();
                 perlin = new PerlinNoise(worldSeed);
+                hydrateImportedWorldSnapshot();
                 loadPersistedWorldManifest();
                 // Intentionally avoid worldgen/* runtime and use terrain/* + noise/* flow.
                 worldGenerator = null;
@@ -3217,6 +3340,7 @@ window.perlin = perlinInstance;
                 teleportToRuinStructure,
                 teleportToBadlandsSpire,
                 teleportToMineshaft,
+                saveWorldFile,
                 openCommandHelp: () => window.SingleplayerChat?.openCommandHelp?.(),
                 mobileAssetBase: MOBILE_ASSET_BASE,
                 onSendMessage: (text) => window.MultiPixelMultiplayerClient?.sendChatMessage?.(text) || false,
@@ -8518,6 +8642,10 @@ window.perlin = perlinInstance;
         function setInitialPlayerPosition() {
             if (IS_1D4P_MULTIPLAYER) {
                 yawObject.position.set(0, 27, 0);
+                return;
+            }
+            if (importedPlayerSpawn) {
+                yawObject.position.set(importedPlayerSpawn.x, importedPlayerSpawn.y, importedPlayerSpawn.z);
                 return;
             }
             const localSpawnSearchRadius = 96;
