@@ -275,6 +275,7 @@
         let ambientLight, hemiLight, moonLight, dirLight; // global lighting rig
         let dayNightCycle = null;
         let rtxModeEnabled = false;
+        let isChunkGenerationActive = false;
 
         const BREATH_MAX = 20;
         const playerRuntime = window.SingleplayerPlayerCore.createRuntime({
@@ -6005,6 +6006,8 @@ window.perlin = perlinInstance;
         });
 
         function generateChunkData(cx, cz) {
+             isChunkGenerationActive = true;
+             try {
              const data = new Array(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
              const spawnedGnomes = [];
              const fallbackTreeCandidates = [];
@@ -6308,6 +6311,9 @@ window.perlin = perlinInstance;
                  CHUNK_HEIGHT,
              });
              return { data, heightmap, spawnedGnomes, spawnedPigs, spawnedWolves, spawnedPandas, spawnedVillagers };
+             } finally {
+                 isChunkGenerationActive = false;
+             }
         }
 
 
@@ -8773,6 +8779,7 @@ window.perlin = perlinInstance;
         }
 
         function ensureChunksAroundPlayer(forceUpdate = false, nowMs = performance.now()) {
+            if (isChunkGenerationActive) return;
             chunkStreamOptimizations?.ensureChunksAroundPlayer?.(forceUpdate, nowMs);
         }
 
