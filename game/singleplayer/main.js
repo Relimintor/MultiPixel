@@ -35,7 +35,6 @@
         const SpawnLighting = window.SpawnLighting || {};
 
         window.__SINGLEPLAYER_BUILD__ = 'sp-2026-03-01-06';
-        const MULTIPLAYER_WORLD_SEED = 1311652885;
         const IS_1D4P_MULTIPLAYER = /(?:^|\/)1d4p\.html$/i.test(window.location?.pathname || '');
         const GLOWSTONE_PORTAL_TEXTURE_KEY = window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_TEXTURE_KEY || 'GLOWSTONE_PORTAL';
         const GLOWSTONE_PORTAL_FRAME_KEYS = Array.isArray(window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_FRAME_KEYS)
@@ -265,7 +264,6 @@
             if (importedSeed) return importedSeed;
             const configuredSeed = normalizeWorldSeed(worldGenSettings.seed);
             if (configuredSeed) return configuredSeed;
-            if (IS_1D4P_MULTIPLAYER) return MULTIPLAYER_WORLD_SEED;
             return Math.floor(Math.random() * 2147483646) + 1;
         }
 
@@ -277,6 +275,7 @@
         let ambientLight, hemiLight, moonLight, dirLight; // global lighting rig
         let dayNightCycle = null;
         let rtxModeEnabled = false;
+        let isChunkGenerationActive = false;
 
         const BREATH_MAX = 20;
         const playerRuntime = window.SingleplayerPlayerCore.createRuntime({
@@ -6007,6 +6006,8 @@ window.perlin = perlinInstance;
         });
 
         function generateChunkData(cx, cz) {
+             isChunkGenerationActive = true;
+             try {
              const data = new Array(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE);
              const spawnedGnomes = [];
              const fallbackTreeCandidates = [];
@@ -6310,6 +6311,9 @@ window.perlin = perlinInstance;
                  CHUNK_HEIGHT,
              });
              return { data, heightmap, spawnedGnomes, spawnedPigs, spawnedWolves, spawnedPandas, spawnedVillagers };
+             } finally {
+                 isChunkGenerationActive = false;
+             }
         }
 
 
@@ -8775,6 +8779,7 @@ window.perlin = perlinInstance;
         }
 
         function ensureChunksAroundPlayer(forceUpdate = false, nowMs = performance.now()) {
+            if (isChunkGenerationActive) return;
             chunkStreamOptimizations?.ensureChunksAroundPlayer?.(forceUpdate, nowMs);
         }
 
