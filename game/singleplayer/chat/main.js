@@ -191,8 +191,8 @@
                     <p><strong>/set reach</strong> &lt;amount&gt; — set interaction reach in blocks (default 5).</p>
                     <p><strong>/set enable_rtx_mode true</strong> — warns about low tier devices (kk continue / Oh shit Bye), disables greedy meshing and boosts lighting/shader path.</p>
                     <p><strong>/gamemode creative</strong> — switch to creative and open creative menu.</p>
-                    <p><strong>/enchant</strong> &lt;holding|itemId&gt; &lt;knockback&gt; &lt;amount&gt; — apply knockback enchant (max 400).</p>
-                    <p><strong>/effect</strong> &lt;me|player &lt;player_name&gt;&gt; &lt;nausea&gt; &lt;duration[s|m|h]&gt; — apply nausea for a duration (examples: <em>/effect me nausea 20s</em>, <em>/effect player 3cjoa39 nausea 20s</em>).</p>
+                    <p><strong>/enchant</strong> &lt;holding|itemId&gt; &lt;knockback|effect:&lt;name&gt;&gt; &lt;amount&gt; — apply knockback or on-hit effects (example: <em>/enchant holding effect:poison 6.5</em>).</p>
+                    <p><strong>/effect</strong> &lt;me|player &lt;player_name&gt;&gt; &lt;nausea|badlands|poison&gt; &lt;duration[s|m|h]&gt; — apply an effect for a duration (examples: <em>/effect me poison 20s</em>, <em>/effect player 3cjoa39 nausea 20s</em>).</p>
                     <p><strong>/grantme</strong> &lt;fly|speed|noclip|all&gt; — grant yourself movement privileges.</p>
                     <p><strong>/ungrantme</strong> &lt;fly|speed|noclip|all&gt; — remove movement privileges.</p>
                     <p><strong>/save</strong> — export current loaded world/chests to a JSON download.</p>
@@ -265,7 +265,7 @@
         context = initContext || {};
         buildUI();
         loadCensorWords();
-        pushMessage('Chat ready. Use /give, /spawn, /tp, /time, /height, /effect, /set, /enchant, /gamemode, /grantme, /ungrantme, /help. Try /effect me nausea 20s', 'chat-info');
+        pushMessage('Chat ready. Use /give, /spawn, /tp, /time, /height, /effect, /set, /enchant, /gamemode, /grantme, /ungrantme, /help. Try /effect me poison 20s', 'chat-info');
     }
 
     window.SingleplayerChat = {
