@@ -35,6 +35,7 @@
         const SpawnLighting = window.SpawnLighting || {};
 
         window.__SINGLEPLAYER_BUILD__ = 'sp-2026-03-01-06';
+        const MULTIPLAYER_WORLD_SEED = 1311652885;
         const IS_1D4P_MULTIPLAYER = /(?:^|\/)1d4p\.html$/i.test(window.location?.pathname || '');
         const GLOWSTONE_PORTAL_TEXTURE_KEY = window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_TEXTURE_KEY || 'GLOWSTONE_PORTAL';
         const GLOWSTONE_PORTAL_FRAME_KEYS = Array.isArray(window.SingleplayerSideConfig?.GLOWSTONE_PORTAL_FRAME_KEYS)
@@ -264,6 +265,7 @@
             if (importedSeed) return importedSeed;
             const configuredSeed = normalizeWorldSeed(worldGenSettings.seed);
             if (configuredSeed) return configuredSeed;
+            if (IS_1D4P_MULTIPLAYER) return MULTIPLAYER_WORLD_SEED;
             return Math.floor(Math.random() * 2147483646) + 1;
         }
 
