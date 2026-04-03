@@ -58,7 +58,6 @@
             plains: window.PlainsTerrain || {},
             snowyPlains: window.SnowyPlainsTerrain || {},
             jungleForest: window.JungleForestTerrain || {},
-            redwoodForest: window.RedwoodForestTerrain || {},
             mountains: window.MountainsTerrain || {},
         };
 
@@ -275,21 +274,6 @@
         let simClockMs = 0;
         let ambientLight, hemiLight, moonLight, dirLight; // global lighting rig
         let dayNightCycle = null;
-        const biomeAmbienceState = {
-            fogColor: new THREE.Color(0x87ceeb),
-            skyColor: new THREE.Color(0x87ceeb),
-            ambientColor: new THREE.Color(0x6f7684),
-            hemiSky: new THREE.Color(0xa9ddff),
-            hemiGround: new THREE.Color(0x1c1612),
-        };
-        const BIOME_AMBIENCE = {
-            'Redwood Forest': { fog: new THREE.Color(0x6f7f78), sky: new THREE.Color(0x93b0a4), ambient: new THREE.Color(0x5e635f), hemiSky: new THREE.Color(0x95b7ab), hemiGround: new THREE.Color(0x1a1814) },
-            'Jungle Forest': { fog: new THREE.Color(0x6aa07a), sky: new THREE.Color(0x90c9a0), ambient: new THREE.Color(0x5f7a67), hemiSky: new THREE.Color(0x95cba2), hemiGround: new THREE.Color(0x1d2118) },
-            Forest: { fog: new THREE.Color(0x86b292), sky: new THREE.Color(0xa3ceb2), ambient: new THREE.Color(0x6b7c6f), hemiSky: new THREE.Color(0xb4d6bf), hemiGround: new THREE.Color(0x242018) },
-            Desert: { fog: new THREE.Color(0xd6c79a), sky: new THREE.Color(0xe4d2aa), ambient: new THREE.Color(0x8d836a), hemiSky: new THREE.Color(0xe6d6b2), hemiGround: new THREE.Color(0x3b2d1f) },
-            'Snowy Plains': { fog: new THREE.Color(0xc1d6e8), sky: new THREE.Color(0xd7e7f5), ambient: new THREE.Color(0x8095a8), hemiSky: new THREE.Color(0xe1eff8), hemiGround: new THREE.Color(0x22252d) },
-            default: { fog: new THREE.Color(0x87ceeb), sky: new THREE.Color(0x87ceeb), ambient: new THREE.Color(0x6f7684), hemiSky: new THREE.Color(0xa9ddff), hemiGround: new THREE.Color(0x1c1612) },
-        };
         let rtxModeEnabled = false;
         let isChunkGenerationActive = false;
 
@@ -791,8 +775,6 @@ window.perlin = perlinInstance;
       
         let inventory = playerRuntime.inventory;
         const knockbackEnchantByItemId = new Map();
-        const effectEnchantByItemId = new Map();
-        const SUPPORTED_ITEM_ENCHANT_EFFECTS = new Set(['poison', 'nausea', 'badlands']);
         let lastPvpAttackAtMs = -Infinity;
         let lastPvpHitAtMs = -Infinity;
         let selectedHotbarIndex = playerRuntime.selectedHotbarIndex; // 0-8
@@ -1585,13 +1567,6 @@ window.perlin = perlinInstance;
                 ? { x: Number(payload.sourcePos.x), y: Number(payload.sourcePos.y) || yawObject.position.y, z: Number(payload.sourcePos.z) }
                 : null;
             takeDamage(damage, { source: 'pvp', sourcePos, knockbackStrength: knockback });
-            const effects = Array.isArray(payload?.effects) ? payload.effects : [];
-            effects.forEach((entry) => {
-                const name = String(entry?.name || '').toLowerCase().trim();
-                const duration = Number(entry?.durationSeconds);
-                if (!Number.isFinite(duration) || duration <= 0) return;
-                applyPlayerEffect(name, duration, { source: 'pvp', target: 'me' });
-            });
             if (payload?.crit) showGameMessage(`Critical hit! -${damage} HP`);
             return true;
         }
@@ -2293,31 +2268,9 @@ window.perlin = perlinInstance;
             moonLight.intensity *= (0.4 + blend * 0.6);
         }
 
-
-        function updateBiomeAmbience(deltaMs = 16) {
-            if (!scene || !ambientLight || !hemiLight || !yawObject) return;
-            const px = Math.floor(yawObject.position.x);
-            const pz = Math.floor(yawObject.position.z);
-            const biomeName = getBiome(px, pz);
-            const target = BIOME_AMBIENCE[biomeName] || BIOME_AMBIENCE.default;
-            const blend = Math.max(0.015, Math.min(0.08, deltaMs / 1000 * 2.6));
-
-            biomeAmbienceState.fogColor.lerp(target.fog, blend);
-            biomeAmbienceState.skyColor.lerp(target.sky, blend);
-            biomeAmbienceState.ambientColor.lerp(target.ambient, blend);
-            biomeAmbienceState.hemiSky.lerp(target.hemiSky, blend);
-            biomeAmbienceState.hemiGround.lerp(target.hemiGround, blend);
-
-            if (scene.fog?.color) scene.fog.color.copy(biomeAmbienceState.fogColor);
-            if (scene.background) scene.background.copy(biomeAmbienceState.skyColor);
-            ambientLight.color.copy(biomeAmbienceState.ambientColor);
-            hemiLight.color.copy(biomeAmbienceState.hemiSky);
-            hemiLight.groundColor.copy(biomeAmbienceState.hemiGround);
-        }
-
         function applyPlayerEffect(effectName, durationSeconds, options = {}) {
             const key = String(effectName || '').toLowerCase().trim();
-            if (key !== 'nausea' && key !== 'badlands' && key !== 'poison') return false;
+            if (key !== 'nausea' && key !== 'badlands') return false;
             const seconds = Number(durationSeconds);
             if (!Number.isFinite(seconds) || seconds <= 0) return false;
             const durationMs = Math.max(1000, Math.floor(seconds * 1000));
@@ -2350,14 +2303,6 @@ window.perlin = perlinInstance;
                 if (!effect || effect.expiresAt <= now) {
                     activeCommandEffects.delete(key);
                     removed = true;
-                    continue;
-                }
-                if (key === 'poison') {
-                    if (!Number.isFinite(effect.nextTickAt)) effect.nextTickAt = now + 1000;
-                    if (now >= effect.nextTickAt) {
-                        takeDamage(1, { source: 'effect:poison' });
-                        effect.nextTickAt = now + 1000;
-                    }
                 }
             }
             if (removed && isInventoryOpen) renderEffectStatusPanel(now);
@@ -2605,43 +2550,6 @@ window.perlin = perlinInstance;
             return Number(knockbackEnchantByItemId.get(held.id) || 0);
         }
 
-        function setItemEffectEnchant(itemId, effectName, durationSeconds) {
-            if (!Number.isFinite(itemId) || itemId <= 0) return false;
-            const key = String(effectName || '').toLowerCase().trim();
-            if (!SUPPORTED_ITEM_ENCHANT_EFFECTS.has(key)) return false;
-            const seconds = Math.max(1, Math.min(120, Number(durationSeconds) || 1));
-            const existing = effectEnchantByItemId.get(itemId) || {};
-            existing[key] = seconds;
-            effectEnchantByItemId.set(itemId, existing);
-            return true;
-        }
-
-        function getSupportedEnchantEffects() {
-            return Array.from(SUPPORTED_ITEM_ENCHANT_EFFECTS);
-        }
-
-        function getHeldHitEffects() {
-            const held = inventory[selectedHotbarIndex];
-            if (!held) return [];
-            const heldDef = blockMaterials[held.id] || null;
-            const effects = [];
-            if ((Number(heldDef?.poisonOnHitSeconds) || 0) > 0) {
-                effects.push({ name: 'poison', durationSeconds: Number(heldDef.poisonOnHitSeconds) });
-            }
-            const extra = effectEnchantByItemId.get(held.id) || null;
-            if (extra && typeof extra === 'object') {
-                Object.entries(extra).forEach(([name, durationSeconds]) => {
-                    const key = String(name || '').toLowerCase().trim();
-                    if (!SUPPORTED_ITEM_ENCHANT_EFFECTS.has(key)) return;
-                    const seconds = Math.max(1, Math.min(120, Number(durationSeconds) || 1));
-                    const idx = effects.findIndex((e) => e.name === key);
-                    if (idx >= 0) effects[idx].durationSeconds = Math.max(effects[idx].durationSeconds, seconds);
-                    else effects.push({ name: key, durationSeconds: seconds });
-                });
-            }
-            return effects;
-        }
-
         function getHeldMeleeProfile() {
             const held = inventory[selectedHotbarIndex];
             const heldDef = held ? blockMaterials[held.id] : null;
@@ -2667,33 +2575,6 @@ window.perlin = perlinInstance;
                 return { damage: 4 + tier, range: baseRange, toolType: 'shovel', cooldownMs: 3000, knockbackBonus: 0, critEnabled: false };
             }
             return { damage: 4, range: baseRange, toolType: heldDef?.toolType || null, cooldownMs: 1000, knockbackBonus: 0, critEnabled: false };
-        }
-
-        const activeLeadPoisonByTarget = new WeakMap();
-
-        function applyLeadPoisonToTarget(targetRef, applyDamageTick) {
-            const held = inventory[selectedHotbarIndex];
-            const heldDef = held ? blockMaterials[held.id] : null;
-            const poisonSeconds = Number(heldDef?.poisonOnHitSeconds) || 0;
-            if (!targetRef || poisonSeconds <= 0 || typeof applyDamageTick !== 'function') return;
-
-            const tickDamage = Math.max(1, Number(heldDef?.poisonTickDamage) || 1);
-            const token = (activeLeadPoisonByTarget.get(targetRef)?.token || 0) + 1;
-            activeLeadPoisonByTarget.set(targetRef, { token, expiresAt: performance.now() + poisonSeconds * 1000 });
-
-            const tick = () => {
-                const state = activeLeadPoisonByTarget.get(targetRef);
-                if (!state || state.token !== token) return;
-                const remainingMs = state.expiresAt - performance.now();
-                if (remainingMs <= 0) {
-                    activeLeadPoisonByTarget.delete(targetRef);
-                    return;
-                }
-                applyDamageTick(tickDamage);
-                setTimeout(tick, Math.min(1000, Math.max(120, remainingMs)));
-            };
-
-            setTimeout(tick, 300);
         }
 
         function canUsePvpAttack(meleeProfile) {
@@ -3462,8 +3343,6 @@ window.perlin = perlinInstance;
                 getBlockById: (id) => blockMaterials[id] || null,
                 getSelectedItemId,
                 setItemKnockbackEnchant,
-                setItemEffectEnchant,
-                getSupportedEnchantEffects,
                 getMobById: (id) => window.SingleplayerMobConfig?.byId?.[id] || null,
                 spawnMobById,
                 spawnVillageStructure,
@@ -4784,7 +4663,6 @@ window.perlin = perlinInstance;
                         knockbackStrength: Math.max(0.12, Math.min(0.95, baseKnockback + enchKnock)),
                         range: Number(meleeProfile.range) || 1.5,
                         crit,
-                        effects: getHeldHitEffects(),
                     });
                     if (sent) {
                         markPvpAttackUsed();
@@ -4805,7 +4683,6 @@ window.perlin = perlinInstance;
                         }
                     } else {
                         wolfMob?.hurt?.(wolfHit, meleeProfile.damage, yawObject.position, attackKnockback);
-                        applyLeadPoisonToTarget(wolfHit, (tickDamage) => wolfMob?.hurt?.(wolfHit, tickDamage, yawObject.position, 0));
                     }
                     return;
                 }
@@ -4813,14 +4690,12 @@ window.perlin = perlinInstance;
                 const pandaHit = pandaMob?.getHitFromCrosshair?.();
                 if (pandaHit && isTargetWithinMeleeRange(pandaHit, meleeProfile.range)) {
                     pandaMob?.hurt?.(pandaHit, meleeProfile.damage, 'player', yawObject.position, attackKnockback);
-                    applyLeadPoisonToTarget(pandaHit, (tickDamage) => pandaMob?.hurt?.(pandaHit, tickDamage, 'player', yawObject.position, 0));
                     return;
                 }
 
                 const zombieHit = zombieMob?.getHitFromCrosshair?.();
                 if (zombieHit && isTargetWithinMeleeRange(zombieHit, meleeProfile.range)) {
                     zombieMob?.hurt?.(zombieHit, meleeProfile.damage, yawObject.position, attackKnockback);
-                    applyLeadPoisonToTarget(zombieHit, (tickDamage) => zombieMob?.hurt?.(zombieHit, tickDamage, yawObject.position, 0));
                     wolfMob?.commandTamedAttack?.(zombieHit, 'zombie');
                     return;
                 }
@@ -4828,14 +4703,12 @@ window.perlin = perlinInstance;
                 const villagerHit = villagerMob?.getHitFromCrosshair?.();
                 if (villagerHit && isTargetWithinMeleeRange(villagerHit, meleeProfile.range)) {
                     villagerMob?.hurt?.(villagerHit, meleeProfile.damage, 'player', yawObject.position, attackKnockback);
-                    applyLeadPoisonToTarget(villagerHit, (tickDamage) => villagerMob?.hurt?.(villagerHit, tickDamage, 'player', yawObject.position, 0));
                     return;
                 }
 
                 const pigHit = pigMob?.getHitFromCrosshair?.();
                 if (pigHit && isTargetWithinMeleeRange(pigHit, meleeProfile.range)) {
                     pigMob?.hurt?.(pigHit, meleeProfile.damage, 'player', yawObject.position, attackKnockback);
-                    applyLeadPoisonToTarget(pigHit, (tickDamage) => pigMob?.hurt?.(pigHit, tickDamage, 'player', yawObject.position, 0));
                     wolfMob?.commandTamedAttack?.(pigHit, 'pig');
                     return;
                 }
@@ -5701,7 +5574,6 @@ window.perlin = perlinInstance;
                 'Snowy Plains': TerrainModules['snowyPlains'].getHeight({ BASE_LAND_Y, continentalMask, terrainNoise, erosionNoise }),
                 Forest: TerrainModules['oakForest'].getHeight({ BASE_LAND_Y, continentalMask, terrainNoise, erosionNoise }),
                 'Jungle Forest': TerrainModules['jungleForest'].getHeight({ BASE_LAND_Y, continentalMask, terrainNoise, erosionNoise }),
-                'Redwood Forest': TerrainModules['redwoodForest']?.getHeight?.({ BASE_LAND_Y, continentalMask, terrainNoise, erosionNoise }) ?? TerrainModules['oakForest'].getHeight({ BASE_LAND_Y, continentalMask, terrainNoise, erosionNoise }),
                 Plains: TerrainModules['plains'].getHeight({ BASE_LAND_Y, continentalMask, terrainNoise, erosionNoise }),
             };
 
@@ -5734,17 +5606,11 @@ window.perlin = perlinInstance;
             h += detailNoise * (0.42 + mountainWeight * 0.78) * terrainBoost;
             const macroTerrainNoise = octaveNoise2D(wx, wz, 4, 0.52, 2.0, 0.0068, 940, -530);
             const ridgeTerrainNoise = Math.abs(octaveNoise2D(wx, wz, 3, 0.48, 2.16, 0.0115, -1210, 880));
-            const continentalRidges = octaveNoise2D(wx, wz, 5, 0.49, 2.12, 0.0032, -1920, 640);
-            const terracedNoise = Math.abs(octaveNoise2D(wx, wz, 4, 0.51, 2.04, 0.0095, 460, -1880));
             h += macroTerrainNoise * 2.15;
             h += (ridgeTerrainNoise - 0.5) * (1.1 + mountainWeight * 2.5);
-            h += continentalRidges * (2.1 + mountainWeight * 2.3 + badlandsWeight * 1.8);
 
             // Extra valley and cliff shaping to reduce flatness in non-ocean biomes.
             const oceanWeight = Number(weights['Ocean'] || 0);
-            if (oceanWeight < 0.62) {
-                h += Math.max(0, terracedNoise - 0.68) * (4.8 + mountainWeight * 1.6 + badlandsWeight * 2.3);
-            }
             if (oceanWeight < 0.7) {
                 const valleyNoise = 1 - Math.abs(octaveNoise2D(wx, wz, 4, 0.52, 2.08, 0.0046, -1610, 480));
                 const valleyMask = Math.pow(Math.max(0, valleyNoise - 0.74), 1.55);
@@ -5997,8 +5863,8 @@ window.perlin = perlinInstance;
                     for (let y = CHUNK_HEIGHT - 2; y >= 1; y--) {
                         const idx = tx + y * CHUNK_SIZE + tz * CHUNK_SIZE * CHUNK_HEIGHT;
                         const block = data[idx];
-                        if (block === 5 || block === 96 || block === 250) return true;
-                        if (block !== 0 && block !== 6 && block !== 97 && block !== 251 && block !== 255) break;
+                        if (block === 5 || block === 96) return true;
+                        if (block !== 0 && block !== 6 && block !== 97) break;
                     }
                 }
             }
@@ -6048,7 +5914,7 @@ window.perlin = perlinInstance;
                     if (tx < 0 || tx >= CHUNK_SIZE || tz < 0 || tz >= CHUNK_SIZE) return false;
                     const idx = tx + y * CHUNK_SIZE + tz * CHUNK_SIZE * CHUNK_HEIGHT;
                     const b = data[idx];
-                    if (b !== 0 && b !== 6 && b !== 97 && b !== 251 && b !== 255) return false;
+                    if (b !== 0 && b !== 6 && b !== 97) return false;
                 }
             }
 
@@ -6066,14 +5932,14 @@ window.perlin = perlinInstance;
                         if (tx < 0 || tx >= CHUNK_SIZE || tz < 0 || tz >= CHUNK_SIZE) return false;
                         const idx = tx + y * CHUNK_SIZE + tz * CHUNK_SIZE * CHUNK_HEIGHT;
                         const b = data[idx];
-                        if (b !== 0 && b !== 6 && b !== 97 && b !== 251 && b !== 255) return false;
+                        if (b !== 0 && b !== 6 && b !== 97) return false;
                     }
                 }
             }
 
             const crownIdx = x + (trunkTopY + 2) * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_HEIGHT;
             const crownBlock = data[crownIdx];
-            return crownBlock === 0 || crownBlock === 6 || crownBlock === 97 || crownBlock === 251 || crownBlock === 255;
+            return crownBlock === 0 || crownBlock === 6 || crownBlock === 97;
         }
 
         function placeMinecraftLikeTree(data, x, z, topY, trunkHeight, wx, wz, treeStyle = 'oak') {
@@ -6115,18 +5981,6 @@ window.perlin = perlinInstance;
                 ? 0
                 : (treeProfile?.crownRadius ?? getMinecraftLikeTreeLayout(treeStyle, 0)?.crownRadius ?? 0);
             const crownY = trunkTopY + 2;
-            if (treeStyle === 'redwood_giant') {
-                const rootLeafY = topY - 1;
-                if (rootLeafY >= 1) {
-                    const rootPairs = [{ x: x - 1, z }, { x: x + 8, z }];
-                    rootPairs.forEach((pos) => {
-                        if (pos.x < 0 || pos.x >= CHUNK_SIZE || pos.z < 0 || pos.z >= CHUNK_SIZE) return;
-                        const rootIdx = pos.x + rootLeafY * CHUNK_SIZE + pos.z * CHUNK_SIZE * CHUNK_HEIGHT;
-                        if (data[rootIdx] === 0) data[rootIdx] = 255;
-                    });
-                }
-            }
-
             if (crownY < CHUNK_HEIGHT) {
                 for (let ox = -crownRadius; ox <= crownRadius; ox++) {
                     for (let oz = -crownRadius; oz <= crownRadius; oz++) {
@@ -6442,26 +6296,6 @@ window.perlin = perlinInstance;
                  hashRand2D,
                  getBiome,
                  worldGenSettings,
-                 CHUNK_SIZE,
-                 CHUNK_HEIGHT,
-                 SEA_LEVEL
-             });
-             window.RedwoodForestWorldgen?.placeGroundCoverInChunk?.({
-                 data,
-                 cx,
-                 cz,
-                 hashRand2D,
-                 getBiome,
-                 CHUNK_SIZE,
-                 CHUNK_HEIGHT,
-                 SEA_LEVEL
-             });
-             window.RedwoodForestWorldgen?.placeFallenLogsInChunk?.({
-                 data,
-                 cx,
-                 cz,
-                 hashRand2D,
-                 getBiome,
                  CHUNK_SIZE,
                  CHUNK_HEIGHT,
                  SEA_LEVEL
@@ -9126,7 +8960,6 @@ window.perlin = perlinInstance;
             maybeApplyAdaptiveQuality(time);
             refreshEntityActivationFrustum();
             applyCaveLighting(time);
-            updateBiomeAmbience(delta);
 
             simAccumulatorMs = Math.min(simAccumulatorMs + delta, FIXED_SIM_STEP_MS * MAX_SIM_STEPS_PER_FRAME);
             let simSteps = 0;

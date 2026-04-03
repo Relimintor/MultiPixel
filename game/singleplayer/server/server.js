@@ -265,15 +265,6 @@ io.on('connection', (socket) => {
     const damage = Math.max(0, Math.min(40, Number(payload?.damage) || 0));
     const knockbackStrength = Math.max(0.05, Math.min(1.2, Number(payload?.knockbackStrength) || 0.2));
     const range = Math.max(1.2, Math.min(6, Number(payload?.range) || 1.5));
-    const allowedEffects = new Set(['poison', 'nausea', 'badlands']);
-    const effects = Array.isArray(payload?.effects)
-      ? payload.effects
-          .map((entry) => ({
-            name: String(entry?.name || '').toLowerCase().trim(),
-            durationSeconds: Math.max(1, Math.min(120, Number(entry?.durationSeconds) || 0)),
-          }))
-          .filter((entry) => allowedEffects.has(entry.name) && entry.durationSeconds > 0)
-      : [];
     if (damage <= 0) return;
 
     const dx = Number(target.x) - Number(attacker.x);
@@ -288,7 +279,6 @@ io.on('connection', (socket) => {
       knockbackStrength,
       sourcePos: { x: attacker.x, y: attacker.y, z: attacker.z },
       crit: Boolean(payload?.crit),
-      effects,
       at: Date.now(),
     });
   });

@@ -20,10 +20,14 @@
   function execute(parts, ctx) {
     const targetId = resolveTargetItemId(parts[1], ctx || {});
     const enchantment = String(parts[2] || '').trim().toLowerCase();
-    const amountRaw = Number.parseFloat(parts[3]);
+    const amountRaw = Number.parseInt(parts[3], 10);
 
     if (!Number.isFinite(targetId) || targetId <= 0 || !enchantment || !Number.isFinite(amountRaw)) {
-      return { handled: true, ok: false, message: 'Usage: /enchant <holding|itemId> <knockback|effect:<name>> <amount>' };
+      return { handled: true, ok: false, message: 'Usage: /enchant <holding|itemId> <knockback> <amount:1-400>' };
+    }
+
+    if (enchantment !== 'knockback') {
+      return { handled: true, ok: false, message: 'Only knockback is supported right now.' };
     }
 
     const itemDef = ctx.getBlockById ? ctx.getBlockById(targetId) : null;
@@ -31,39 +35,17 @@
       return { handled: true, ok: false, message: `Item id ${targetId} was not found.` };
     }
 
-    if (enchantment === 'knockback') {
-      const amount = Math.max(1, Math.min(MAX_KNOCKBACK_LEVEL, amountRaw));
-      if (!ctx.setItemKnockbackEnchant) {
-        return { handled: true, ok: false, message: 'Enchant system is unavailable.' };
-      }
-      const ok = ctx.setItemKnockbackEnchant(targetId, amount);
-      if (!ok) {
-        return { handled: true, ok: false, message: 'Failed to apply enchantment.' };
-      }
-      return { handled: true, ok: true, message: `Enchanted ${itemDef.name} (id ${targetId}) with knockback ${amount}.` };
+    const amount = Math.max(1, Math.min(MAX_KNOCKBACK_LEVEL, amountRaw));
+    if (!ctx.setItemKnockbackEnchant) {
+      return { handled: true, ok: false, message: 'Enchant system is unavailable.' };
     }
 
-    if (enchantment.startsWith('effect:')) {
-      const effectName = enchantment.slice('effect:'.length).trim().toLowerCase();
-      const supported = Array.isArray(ctx.getSupportedEnchantEffects?.()) ? ctx.getSupportedEnchantEffects() : [];
-      if (!effectName) {
-        return { handled: true, ok: false, message: 'Usage: /enchant <holding|itemId> effect:<name> <durationSeconds>' };
-      }
-      if (supported.length && !supported.includes(effectName)) {
-        return { handled: true, ok: false, message: `Unsupported effect. Allowed: ${supported.join(', ')}` };
-      }
-      if (!ctx.setItemEffectEnchant) {
-        return { handled: true, ok: false, message: 'Item-effect enchant system is unavailable.' };
-      }
-      const ok = ctx.setItemEffectEnchant(targetId, effectName, amountRaw);
-      if (!ok) {
-        return { handled: true, ok: false, message: 'Failed to apply item effect enchant.' };
-      }
-      const seconds = Math.max(1, Math.min(120, Number(amountRaw) || 1));
-      return { handled: true, ok: true, message: `Enchanted ${itemDef.name} (id ${targetId}) with effect ${effectName} for ${seconds}s on hit.` };
+    const ok = ctx.setItemKnockbackEnchant(targetId, amount);
+    if (!ok) {
+      return { handled: true, ok: false, message: 'Failed to apply enchantment.' };
     }
 
-    return { handled: true, ok: false, message: 'Supported enchants: knockback, effect:<name>' };
+    return { handled: true, ok: true, message: `Enchanted ${itemDef.name} (id ${targetId}) with knockback ${amount}.` };
   }
 
   window.SingleplayerChatCommandEnchant = { execute };
