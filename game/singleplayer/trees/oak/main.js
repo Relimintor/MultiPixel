@@ -1,6 +1,6 @@
 (function () {
   function getOakProfiles() {
-    return [window.DefaultOakTree, window.SmallOakTree, window.LargeOakTree, window.RedwoodGiantTree].filter(Boolean);
+    return [window.DefaultOakTree, window.SmallOakTree, window.LargeOakTree].filter(Boolean);
   }
 
   function resolveOakTreeProfile(treeStyle) {
@@ -26,12 +26,6 @@
 
   function resolveOakPlacementProfile({ biome, wx, wz, hashRand2D }) {
     if (biome === 'Mushroom Fields') return { treeStyle: 'glass_mushroom', trunkHeight: 5 };
-    if (biome === 'Redwood Forest' && window.RedwoodGiantTree) {
-      return {
-        treeStyle: window.RedwoodGiantTree.style,
-        trunkHeight: window.RedwoodGiantTree.trunkHeight({ hashRand2D, wx, wz }),
-      };
-    }
     const oakProfile = chooseOakTreeProfile({ wx, wz, hashRand2D });
     if (!oakProfile) return null;
     return {
@@ -75,17 +69,16 @@
 
         const isJungleForest = biome === 'Jungle Forest';
         const isOakForest = biome === 'Forest';
-        const isRedwoodForest = biome === 'Redwood Forest';
         const treeNoise = octaveNoise2D(wx, wz, 2, 0.56, 2.0, 0.028, 700, -350) * 0.5 + 0.5;
         const scatter = hashRand2D(wx, wz, 99);
         const density = treeNoise * 0.7 + scatter * 0.3;
         const chance = getTreeSpawnChanceForBiome(biome, topY);
         const clusterBase = Number(worldGenSettings.treeClusterBonus ?? 0.12);
-        const clusterBonus = isJungleForest ? clusterBase * 1.28 : (isOakForest ? clusterBase * 1.08 : (isRedwoodForest ? clusterBase * 0.48 : clusterBase * 0.92));
-        const spacingRadius = isJungleForest ? 1 : (isOakForest ? 2 : (isRedwoodForest ? 5 : 3));
+        const clusterBonus = isJungleForest ? clusterBase * 1.28 : (isOakForest ? clusterBase * 1.08 : clusterBase * 0.92);
+        const spacingRadius = isJungleForest ? 1 : (isOakForest ? 2 : 3);
         const nearbyTree = hasNearbyTreeTrunk(data, x, z, spacingRadius);
         const spacingBase = Number(worldGenSettings.treeMinSpacingChance ?? 0.65);
-        const spacingGate = isJungleForest ? Math.max(spacingBase, 0.98) : (isOakForest ? Math.max(spacingBase, 0.72) : (isRedwoodForest ? Math.max(spacingBase, 0.995) : spacingBase));
+        const spacingGate = isJungleForest ? Math.max(spacingBase, 0.98) : (isOakForest ? Math.max(spacingBase, 0.72) : spacingBase);
         const spawnRoll = hashRand2D(wx, wz, 431);
         const shouldTrySpawn = (spawnRoll < (chance + density * clusterBonus)) && (!nearbyTree || spawnRoll < spacingGate);
         if (!shouldTrySpawn) {

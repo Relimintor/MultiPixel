@@ -21,14 +21,14 @@
     const usesNamedTarget = targetRaw === 'player';
     const expectedPartCount = usesNamedTarget ? 5 : 4;
     if (parts.length !== expectedPartCount) {
-      return { handled: true, ok: false, message: 'Usage: /effect <me|player <player_name>> <nausea|badlands|poison> <duration[s|m|h]>' };
+      return { handled: true, ok: false, message: 'Usage: /effect <me|player <player_name>> <nausea|badlands> <duration[s|m|h]>' };
     }
 
     const playerTargetRaw = usesNamedTarget ? String(parts[2] || '').trim() : 'me';
     const effectRaw = String(parts[usesNamedTarget ? 3 : 2] || '').toLowerCase();
     const durationRaw = parts[usesNamedTarget ? 4 : 3];
-    if (effectRaw !== 'nausea' && effectRaw !== 'badlands' && effectRaw !== 'poison') {
-      return { handled: true, ok: false, message: 'Only nausea, badlands, and poison are supported right now.' };
+    if (effectRaw !== 'nausea' && effectRaw !== 'badlands') {
+      return { handled: true, ok: false, message: 'Only nausea and badlands are supported right now.' };
     }
     const durationSeconds = parseDurationToSeconds(durationRaw);
     if (!Number.isFinite(durationSeconds)) {

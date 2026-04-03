@@ -120,16 +120,8 @@
     const knockbackStrength = Number(payload?.knockbackStrength);
     const range = Number(payload?.range);
     const crit = Boolean(payload?.crit);
-    const effects = Array.isArray(payload?.effects)
-      ? payload.effects
-          .map((entry) => ({
-            name: String(entry?.name || '').toLowerCase().trim(),
-            durationSeconds: Number(entry?.durationSeconds),
-          }))
-          .filter((entry) => entry.name && Number.isFinite(entry.durationSeconds) && entry.durationSeconds > 0)
-      : [];
     if (!targetId || ![damage, knockbackStrength, range].every(Number.isFinite)) return false;
-    socket.emit('pvpHit', { targetId, damage, knockbackStrength, range, crit, effects });
+    socket.emit('pvpHit', { targetId, damage, knockbackStrength, range, crit });
     return true;
   }
 
