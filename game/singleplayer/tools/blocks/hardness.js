@@ -78,6 +78,11 @@
     247: 8,  // Yellow terracotta
     248: 8,  // Orange terracotta
     249: 8,  // Red terracotta
+    250: 10, // Redwood log
+    251: 2,  // Redwood leaves
+    252: 6,  // Redwood planks
+    255: 2,  // Redwood root leaves
+    256: 5,  // Redwood planks slab
   };
 
   function getHardness(blockId) {

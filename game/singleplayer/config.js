@@ -1,6 +1,6 @@
 (function () {
   const CHUNK_SIZE = 16;
-  const CHUNK_HEIGHT = 96;
+  const CHUNK_HEIGHT = 160;
   const WORLD_RADIUS = 13;
   const BLOCK_SIZE = 1;
   const SEA_LEVEL = 18;
@@ -46,6 +46,7 @@
     treeDensityByBiome: {
       Forest: 1.28,
       'Jungle Forest': 1.9,
+      'Redwood Forest': 0.42,
       Plains: 0.82,
       Mountains: 0.05,
       'Snowy Plains': 0.95,
@@ -291,6 +292,14 @@
     JUNGLE_LOG: getAssetPath('textures/jungle/jungle_log.png'),
     JUNGLE_LOG_TOP: getAssetPath('textures/jungle/jungle_log_top.png'),
     JUNGLE_PLANKS: getAssetPath('textures/jungle/jungle_planks.png'),
+
+    //Redwood tree
+    REDWOOD_LOG: getAssetPath('textures/smooth_basalt.png'),
+    REDWOOD_LOG_TOP: getAssetPath('textures/smooth_basalt.png'),
+    REDWOOD_PLANKS: getAssetPath('sand/red/red_sandstone_top.png'),
+    REDWOOD_LEAVES: getAssetPath('textures/azalea_leaves.png'),
+    LEAD_PIECE: getAssetPath('textures/item/flint.png'),
+    LEAD_SWORD: getAssetPath('textures/item/tool/dagger/emerald_dagger.png'),
     PANDA_TEXTURE: getAssetPath('textures/mobs/neutral/panda.png'),
     BAMBOO_STAGE0: getAssetPath('textures/halfblock/bamboo/bamboo_stage0.png'),
     BAMBOO_STALK: getAssetPath('textures/halfblock/bamboo/bamboo_stalk.png'),
@@ -412,6 +421,25 @@
     },
   97: { name: 'Jungle Leaves', id: 97, textured: true, textureKey: 'LEAVES', transparent: true, opacity: 1 },
   98: { name: 'Jungle Planks', id: 98, textured: true, textureKey: 'JUNGLE_PLANKS' },
+
+  //redwood
+  250: {
+      name: 'Redwood Log',
+      id: 250,
+      textured: true,
+      textureKey: 'REDWOOD_LOG',
+      textureByFace: {
+        top: 'REDWOOD_LOG_TOP',
+        bottom: 'REDWOOD_LOG_TOP',
+        posX: 'REDWOOD_LOG',
+        negX: 'REDWOOD_LOG',
+        posZ: 'REDWOOD_LOG',
+        negZ: 'REDWOOD_LOG'
+      }
+    },
+  251: { name: 'Redwood Leaves', id: 251, textured: true, textureKey: 'REDWOOD_LEAVES', transparent: true, opacity: 1 },
+  252: { name: 'Redwood Planks', id: 252, textured: true, textureKey: 'REDWOOD_PLANKS' },
+  255: { name: 'Redwood Root Leaves', id: 255, textured: true, textureKey: 'REDWOOD_LEAVES', transparent: true, opacity: 1 },
 
   //bamboo
   103: { name: 'Bamboo planks', id: 103, textured: true, textureKey: 'BAMBOO_PLANKS_SIDE',
@@ -541,6 +569,17 @@
       bounds: { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 0.5, maxZ: 1 },
       placeable: true
     },
+    256: {
+      name: 'Redwood Planks Slab',
+      id: 256,
+      textured: true,
+      textureKey: 'REDWOOD_PLANKS',
+      shape: 'slab',
+      bounds: { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 0.5, maxZ: 1 },
+      placeable: true
+    },
+    253: { name: 'Lead Piece', id: 253, textured: true, textureKey: 'LEAD_PIECE', item: true, maxStack: 64 },
+    254: { name: 'Lead Sword', id: 254, textured: true, textureKey: 'LEAD_SWORD', toolType: 'dagger', meleeDamage: 18, tier: 9, maxStack: 1, attackRange: 1.75, poisonOnHitSeconds: 6.5, poisonTickDamage: 1 },
     17: { name: 'Cobblestone', id: 17, textured: true, textureKey: 'COBBLESTONE' },
     113: { name: 'Mossy Cobblestone', id: 113, textured: true, textureKey: 'MOSSY_COBBLESTONE', color: 0x6f8d5b },
     22: { name: 'torch', id: 22, textured: true, textureKey: 'TORCH', transparent: true, opacity: 1 },
