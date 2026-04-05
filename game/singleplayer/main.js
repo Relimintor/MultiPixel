@@ -8292,36 +8292,43 @@ window.perlin = perlinInstance;
 
         const SPAWN_MIN_LIGHT_LEVEL = 7;
 
+        function findTopSafeSpawnInColumn(wx, wz) {
+            const x = Math.floor(wx);
+            const z = Math.floor(wz);
+            const topY = Math.max(2, CHUNK_HEIGHT - 3);
+            for (let y = topY; y >= 2; y--) {
+                const ground = getBlockType(x, y - 1, z);
+                const feet = getBlockType(x, y, z);
+                const head = getBlockType(x, y + 1, z);
+
+                if (!isSolid(ground) || isLiquid(ground) || ground === 6) continue;
+                if (feet !== 0 || head !== 0) continue;
+
+                let blockedByNearbyLiquid = false;
+                for (let dx = -1; dx <= 1 && !blockedByNearbyLiquid; dx++) {
+                    for (let dz = -1; dz <= 1 && !blockedByNearbyLiquid; dz++) {
+                        const nearFeet = getBlockType(x + dx, y, z + dz);
+                        const nearHead = getBlockType(x + dx, y + 1, z + dz);
+                        const nearGround = getBlockType(x + dx, y - 1, z + dz);
+                        if (isLiquid(nearFeet) || isLiquid(nearHead) || isLiquid(nearGround)) blockedByNearbyLiquid = true;
+                    }
+                }
+                if (blockedByNearbyLiquid) continue;
+
+                return y;
+            }
+            return null;
+        }
+
         function isSafeSpawnSpot(x, z) {
             const wx = Math.floor(x);
             const wz = Math.floor(z);
-
-            for (let y = CHUNK_HEIGHT - 3; y >= 2; y--) {
-                const under = getBlockType(wx, y - 1, wz);
-                const feet = getBlockType(wx, y, wz);
-                const head = getBlockType(wx, y + 1, wz);
-
-                if (!isSolid(under) || isLiquid(under) || under === 6) continue;
-                if (feet !== 0 || head !== 0) continue;
-
-                let blocked = false;
-                for (let dx = -1; dx <= 1 && !blocked; dx++) {
-                    for (let dz = -1; dz <= 1 && !blocked; dz++) {
-                        const f = getBlockType(wx + dx, y, wz + dz);
-                        const h = getBlockType(wx + dx, y + 1, wz + dz);
-                        const u = getBlockType(wx + dx, y - 1, wz + dz);
-                        if (isLiquid(f) || isLiquid(h) || isLiquid(u)) blocked = true;
-                    }
-                }
-                if (blocked) continue;
-
-                if (lightingSystem && !lightingSystem.isOpenToSky(wx, y, wz)) continue;
-                const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(wx, y, wz) : 15;
-                if (lightLevel < SPAWN_MIN_LIGHT_LEVEL) continue;
-
-                return { y, lightLevel };
-            }
-            return null;
+            const y = findTopSafeSpawnInColumn(wx, wz);
+            if (!Number.isFinite(y)) return null;
+            if (lightingSystem && !lightingSystem.isOpenToSky(wx, y, wz)) return null;
+            const lightLevel = lightingSystem ? lightingSystem.getCombinedLight(wx, y, wz) : 15;
+            if (lightLevel < SPAWN_MIN_LIGHT_LEVEL) return null;
+            return { y, lightLevel };
         }
 
         function teleportToCoordinates(x, y, z) {
@@ -8679,7 +8686,14 @@ window.perlin = perlinInstance;
 
         function setInitialPlayerPosition() {
             if (IS_1D4P_MULTIPLAYER) {
-                yawObject.position.set(0, 27, 0);
+                const multiplayerSpawnX = 0.5;
+                const multiplayerSpawnZ = 0.5;
+                const multiplayerSpawnY = findTopSafeSpawnInColumn(multiplayerSpawnX, multiplayerSpawnZ);
+                yawObject.position.set(
+                    multiplayerSpawnX,
+                    Number.isFinite(multiplayerSpawnY) ? multiplayerSpawnY : 27,
+                    multiplayerSpawnZ
+                );
                 return;
             }
             if (importedPlayerSpawn) {
