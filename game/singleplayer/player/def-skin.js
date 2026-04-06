@@ -43,6 +43,44 @@
         playerRuntime.cameraViewMode = state.cameraViewMode;
       }
 
+
+      const SKIN_PART_TEXTURES = {
+        feet: 'assets/skin/leg/feet.png',
+        rightTopShoulder: 'assets/skin/arm/right_top_shoulder.png',
+        hand: 'assets/skin/arm/hand.png',
+      };
+
+      function getSkinAssetCandidates(filePath) {
+        const repoPrefix = window.SingleplayerConfig?.REPO_BASE_PREFIX || '';
+        const normalizedPath = String(filePath || '').replace(/^\/+/, '');
+        const fromRepoRoot = repoPrefix ? `${repoPrefix}/${normalizedPath}` : `/${normalizedPath}`;
+        return [
+          fromRepoRoot,
+          `./${normalizedPath}`,
+          `../../${normalizedPath}`,
+          `/${normalizedPath}`,
+        ].filter((v, i, arr) => v && arr.indexOf(v) === i);
+      }
+
+      function resolveSkinAssetPath(filePath, onResolved) {
+        const candidates = getSkinAssetCandidates(filePath);
+        if (!candidates.length) {
+          onResolved(null);
+          return;
+        }
+        const probe = new Image();
+        const tryLoad = (index) => {
+          if (index >= candidates.length) {
+            onResolved(null);
+            return;
+          }
+          const candidate = candidates[index];
+          probe.onload = () => onResolved(candidate);
+          probe.onerror = () => tryLoad(index + 1);
+          probe.src = candidate;
+        };
+        tryLoad(0);
+      }
       function getPlayerAssetCandidates(fileName) {
         const repoPrefix = window.SingleplayerConfig?.REPO_BASE_PREFIX || '';
         const fromRepo = `${repoPrefix}/game/singleplayer/assets/player/${fileName}`;
@@ -224,20 +262,29 @@
         const held = document.createElement('div');
         held.id = 'firstperson-held-item';
 
-        resolvePlayerAssetPath('wieldhand.png', (wieldPath) => {
-          if (wieldPath) {
-            hand.style.backgroundImage = `url('${wieldPath}')`;
+        resolveSkinAssetPath(SKIN_PART_TEXTURES.hand, (partHandPath) => {
+          if (partHandPath) {
+            hand.style.backgroundImage = `url('${partHandPath}')`;
             hand.style.backgroundSize = '100% 100%';
             hand.style.backgroundPosition = 'center';
             hand.classList.remove('fallback');
             return;
           }
-          resolvePlayerAssetPath('character.png', (skinPath) => {
-            if (!skinPath) return;
-            hand.style.backgroundImage = `url('${skinPath}')`;
-            hand.style.backgroundSize = '64px 64px';
-            hand.style.backgroundPosition = '-44px -20px';
-            hand.classList.add('fallback');
+          resolvePlayerAssetPath('wieldhand.png', (wieldPath) => {
+            if (wieldPath) {
+              hand.style.backgroundImage = `url('${wieldPath}')`;
+              hand.style.backgroundSize = '100% 100%';
+              hand.style.backgroundPosition = 'center';
+              hand.classList.remove('fallback');
+              return;
+            }
+            resolvePlayerAssetPath('character.png', (skinPath) => {
+              if (!skinPath) return;
+              hand.style.backgroundImage = `url('${skinPath}')`;
+              hand.style.backgroundSize = '64px 64px';
+              hand.style.backgroundPosition = '-44px -20px';
+              hand.classList.add('fallback');
+            });
           });
         });
 
@@ -276,6 +323,14 @@
           el.style.height = `${h}px`;
         };
 
+        const setPartTexture = (id, url, size = '100% 100%') => {
+          const el = document.getElementById(id);
+          if (!el || !url) return;
+          el.style.backgroundImage = `url('${url}')`;
+          el.style.backgroundPosition = 'center';
+          el.style.backgroundSize = size;
+        };
+
         const applyRigParts = () => {
           const modern = isModernSkinLayout();
           setPart('inv-skin-head', 8, 8, 8, 8);
@@ -284,6 +339,15 @@
           setPart('inv-skin-arm-right', 44, 20, 4, 12);
           setPart('inv-skin-leg-left', ...(modern ? [20, 52, 4, 12] : [4, 20, 4, 12]));
           setPart('inv-skin-leg-right', 4, 20, 4, 12);
+
+          resolveSkinAssetPath(SKIN_PART_TEXTURES.rightTopShoulder, (shoulderPath) => {
+            if (shoulderPath) setPartTexture('inv-skin-arm-right', shoulderPath);
+          });
+          resolveSkinAssetPath(SKIN_PART_TEXTURES.feet, (feetPath) => {
+            if (!feetPath) return;
+            setPartTexture('inv-skin-leg-left', feetPath, '100% auto');
+            setPartTexture('inv-skin-leg-right', feetPath, '100% auto');
+          });
         };
 
         applyRigParts();
