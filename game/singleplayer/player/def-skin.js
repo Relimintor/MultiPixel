@@ -185,8 +185,10 @@
           1: [x + d + w, y + d, d, h],
           2: [x + d, y, w, d],
           3: [x + d + w, y, w, d],
-          4: [x + d, y + d, w, h],
-          5: [x + d + w + d, y + d, w, h],
+          // three.js BoxGeometry expects front/back opposite of Minecraft skin atlas layout,
+          // so we intentionally map back first and front second here.
+          4: [x + d + w + d, y + d, w, h],
+          5: [x + d, y + d, w, h],
         };
       }
 
